@@ -118,7 +118,16 @@ function runSogniGen(args, { timeoutMs = 30_000 } = {}) {
 // ---------------------------------------------------------------------------
 
 function checkCredentials() {
-  if (existsSync(CREDENTIALS_PATH)) return null;
+  if (existsSync(CREDENTIALS_PATH)) {
+    try {
+      const raw = readFileSync(CREDENTIALS_PATH, 'utf8');
+      if (raw.includes('SOGNI_API_KEY=')) return null;
+      if (raw.includes('SOGNI_USERNAME=') && raw.includes('SOGNI_PASSWORD=')) return null;
+    } catch {
+      // Fall through to env-based checks and error message.
+    }
+  }
+  if (hasEnv('SOGNI_API_KEY')) return null;
   if (hasEnv('SOGNI_USERNAME') && hasEnv('SOGNI_PASSWORD')) return null;
   return {
     content: [
@@ -132,12 +141,14 @@ function checkCredentials() {
           '',
           '   mkdir -p ~/.config/sogni',
           '   cat > ~/.config/sogni/credentials << \'EOF\'',
-          '   SOGNI_USERNAME=your_username',
-          '   SOGNI_PASSWORD=your_password',
+          '   SOGNI_API_KEY=your_api_key',
+          '   # or use username/password instead:',
+          '   # SOGNI_USERNAME=your_username',
+          '   # SOGNI_PASSWORD=your_password',
           '   EOF',
           '   chmod 600 ~/.config/sogni/credentials',
           '',
-          'Or set SOGNI_USERNAME and SOGNI_PASSWORD environment variables.',
+          'Or set SOGNI_API_KEY, or SOGNI_USERNAME and SOGNI_PASSWORD, as environment variables.',
           'Optional: set SOGNI_CREDENTIALS_PATH to use a different credentials file path.',
         ].join('\n'),
       },
@@ -280,11 +291,16 @@ const VIDEO_MODEL_TABLE = `WAN 2.2 Video Models (auto-selected per workflow):
   wan_v2.2-14b-fp8_animate-move_lightx2v    — Animate-move (~5min)
   wan_v2.2-14b-fp8_animate-replace_lightx2v — Animate-replace (~5min)
 
-LTX-2 Video Models:
+LTX-2 / LTX-2.3 Video Models:
   ltx2-19b-fp8_t2v_distilled              — Text-to-video, fast 8-step (~2-3min)
   ltx2-19b-fp8_t2v                        — Text-to-video, quality 20-step (~5min)
+  ltx2-19b-fp8_i2v_distilled              — Image-to-video, fast 8-step (~2-3min)
+  ltx2-19b-fp8_i2v                        — Image-to-video, quality 20-step (~5min)
+  ltx2-19b-fp8_ia2v_distilled             — Image+audio-to-video, fast 8-step (~2-3min)
+  ltx2-19b-fp8_a2v_distilled              — Audio-to-video, fast 8-step (~2-3min)
   ltx2-19b-fp8_v2v_distilled              — Video-to-video with ControlNet (~3min)
-  ltx2-19b-fp8_v2v                        — Video-to-video with ControlNet, quality (~5min)`;
+  ltx2-19b-fp8_v2v                        — Video-to-video with ControlNet, quality (~5min)
+  ltx23-22b-fp8_t2v_distilled             — Text-to-video, LTX-2.3 fast distilled (~2-3min)`;
 
 const TOOLS = [
   {
@@ -352,13 +368,15 @@ Workflows:
   t2v             — Text-to-video (default). Just provide a prompt.
   i2v             — Image-to-video. Provide ref (reference image). Supports looping.
   s2v             — Sound-to-video. Provide ref (face image) + ref_audio.
-  v2v             — Video-to-video (LTX-2). Provide ref_video + controlnet_name.
+  ia2v            — Image+audio-to-video (LTX). Provide ref + ref_audio.
+  a2v             — Audio-to-video (LTX). Provide ref_audio only.
+  v2v             — Video-to-video (LTX). Provide ref_video + controlnet_name.
   animate-move    — Transfer motion from ref_video to ref image.
   animate-replace — Replace subject in ref_video with ref image.
 
 ${VIDEO_MODEL_TABLE}
 
-WAN video dimensions: divisible by 16, min 480px, max 1536px. LTX-2: divisible by 64, 768-1920px.
+WAN video dimensions: divisible by 16, min 480px, max 1536px. LTX family: divisible by 64, 768-1920px.
 Generation takes 3-5 minutes. Cost: Uses Spark tokens. Claim 50 free daily Spark at https://app.sogni.ai/`,
     inputSchema: {
       type: 'object',
@@ -369,7 +387,7 @@ Generation takes 3-5 minutes. Cost: Uses Spark tokens. Claim 50 free daily Spark
         },
         workflow: {
           type: 'string',
-          enum: ['t2v', 'i2v', 's2v', 'v2v', 'animate-move', 'animate-replace'],
+          enum: ['t2v', 'i2v', 's2v', 'ia2v', 'a2v', 'v2v', 'animate-move', 'animate-replace'],
           description: 'Video workflow (default: t2v, auto-inferred from provided refs)',
         },
         model: {
@@ -745,7 +763,7 @@ Defaults:
   Image generation: z_image_turbo_bf16
   Image editing:    qwen_image_edit_2511_fp8_lightning
   Photobooth:       coreml-sogniXLturbo_alpha1_ad
-  Video:            auto-selected per workflow (t2v/i2v/s2v/v2v/animate-move/animate-replace)`;
+  Video:            auto-selected per workflow (t2v/i2v/s2v/ia2v/a2v/v2v/animate-move/animate-replace)`;
 
   return { content: [{ type: 'text', text }] };
 }

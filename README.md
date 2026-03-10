@@ -72,6 +72,9 @@ If OpenClaw loads this plugin, `sogni-gen` reads defaults from your OpenClaw con
             "t2v": "wan_v2.2-14b-fp8_t2v_lightx2v",
             "i2v": "wan_v2.2-14b-fp8_i2v_lightx2v",
             "s2v": "wan_v2.2-14b-fp8_s2v_lightx2v",
+            "ia2v": "ltx2-19b-fp8_ia2v_distilled",
+            "a2v": "ltx2-19b-fp8_a2v_distilled",
+            "v2v": "ltx2-19b-fp8_v2v_distilled",
             "animate-move": "wan_v2.2-14b-fp8_animate-move_lightx2v",
             "animate-replace": "wan_v2.2-14b-fp8_animate-replace_lightx2v"
           },
@@ -110,11 +113,15 @@ CLI flags always override these defaults. If your OpenClaw config lives elsewher
 ```bash
 mkdir -p ~/.config/sogni
 cat > ~/.config/sogni/credentials << 'EOF'
-SOGNI_USERNAME=your_username
-SOGNI_PASSWORD=your_password
+SOGNI_API_KEY=your_api_key
+# or:
+# SOGNI_USERNAME=your_username
+# SOGNI_PASSWORD=your_password
 EOF
 chmod 600 ~/.config/sogni/credentials
 ```
+
+You can also skip the file and set `SOGNI_API_KEY`, or `SOGNI_USERNAME` + `SOGNI_PASSWORD`, in your environment.
 
 ### Filesystem Paths and Overrides
 
@@ -244,6 +251,18 @@ node sogni-gen.mjs --video --ref cat.jpg "gentle camera pan"
 node sogni-gen.mjs --video --ref face.jpg --ref-audio speech.m4a \
   -m wan_v2.2-14b-fp8_s2v_lightx2v "lip sync talking head"
 
+# Image+audio-to-video (ia2v, LTX)
+node sogni-gen.mjs --video --workflow ia2v --ref cover.jpg --ref-audio song.mp3 \
+  "music video with synchronized motion"
+
+# Audio-to-video (a2v, LTX)
+node sogni-gen.mjs --video --workflow a2v --ref-audio song.mp3 \
+  "abstract audio-reactive visualizer"
+
+# LTX-2.3 text-to-video
+node sogni-gen.mjs --video -m ltx23-22b-fp8_t2v_distilled --duration 20 \
+  "cinematic drone shot over tropical cliffs"
+
 # Animate (motion transfer)
 node sogni-gen.mjs --video --ref subject.jpg --ref-video motion.mp4 \
   --workflow animate-move "transfer motion"
@@ -279,7 +298,8 @@ Multi-angle mode auto-builds the `<sks>` prompt and applies the `multiple_angles
 
 ## Video Sizing Rules (Aspect Ratios)
 
-- Video dimensions are constrained by the API: min 480px, max 1536px, and both `--width`/`--height` must be divisible by 16.
+- WAN models use dimensions divisible by 16, min 480px, max 1536px.
+- LTX family models (`ltx2-*`, `ltx23-*`) use dimensions divisible by 64. A practical default range is 768px to 1920px.
 - The script auto-normalizes video sizes to satisfy those constraints.
 - For i2v (and any workflow using `--ref` / `--ref-end`), the client wrapper resizes the reference image with a strict aspect-fit (`fit: inside`) and then uses the *resized reference dimensions* as the final video size. Because that resize uses rounding, a “valid” requested size can still produce an invalid final size (example: `1024x1536` requested, but ref becomes `1024x1535`).
 - `sogni-gen` detects this for local refs and will auto-adjust the requested size to a nearby safe size so the resized reference is divisible by 16.
@@ -364,6 +384,12 @@ Multi-angle mode auto-builds the `<sks>` prompt and applies the `multiple_angles
 | `wan_v2.2-14b-fp8_s2v_lightx2v` | ~5min | Sound-to-video |
 | `wan_v2.2-14b-fp8_animate-move_lightx2v` | ~5min | Animate-move |
 | `wan_v2.2-14b-fp8_animate-replace_lightx2v` | ~5min | Animate-replace |
+| `ltx2-19b-fp8_t2v_distilled` | ~2-3min | LTX-2 text-to-video |
+| `ltx2-19b-fp8_i2v_distilled` | ~2-3min | LTX-2 image-to-video |
+| `ltx2-19b-fp8_ia2v_distilled` | ~2-3min | LTX-2 image+audio-to-video |
+| `ltx2-19b-fp8_a2v_distilled` | ~2-3min | LTX-2 audio-to-video |
+| `ltx2-19b-fp8_v2v_distilled` | ~3min | LTX-2 video-to-video with ControlNet |
+| `ltx23-22b-fp8_t2v_distilled` | ~2-3min | LTX-2.3 text-to-video |
 
 ## License
 

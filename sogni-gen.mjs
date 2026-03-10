@@ -67,12 +67,14 @@ const VIDEO_WORKFLOW_DEFAULT_MODELS = {
   't2v': 'wan_v2.2-14b-fp8_t2v_lightx2v',
   'i2v': 'wan_v2.2-14b-fp8_i2v_lightx2v',
   's2v': 'wan_v2.2-14b-fp8_s2v_lightx2v',
+  'ia2v': 'ltx2-19b-fp8_ia2v_distilled',
+  'a2v': 'ltx2-19b-fp8_a2v_distilled',
   'animate-move': 'wan_v2.2-14b-fp8_animate-move_lightx2v',
   'animate-replace': 'wan_v2.2-14b-fp8_animate-replace_lightx2v',
   'v2v': 'ltx2-19b-fp8_v2v_distilled'
 };
 
-function isLtx2Model(modelId) { return modelId?.startsWith('ltx2-') || false; }
+function isLtx2Model(modelId) { return modelId?.startsWith('ltx2-') || modelId?.startsWith('ltx23-') || false; }
 function isWanModel(modelId) { return modelId?.startsWith('wan_') || false; }
 
 function expandHomePath(rawPath) {
@@ -147,6 +149,8 @@ function normalizeVideoWorkflow(value) {
   if (normalized === 't2v' || normalized === 'text-to-video') return 't2v';
   if (normalized === 'i2v' || normalized === 'image-to-video') return 'i2v';
   if (normalized === 's2v' || normalized === 'sound-to-video') return 's2v';
+  if (normalized === 'ia2v' || normalized === 'image-audio-to-video' || normalized === 'image+audio-to-video') return 'ia2v';
+  if (normalized === 'a2v' || normalized === 'audio-to-video') return 'a2v';
   if (normalized === 'animate-move' || normalized === 'animate_move') return 'animate-move';
   if (normalized === 'animate-replace' || normalized === 'animate_replace') return 'animate-replace';
   if (normalized === 'v2v' || normalized === 'video-to-video') return 'v2v';
@@ -159,6 +163,8 @@ function inferVideoWorkflowFromModel(modelId) {
   if (id.includes('animate-move')) return 'animate-move';
   if (id.includes('animate-replace')) return 'animate-replace';
   if (id.includes('_v2v')) return 'v2v';
+  if (id.includes('_ia2v')) return 'ia2v';
+  if (id.includes('_a2v')) return 'a2v';
   if (id.includes('_t2v') || id.includes('-t2v')) return 't2v';
   if (id.includes('_i2v') || id.includes('-i2v')) return 'i2v';
   if (id.includes('_s2v') || id.includes('-s2v')) return 's2v';
@@ -168,13 +174,14 @@ function inferVideoWorkflowFromModel(modelId) {
 function inferVideoWorkflowFromAssets(opts) {
   if (opts.refVideo && opts.videoControlNetName) return 'v2v';
   if (opts.refVideo) return 'animate-move';
+  if (opts.refAudio && !opts.refImage && !opts.refImageEnd) return 'a2v';
   if (opts.refAudio) return 's2v';
   if (opts.refImage || opts.refImageEnd) return 'i2v';
   return null;
 }
 
 function workflowRequiresImage(workflow) {
-  return workflow === 'i2v' || workflow === 's2v' || workflow === 'animate-move' || workflow === 'animate-replace';
+  return workflow === 'i2v' || workflow === 's2v' || workflow === 'ia2v' || workflow === 'animate-move' || workflow === 'animate-replace';
 }
 
 function normalizeSeedStrategy(value) {
@@ -298,9 +305,10 @@ function formatTokenValue(value) {
 
 function inferDefaultVideoSteps(modelId) {
   const id = (modelId || '').toLowerCase();
-  if (id.includes('distilled') || id.includes('lightx2v')) return 4;
+  if (isLtx2Model(id) && id.includes('distilled')) return 8;
+  if (id.includes('lightx2v')) return 4;
   if (id.includes('lightning') || id.includes('turbo') || id.includes('lcm')) return 4;
-  if (id.startsWith('ltx2-')) return 20;
+  if (isLtx2Model(id)) return 20;
   return 20;
 }
 
@@ -1199,11 +1207,16 @@ WAN 2.2 Video Models:
   wan_v2.2-14b-fp8_animate-move_lightx2v     Animate-move (fast)
   wan_v2.2-14b-fp8_animate-replace_lightx2v  Animate-replace (fast)
 
-LTX-2 Video Models:
+LTX-2 / LTX-2.3 Video Models:
   ltx2-19b-fp8_t2v_distilled      Text-to-video, fast 8-step
   ltx2-19b-fp8_t2v                Text-to-video, quality 20-step
+  ltx2-19b-fp8_i2v_distilled      Image-to-video, fast 8-step
+  ltx2-19b-fp8_i2v                Image-to-video, quality 20-step
+  ltx2-19b-fp8_ia2v_distilled     Image+audio-to-video, fast 8-step
+  ltx2-19b-fp8_a2v_distilled      Audio-to-video, fast 8-step
   ltx2-19b-fp8_v2v_distilled      Video-to-video with ControlNet (fast)
   ltx2-19b-fp8_v2v                Video-to-video with ControlNet (quality)
+  ltx23-22b-fp8_t2v_distilled     Text-to-video, LTX-2.3 fast distilled
 
 Examples:
   sogni-gen "a cat wearing a hat"
@@ -1213,6 +1226,9 @@ Examples:
   sogni-gen --video --ref cat.jpg -o cat.mp4 "cat walks around"
   sogni-gen --video "ocean waves at sunset"
   sogni-gen --video --ref cat.jpg --ref-audio speech.m4a -m wan_v2.2-14b-fp8_s2v_lightx2v "lip sync"
+  sogni-gen --video --workflow ia2v --ref cover.jpg --ref-audio song.mp3 "music video"
+  sogni-gen --video --workflow a2v --ref-audio song.mp3 "abstract music visualizer"
+  sogni-gen --video -m ltx23-22b-fp8_t2v_distilled --duration 20 "cinematic drone shot"
   sogni-gen --video --ref subject.jpg --ref-video motion.mp4 --workflow animate-move "transfer motion"
   sogni-gen --video --last-image "gentle camera pan"
   sogni-gen -c photo.jpg "make the background a beach" -m qwen_image_edit_2511_fp8
@@ -1457,7 +1473,7 @@ if (options.video) {
   if (options.videoWorkflow) {
     const normalized = normalizeVideoWorkflow(options.videoWorkflow);
     if (!normalized) {
-      fatalCliError(`Unknown workflow "${options.videoWorkflow}". Use t2v|i2v|s2v|v2v|animate-move|animate-replace.`, {
+      fatalCliError(`Unknown workflow "${options.videoWorkflow}". Use t2v|i2v|s2v|ia2v|a2v|v2v|animate-move|animate-replace.`, {
         code: 'INVALID_ARGUMENT',
         details: { workflow: options.videoWorkflow }
       });
@@ -1483,7 +1499,7 @@ if (options._lastImagePath) {
     if (workflowRequiresImage(options.videoWorkflow)) {
       if (!options.refImage) options.refImage = options._lastImagePath;
     } else if (!options.quiet) {
-      console.error('Warning: --last-image ignored for text-to-video workflow.');
+      console.error(`Warning: --last-image ignored for ${options.videoWorkflow || 'current'} workflow.`);
     }
   } else if (options.photobooth) {
     if (!options.refImage) options.refImage = options._lastImagePath;
@@ -1561,6 +1577,20 @@ if (options.video) {
     }
     if (options.refVideo) {
       fatalCliError('s2v does not accept reference video.', { code: 'INVALID_ARGUMENT' });
+    }
+  } else if (options.videoWorkflow === 'ia2v') {
+    if (!options.refImage || !options.refAudio) {
+      fatalCliError('ia2v requires both --ref and --ref-audio.', { code: 'INVALID_ARGUMENT' });
+    }
+    if (options.refImageEnd || options.refVideo) {
+      fatalCliError('ia2v does not accept --ref-end or --ref-video.', { code: 'INVALID_ARGUMENT' });
+    }
+  } else if (options.videoWorkflow === 'a2v') {
+    if (!options.refAudio) {
+      fatalCliError('a2v requires --ref-audio.', { code: 'INVALID_ARGUMENT' });
+    }
+    if (options.refImage || options.refImageEnd || options.refVideo) {
+      fatalCliError('a2v does not accept reference image/video.', { code: 'INVALID_ARGUMENT' });
     }
   } else if (options.videoWorkflow === 'v2v') {
     if (!options.refVideo) {
@@ -1815,9 +1845,20 @@ function loadCredentials() {
       const [key, val] = line.split('=');
       if (key && val) creds[key.trim()] = val.trim();
     }
+    if (creds.SOGNI_API_KEY) {
+      return {
+        SOGNI_API_KEY: creds.SOGNI_API_KEY
+      };
+    }
     if (creds.SOGNI_USERNAME && creds.SOGNI_PASSWORD) {
       return creds;
     }
+  }
+
+  if (hasEnv('SOGNI_API_KEY')) {
+    return {
+      SOGNI_API_KEY: getEnv('SOGNI_API_KEY')
+    };
   }
   
   if (hasEnv('SOGNI_USERNAME') && hasEnv('SOGNI_PASSWORD')) {
@@ -1829,9 +1870,9 @@ function loadCredentials() {
 
   const err = new Error('No Sogni credentials found.');
   err.code = 'MISSING_CREDENTIALS';
-  err.hint = 'Set SOGNI_USERNAME/SOGNI_PASSWORD or configure SOGNI_CREDENTIALS_PATH.';
+  err.hint = 'Set SOGNI_API_KEY or SOGNI_USERNAME/SOGNI_PASSWORD, or configure SOGNI_CREDENTIALS_PATH.';
   err.details = {
-    triedEnv: ['SOGNI_USERNAME', 'SOGNI_PASSWORD'],
+    triedEnv: ['SOGNI_API_KEY', 'SOGNI_USERNAME', 'SOGNI_PASSWORD'],
     triedFile: CREDENTIALS_PATH
   };
   throw err;
@@ -2690,11 +2731,15 @@ async function main() {
     const creds = loadCredentials();
     log('Connecting to Sogni...');
     client = new SogniClientWrapper({
-      username: creds.SOGNI_USERNAME,
-      password: creds.SOGNI_PASSWORD,
       network: openclawConfig?.defaultNetwork || 'fast',
       autoConnect: false,
-      authType: 'token'
+      ...(creds.SOGNI_API_KEY
+        ? { apiKey: creds.SOGNI_API_KEY, authType: 'apiKey' }
+        : {
+            username: creds.SOGNI_USERNAME,
+            password: creds.SOGNI_PASSWORD,
+            authType: 'token'
+          })
     });
 
     await client.connect();
@@ -3221,11 +3266,15 @@ async function main() {
           // Create a new client for second clip to avoid event conflicts
           const creds = loadCredentials();
           const client2 = new SogniClientWrapper({
-            username: creds.SOGNI_USERNAME,
-            password: creds.SOGNI_PASSWORD,
             network: openclawConfig?.defaultNetwork || 'fast',
             autoConnect: false,
-            authType: 'token'
+            ...(creds.SOGNI_API_KEY
+              ? { apiKey: creds.SOGNI_API_KEY, authType: 'apiKey' }
+              : {
+                  username: creds.SOGNI_USERNAME,
+                  password: creds.SOGNI_PASSWORD,
+                  authType: 'token'
+                })
           });
           await client2.connect();
 

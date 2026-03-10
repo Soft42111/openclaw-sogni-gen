@@ -24,7 +24,7 @@ if (!isVersionAtLeast(currentNodeVersion, MIN_NODE_VERSION)) {
 const PACKAGE_VERSION = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')).version;
 const SCREENSHOT_FIXTURE = join(process.cwd(), 'docs', 'screenshot.jpg');
 
-function runCli(args) {
+function runCli(args, envOverrides = {}) {
   const tempHome = mkdtempSync(join(tmpdir(), 'sogni-gen-test-'));
   const statePath = join(tempHome, 'state.json');
   const loaderPath = join(process.cwd(), 'test', 'loader.mjs');
@@ -41,6 +41,8 @@ function runCli(args) {
     SOGNI_GEN_TEST_STATE_PATH: statePath,
     NODE_NO_WARNINGS: '1'
   };
+
+  Object.assign(env, envOverrides);
 
   const result = spawnSync(
     process.execPath,
@@ -147,6 +149,27 @@ test('s2v requires both ref and ref-audio', () => {
   expectCliError(['--video', '--workflow', 's2v', '--ref', 'screenshot.jpg', 'a cat'], 's2v requires both --ref and --ref-audio.');
 });
 
+test('ia2v requires both ref and ref-audio', () => {
+  expectCliError(['--video', '--workflow', 'ia2v', '--ref', 'screenshot.jpg', 'a cat'], 'ia2v requires both --ref and --ref-audio.');
+});
+
+test('a2v requires ref-audio only', () => {
+  expectCliError(['--video', '--workflow', 'a2v', 'a cat'], 'a2v requires --ref-audio.');
+});
+
+test('audio-only video input infers a2v and LTX audio-to-video default model', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    '--ref-audio', SCREENSHOT_FIXTURE,
+    'abstract music visualizer'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastVideoProject, 'createVideoProject was called');
+  assert.equal(state.lastVideoProject.modelId, 'ltx2-19b-fp8_a2v_distilled');
+  assert.equal(state.lastVideoProject.referenceAudio != null, true);
+  assert.equal(state.lastVideoProject.referenceImage == null, true);
+});
+
 test('looping is only supported with i2v workflow', () => {
   expectCliError(['--video', '--workflow', 't2v', '--looping', 'a cat'], '--looping is only supported with i2v workflow.');
 });
@@ -232,10 +255,10 @@ test('i2v infers a 16-multiple video size from non-square reference when width/h
   ]);
   assert.equal(exitCode, 0);
   assert.ok(state?.lastVideoProject, 'createVideoProject was called');
-  // screenshot.jpg is 1170x1200. Default requested size is 512x512, but i2v would resize to 499x512 (499 not divisible by 16).
-  // The CLI auto-picks a compatible bounding box (divisible by 16) so the resized reference is also divisible by 16.
-  assert.equal(state.lastVideoProject.width, 608);
-  assert.equal(state.lastVideoProject.height, 624);
+  // screenshot.jpg is 2314x1200. Default requested size is 512x512, but i2v would resize it to 512x266.
+  // The CLI auto-picks a compatible bounding box so the resized reference remains divisible by 16.
+  assert.equal(state.lastVideoProject.width, 1296);
+  assert.equal(state.lastVideoProject.height, 672);
 });
 
 test('video dims are normalized to 16-multiples instead of hard failing', () => {
@@ -253,6 +276,49 @@ test('video dims are normalized to 16-multiples instead of hard failing', () => 
   assert.equal(payload.height, 512);
 });
 
+test('ltx2 distilled models default estimate steps to 8', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    '--estimate-video-cost',
+    '--json',
+    '-m', 'ltx2-19b-fp8_t2v_distilled',
+    'ocean waves'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.equal(state?.lastEstimateVideoCost?.steps, 8);
+});
+
+test('ltx2.3 distilled models use LTX-family defaults for cost estimation', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    '--estimate-video-cost',
+    '--json',
+    '--duration', '20',
+    '--fps', '24',
+    '--width', '768',
+    '--height', '768',
+    '-m', 'ltx23-22b-fp8_t2v_distilled',
+    'cinematic drone shot'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.equal(state?.lastEstimateVideoCost?.modelId, 'ltx23-22b-fp8_t2v_distilled');
+  assert.equal(state?.lastEstimateVideoCost?.steps, 8);
+  assert.equal(state?.lastEstimateVideoCost?.duration, 20);
+});
+
+test('api key auth is accepted when username/password are absent', () => {
+  const { exitCode, state } = runCli(
+    ['a cat wearing a hat'],
+    {
+      SOGNI_USERNAME: '',
+      SOGNI_PASSWORD: '',
+      SOGNI_API_KEY: 'test-api-key'
+    }
+  );
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastImageProject, 'createImageProject was called');
+});
+
 test('json error: i2v rejects mismatched explicit size and suggests a compatible 16-multiple aspect', () => {
   const { exitCode, stdout } = runCli([
     '--json',
@@ -268,7 +334,7 @@ test('json error: i2v rejects mismatched explicit size and suggests a compatible
   const payload = JSON.parse(stdout.trim());
   assert.equal(payload.success, false);
   assert.equal(payload.errorCode, 'INVALID_VIDEO_SIZE');
-  assert.ok(String(payload.hint || '').includes('--width 608 --height 624'));
+  assert.ok(String(payload.hint || '').includes('--width 1296 --height 672'));
 });
 
 test('json error: i2v validates --ref-end sizing with strict-size', () => {

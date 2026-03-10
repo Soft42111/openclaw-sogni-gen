@@ -18,8 +18,10 @@ Then create Sogni credentials:
 ```bash
 mkdir -p ~/.config/sogni
 cat > ~/.config/sogni/credentials << 'EOF'
-SOGNI_USERNAME=your_username
-SOGNI_PASSWORD=your_password
+SOGNI_API_KEY=your_api_key
+# or:
+# SOGNI_USERNAME=your_username
+# SOGNI_PASSWORD=your_password
 EOF
 chmod 600 ~/.config/sogni/credentials
 ```
@@ -75,6 +77,15 @@ node {{skillDir}}/sogni-gen.mjs -q --video --duration 10 --ref /path/to/image.pn
 # Sound-to-video (lip sync / talking head)
 node {{skillDir}}/sogni-gen.mjs -q --video --ref /path/to/face.jpg --ref-audio /path/to/speech.m4a -o /tmp/talking.mp4 "talking head"
 
+# Image+audio-to-video (LTX)
+node {{skillDir}}/sogni-gen.mjs -q --video --workflow ia2v --ref /path/to/cover.jpg --ref-audio /path/to/song.mp3 -o /tmp/music-video.mp4 "music video"
+
+# Audio-to-video (LTX)
+node {{skillDir}}/sogni-gen.mjs -q --video --workflow a2v --ref-audio /path/to/song.mp3 -o /tmp/visualizer.mp4 "abstract visualizer"
+
+# LTX-2.3 text-to-video
+node {{skillDir}}/sogni-gen.mjs -q --video -m ltx23-22b-fp8_t2v_distilled --duration 20 -o /tmp/ltx23.mp4 "cinematic drone shot"
+
 # Motion transfer from another video
 node {{skillDir}}/sogni-gen.mjs -q --video --ref /path/to/subject.jpg --ref-video /path/to/motion.mp4 --workflow animate-move -o /tmp/animated.mp4 "transfer motion"
 ```
@@ -113,6 +124,9 @@ node {{skillDir}}/sogni-gen.mjs --json --balance
 | t2v (text-to-video) | wan_v2.2-14b-fp8_t2v_lightx2v | ~5min |
 | i2v (image-to-video) | wan_v2.2-14b-fp8_i2v_lightx2v | ~3-5min |
 | s2v (sound-to-video) | wan_v2.2-14b-fp8_s2v_lightx2v | ~5min |
+| ia2v (image+audio-to-video) | ltx2-19b-fp8_ia2v_distilled | ~2-3min |
+| a2v (audio-to-video) | ltx2-19b-fp8_a2v_distilled | ~2-3min |
+| v2v (video-to-video) | ltx2-19b-fp8_v2v_distilled | ~3min |
 | animate-move | wan_v2.2-14b-fp8_animate-move_lightx2v | ~5min |
 | animate-replace | wan_v2.2-14b-fp8_animate-replace_lightx2v | ~5min |
 
@@ -151,7 +165,7 @@ node {{skillDir}}/sogni-gen.mjs --json --balance
 7. After generating, send the file to the user via the message tool with filePath.
 8. If you get "Insufficient funds", tell them: "Claim 50 free daily Spark points at https://app.sogni.ai/"
 9. For transition/animation videos, always use this plugin's built-in flags (not raw ffmpeg). Use `--looping`, `--extract-last-frame`, or `--concat-videos`.
-10. Default to 768x768 for images. Video sizes must be divisible by 16 (min 480px, max 1536px).
+10. Default to 768x768 for images. WAN video sizes must be divisible by 16; LTX family sizes must be divisible by 64.
 
 ## Finding User-Sent Media
 

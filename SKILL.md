@@ -1,17 +1,18 @@
 ---
 name: sogni-gen
-version: "1.5.11"
+version: "1.5.13"
 description: Generate images **and videos** using Sogni AI's decentralized network, with local credential/config files and optional local media inputs. Ask the agent to "draw", "generate", "create an image", or "make a video/animate" from a prompt or reference image.
 homepage: https://sogni.ai
 metadata:
   clawdbot:
     emoji: "🎨"
-    primaryEnv: "SOGNI_USERNAME"
+    primaryEnv: "SOGNI_API_KEY"
     os: ["darwin", "linux", "win32"]
     requires:
       bins: ["node"]
       anyBins: ["ffmpeg"]
       env:
+        - "SOGNI_API_KEY"
         - "SOGNI_USERNAME"
         - "SOGNI_PASSWORD"
         - "SOGNI_CREDENTIALS_PATH"
@@ -46,11 +47,15 @@ Generate **images and videos** using Sogni AI's decentralized GPU network.
 ```bash
 mkdir -p ~/.config/sogni
 cat > ~/.config/sogni/credentials << 'EOF'
-SOGNI_USERNAME=your_username
-SOGNI_PASSWORD=your_password
+SOGNI_API_KEY=your_api_key
+# or:
+# SOGNI_USERNAME=your_username
+# SOGNI_PASSWORD=your_password
 EOF
 chmod 600 ~/.config/sogni/credentials
 ```
+
+You can also export `SOGNI_API_KEY`, or `SOGNI_USERNAME` + `SOGNI_PASSWORD`, instead of writing the file.
 
 3. **Install dependencies (if cloned):**
 ```bash
@@ -190,6 +195,8 @@ When installed as an OpenClaw plugin, `sogni-gen` will read defaults from:
             "t2v": "wan_v2.2-14b-fp8_t2v_lightx2v",
             "i2v": "wan_v2.2-14b-fp8_i2v_lightx2v",
             "s2v": "wan_v2.2-14b-fp8_s2v_lightx2v",
+            "ia2v": "ltx2-19b-fp8_ia2v_distilled",
+            "a2v": "ltx2-19b-fp8_a2v_distilled",
             "animate-move": "wan_v2.2-14b-fp8_animate-move_lightx2v",
             "animate-replace": "wan_v2.2-14b-fp8_animate-replace_lightx2v",
             "v2v": "ltx2-19b-fp8_v2v_distilled"
@@ -248,14 +255,19 @@ Seed strategies: `prompt-hash` (deterministic) or `random`.
 | `wan_v2.2-14b-fp8_animate-move_lightx2v` | Fast | Animate-move |
 | `wan_v2.2-14b-fp8_animate-replace_lightx2v` | Fast | Animate-replace |
 
-### LTX-2 Models
+### LTX-2 / LTX-2.3 Models
 
 | Model | Speed | Use Case |
 |-------|-------|----------|
 | `ltx2-19b-fp8_t2v_distilled` | Fast (~2-3min) | Text-to-video, 8-step |
 | `ltx2-19b-fp8_t2v` | Medium (~5min) | Text-to-video, 20-step quality |
+| `ltx2-19b-fp8_i2v_distilled` | Fast (~2-3min) | Image-to-video, 8-step |
+| `ltx2-19b-fp8_i2v` | Medium (~5min) | Image-to-video, 20-step quality |
+| `ltx2-19b-fp8_ia2v_distilled` | Fast (~2-3min) | Image+audio-to-video |
+| `ltx2-19b-fp8_a2v_distilled` | Fast (~2-3min) | Audio-to-video |
 | `ltx2-19b-fp8_v2v_distilled` | Fast (~3min) | Video-to-video with ControlNet |
 | `ltx2-19b-fp8_v2v` | Medium (~5min) | Video-to-video with ControlNet, quality |
+| `ltx23-22b-fp8_t2v_distilled` | Fast (~2-3min) | Text-to-video, LTX-2.3 |
 
 ## Image Editing with Context
 
@@ -381,6 +393,18 @@ node sogni-gen.mjs --video --ref scene.png --duration 10 --fps 24 "zoom out slow
 # Sound-to-video (s2v)
 node sogni-gen.mjs --video --ref face.jpg --ref-audio speech.m4a \
   -m wan_v2.2-14b-fp8_s2v_lightx2v "lip sync talking head"
+
+# Image+audio-to-video (ia2v, LTX)
+node sogni-gen.mjs --video --workflow ia2v --ref cover.jpg --ref-audio song.mp3 \
+  "music video with synchronized motion"
+
+# Audio-to-video (a2v, LTX)
+node sogni-gen.mjs --video --workflow a2v --ref-audio song.mp3 \
+  "abstract audio-reactive visualizer"
+
+# LTX-2.3 text-to-video
+node sogni-gen.mjs --video -m ltx23-22b-fp8_t2v_distilled --duration 20 \
+  "cinematic drone shot over tropical cliffs"
 
 # Animate (motion transfer)
 node sogni-gen.mjs --video --ref subject.jpg --ref-video motion.mp4 \
@@ -547,7 +571,7 @@ Uses Spark tokens from your Sogni account. 512x512 images are most cost-efficien
 
 ## Troubleshooting
 
-- **Auth errors**: Check credentials in `~/.config/sogni/credentials`
+- **Auth errors**: Check `SOGNI_API_KEY` or the credentials in `~/.config/sogni/credentials`
 - **i2v sizing gotchas**: Video sizes are constrained (min 480px, max 1536px, divisible by 16). For i2v, the client wrapper resizes the reference (`fit: inside`) and uses the resized dimensions as the final video size. Because this uses rounding, a requested size can still yield an invalid final size (example: `1024x1536` requested but ref becomes `1024x1535`).
 - **Auto-adjustment**: With a local `--ref`, the script will auto-adjust the requested size to avoid non-16 resized reference dimensions.
 - **If the script adjusts your size but you want to fail instead**: pass `--strict-size` and it will print a suggested `--width/--height`.

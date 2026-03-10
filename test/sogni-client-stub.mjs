@@ -23,6 +23,7 @@ function persistState() {
       lastImageProject: state.lastImageProject ?? null,
       lastVideoProject: state.lastVideoProject ?? null,
       lastEditProject: state.lastEditProject ?? null,
+      lastEstimateVideoCost: state.lastEstimateVideoCost ?? null,
       emittedJobs: state.emittedJobs ?? null
     }));
   } catch (err) {
@@ -91,6 +92,9 @@ class SogniClientWrapper extends EventEmitter {
   }
 
   async estimateVideoCost() {
+    const state = getState();
+    state.lastEstimateVideoCost = arguments[0] ?? null;
+    persistState();
     return {
       token: '1',
       usd: '0.01',

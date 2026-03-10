@@ -27,7 +27,7 @@ const shouldRun = integrationFlag === undefined
   : ['1', 'true', 'yes'].includes(integrationFlag.toLowerCase());
 const credentialsPath = join(homedir(), '.config', 'sogni', 'credentials');
 const openclawConfigPath = process.env.OPENCLAW_CONFIG_PATH || join(homedir(), '.openclaw', 'openclaw.json');
-const hasCreds = Boolean(process.env.SOGNI_USERNAME && process.env.SOGNI_PASSWORD) || existsSync(credentialsPath);
+const hasCreds = Boolean(process.env.SOGNI_API_KEY || (process.env.SOGNI_USERNAME && process.env.SOGNI_PASSWORD)) || existsSync(credentialsPath);
 
 const IMAGE_TIMEOUT_SEC = Number(process.env.SOGNI_INTEGRATION_IMAGE_TIMEOUT_SEC || 60);
 const VIDEO_TIMEOUT_SEC = Number(process.env.SOGNI_INTEGRATION_VIDEO_TIMEOUT_SEC || 600);
@@ -43,6 +43,9 @@ const VIDEO_WORKFLOW_DEFAULT_MODELS = {
   t2v: 'wan_v2.2-14b-fp8_t2v_lightx2v',
   i2v: 'wan_v2.2-14b-fp8_i2v_lightx2v',
   s2v: 'wan_v2.2-14b-fp8_s2v_lightx2v',
+  ia2v: 'ltx2-19b-fp8_ia2v_distilled',
+  a2v: 'ltx2-19b-fp8_a2v_distilled',
+  v2v: 'ltx2-19b-fp8_v2v_distilled',
   'animate-move': 'wan_v2.2-14b-fp8_animate-move_lightx2v',
   'animate-replace': 'wan_v2.2-14b-fp8_animate-replace_lightx2v'
 };
@@ -69,6 +72,11 @@ const openclawConfig = loadOpenClawPluginConfig();
 const defaultTokenType = (openclawConfig?.defaultTokenType || 'spark').toLowerCase();
 
 function loadCredentials() {
+  if (process.env.SOGNI_API_KEY) {
+    return {
+      apiKey: process.env.SOGNI_API_KEY
+    };
+  }
   if (process.env.SOGNI_USERNAME && process.env.SOGNI_PASSWORD) {
     return {
       username: process.env.SOGNI_USERNAME,
@@ -81,6 +89,11 @@ function loadCredentials() {
   for (const line of content.split('\n')) {
     const [key, value] = line.split('=');
     if (key && value) creds[key.trim()] = value.trim();
+  }
+  if (creds.SOGNI_API_KEY) {
+    return {
+      apiKey: creds.SOGNI_API_KEY
+    };
   }
   if (!creds.SOGNI_USERNAME || !creds.SOGNI_PASSWORD) return null;
   return {
@@ -101,6 +114,7 @@ function resolveVideoModel(workflow) {
 
 function inferDefaultVideoSteps(modelId) {
   const id = (modelId || '').toLowerCase();
+  if ((id.startsWith('ltx2-') || id.startsWith('ltx23-')) && id.includes('distilled')) return 8;
   if (id.includes('lightx2v')) return 4;
   if (id.includes('lightning') || id.includes('turbo') || id.includes('lcm')) return 4;
   return 20;
@@ -215,10 +229,14 @@ async function logAccountInfo() {
 
   const Wrapper = await getSogniClientWrapper();
   const client = new Wrapper({
-    username: creds.username,
-    password: creds.password,
     autoConnect: false,
-    authType: 'token'
+    ...(creds.apiKey
+      ? { apiKey: creds.apiKey, authType: 'apiKey' }
+      : {
+          username: creds.username,
+          password: creds.password,
+          authType: 'token'
+        })
   });
 
   try {
@@ -256,10 +274,14 @@ async function checkVideoBudget({ workflow, label, width, height, fps, duration,
 
   const Wrapper = await getSogniClientWrapper();
   const client = new Wrapper({
-    username: creds.username,
-    password: creds.password,
     autoConnect: false,
-    authType: 'token'
+    ...(creds.apiKey
+      ? { apiKey: creds.apiKey, authType: 'apiKey' }
+      : {
+          username: creds.username,
+          password: creds.password,
+          authType: 'token'
+        })
   });
 
   try {
@@ -394,7 +416,7 @@ async function runSubtest(t, status, key, name, fn) {
 if (!shouldRun) {
   test('integration: generate image + videos (skipped)', { skip: 'Set SOGNI_INTEGRATION=0 to skip integration tests.' }, () => {});
 } else if (!hasCreds) {
-  test('integration: generate image + videos (skipped)', { skip: 'Provide SOGNI_USERNAME/SOGNI_PASSWORD or ~/.config/sogni/credentials.' }, () => {});
+  test('integration: generate image + videos (skipped)', { skip: 'Provide SOGNI_API_KEY, or SOGNI_USERNAME/SOGNI_PASSWORD, or ~/.config/sogni/credentials.' }, () => {});
 } else {
   test('integration: text-to-image, text-to-video, image-to-video', async (t) => {
     const status = createStickyHeader();
