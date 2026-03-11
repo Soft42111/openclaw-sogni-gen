@@ -14,10 +14,10 @@ Works as:
 ## Quick Start (OpenClaw + Manus)
 
 1. Create Sogni credentials (one-time): see [Setup](#setup).
-2. For OpenClaw, point your agent to:
+2. For OpenClaw, install the plugin:
 
-```
-https://raw.githubusercontent.com/Sogni-AI/openclaw-sogni-gen/main/llm.txt
+```bash
+openclaw plugins install sogni-gen
 ```
 
 3. For Manus AI agent, point it to this repository:
@@ -36,15 +36,17 @@ Then ask your agent:
 
 ## OpenClaw Installation (Recommended)
 
-### Quick Install (URL)
-
-Point OpenClaw to the [`llm.txt`](https://raw.githubusercontent.com/Sogni-AI/openclaw-sogni-gen/main/llm.txt). This is the fastest setup path.
-
 ### Plugin Install
 
 ```bash
 openclaw plugins install sogni-gen
 ```
+
+The installed plugin loads its behavior from [`SKILL.md`](./SKILL.md) via [`openclaw.plugin.json`](./openclaw.plugin.json).
+
+### Optional Install Helper
+
+[`llm.txt`](https://raw.githubusercontent.com/Sogni-AI/openclaw-sogni-gen/main/llm.txt) is now only a lightweight install/setup helper. It is not the primary behavior source for the installed OpenClaw plugin.
 
 ### Manual Installation
 
@@ -261,7 +263,7 @@ node sogni-gen.mjs --video --workflow a2v --ref-audio song.mp3 \
 
 # LTX-2.3 text-to-video
 node sogni-gen.mjs --video -m ltx23-22b-fp8_t2v_distilled --duration 20 \
-  "cinematic drone shot over tropical cliffs"
+  "A wide cinematic aerial shot opens over steep tropical cliffs at golden hour, warm sunlight grazing the rock faces while sea mist drifts above the water below. Palm trees bend gently along the ridge as waves roll against the shoreline, leaving bright bands of foam across the dark stone. The camera glides forward in one continuous pass, revealing more of the coastline as sunlight flickers across wet surfaces and distant birds wheel through the haze. The scene holds a calm, upscale travel-film mood with smooth stabilized motion and crisp environmental detail."
 
 # Animate (motion transfer)
 node sogni-gen.mjs --video --ref subject.jpg --ref-video motion.mp4 \
@@ -270,6 +272,27 @@ node sogni-gen.mjs --video --ref subject.jpg --ref-video motion.mp4 \
 # Estimate video cost (requires --steps)
 node sogni-gen.mjs --video --estimate-video-cost --steps 20 \
   -m wan_v2.2-14b-fp8_t2v_lightx2v "ocean waves at sunset"
+```
+
+## LTX-2.3 Prompting Guide
+
+When you use `ltx23-22b-fp8_t2v_distilled`, do not feed it short tag prompts like `"cinematic drone shot over tropical cliffs"`. LTX-2.3 renders more reliably from a dense natural-language scene description.
+
+- Write one unbroken paragraph with no line breaks, bullets, headers, or tag blocks.
+- Use 4-8 flowing present-tense sentences describing one continuous shot, not a montage.
+- Start with shot scale and scene identity, then cover environment, time of day, textures, and named light sources.
+- Keep characters and objects concrete and stable. Describe one main action thread from start to finish.
+- If the user wants dialogue, weave it into the prose with the speaker and delivery identified inline.
+- Express mood through visible behavior, motion, and sound cues instead of vague adjectives.
+- Use positive phrasing. Avoid script formatting, negative prompts, on-screen text/logo requests, and generic filler words like "beautiful" or "nice".
+- Match scene density to clip length. For the default short clips, describe one main beat rather than several unrelated actions.
+
+Example rewrite:
+
+```text
+User ask: "make a 4k video of a woman in a neon alley"
+
+LTX-2.3 prompt: "A medium cinematic shot frames a woman in her 30s standing in a rain-soaked neon alley at night, violet and amber signs reflecting across the wet pavement while warm steam drifts from street vents. She wears a dark trench coat with damp strands of black hair clinging near her cheek as light glances across the fabric texture and the brick walls behind her. She turns toward the camera and steps forward with measured focus, one hand tightening around the strap of her bag while rain taps softly on the metal fire escape and a distant train hum rolls through the block. The camera performs a slow push-in as her jaw sets and her breathing steadies, maintaining smooth stabilized motion and a tense urban-thriller mood."
 ```
 
 ## Photobooth (Face Transfer)

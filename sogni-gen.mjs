@@ -1228,7 +1228,7 @@ Examples:
   sogni-gen --video --ref cat.jpg --ref-audio speech.m4a -m wan_v2.2-14b-fp8_s2v_lightx2v "lip sync"
   sogni-gen --video --workflow ia2v --ref cover.jpg --ref-audio song.mp3 "music video"
   sogni-gen --video --workflow a2v --ref-audio song.mp3 "abstract music visualizer"
-  sogni-gen --video -m ltx23-22b-fp8_t2v_distilled --duration 20 "cinematic drone shot"
+  sogni-gen --video -m ltx23-22b-fp8_t2v_distilled --duration 20 "A wide cinematic aerial shot opens over steep tropical cliffs at golden hour, warm sunlight grazing the rock faces while sea mist drifts above the water below. Palm trees bend gently along the ridge as waves roll against the shoreline, leaving bright bands of foam across the dark stone. The camera glides forward in one continuous pass, revealing more of the coastline as sunlight flickers across wet surfaces and distant birds wheel through the haze. The scene holds a calm, upscale travel-film mood with smooth stabilized motion and crisp environmental detail."
   sogni-gen --video --ref subject.jpg --ref-video motion.mp4 --workflow animate-move "transfer motion"
   sogni-gen --video --last-image "gentle camera pan"
   sogni-gen -c photo.jpg "make the background a beach" -m qwen_image_edit_2511_fp8
