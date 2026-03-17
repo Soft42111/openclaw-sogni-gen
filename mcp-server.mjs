@@ -217,8 +217,9 @@ async function formatSuccess(result) {
   for (const url of urls) {
     const isImage = /\.(png|jpg|jpeg|webp|gif)(\?|$)/i.test(url);
     const isVideo = /\.(mp4|webm|mov)(\?|$)/i.test(url);
+    const isAudio = /\.(mp3|wav|flac)(\?|$)/i.test(url);
 
-    if (!isImage && !isVideo) continue;
+    if (!isImage && !isVideo && !isAudio) continue;
     if (!isTrustedDownloadUrl(url)) {
       parts.push(`Skipped local download for untrusted host: ${url}`);
       continue;
@@ -232,7 +233,9 @@ async function formatSuccess(result) {
       // Determine extension and build a temp file path
       const ext = isImage
         ? (url.match(/\.(png|jpg|jpeg|webp|gif)/i)?.[1]?.toLowerCase() || 'png')
-        : (url.match(/\.(mp4|webm|mov)/i)?.[1]?.toLowerCase() || 'mp4');
+        : isVideo
+          ? (url.match(/\.(mp4|webm|mov)/i)?.[1]?.toLowerCase() || 'mp4')
+          : (url.match(/\.(mp3|wav|flac)/i)?.[1]?.toLowerCase() || 'mp3');
 
       // Save to local disk (default: ~/Downloads/sogni) so terminal users can open files.
       if (MCP_SAVE_DOWNLOADS) {
@@ -925,7 +928,6 @@ async function handleConcatVideos(params) {
 
 async function handleGenerateSong(params) {
   const args = ['--audio'];
-  if (params.prompt) args.push('--', params.prompt);
   if (params.workflow) args.push('--audio-workflow', validateEnum(params.workflow, ['music'], 'workflow'));
   if (params.model) args.push('-m', sanitizeString(params.model, 'model'));
   if (params.genre) args.push('--genre', sanitizeString(params.genre, 'genre'));
@@ -951,6 +953,8 @@ async function handleGenerateSong(params) {
   if (params.count) args.push('-n', String(params.count));
   if (params.seed != null) args.push('-s', String(params.seed));
   if (params.output) args.push('-o', sanitizeString(params.output, 'output'));
+
+  if (params.prompt) args.push('--', params.prompt);
 
   return runAndFormat(args, { timeoutMs: 600_000 });
 }

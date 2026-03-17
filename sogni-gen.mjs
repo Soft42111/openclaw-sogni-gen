@@ -3115,6 +3115,9 @@ async function main() {
 
       // Check for errors in the response
       if (audioResult?.error || audioResult?.message) {
+        if (!options.quiet) {
+          console.error('Audio project creation failed with details:', JSON.stringify(audioResult, null, 2));
+        }
         throw new Error(audioResult.error || audioResult.message);
       }
     } else if (options.video) {
