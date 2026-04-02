@@ -100,6 +100,18 @@ Path override environment variables:
 # Generate and get URL
 node sogni-gen.mjs "a cat wearing a hat"
 
+# Quality presets (recommended — auto-selects model, steps, and size)
+node sogni-gen.mjs -Q fast "a cat wearing a hat"    # z_image_turbo, 8 steps, 512x512 (~5-10s)
+node sogni-gen.mjs -Q hq "a cat wearing a hat"      # z_image_turbo, default steps, 768x768 (~10-15s)
+node sogni-gen.mjs -Q pro "a cat wearing a hat"      # flux2_dev, 40 steps, 1024x1024 (~2min)
+
+# Dynamic prompt variations — diverse images in one call
+node sogni-gen.mjs -n 3 "a {red|blue|green} sports car"
+# → generates "a red sports car", "a blue sports car", "a green sports car"
+
+# Token auto-fallback (tries SPARK, falls back to SOGNI)
+node sogni-gen.mjs --token-type auto "a cat wearing a hat"
+
 # Save to file
 node sogni-gen.mjs -o /tmp/cat.png "a cat wearing a hat"
 
@@ -120,11 +132,12 @@ node sogni-gen.mjs -q -o /tmp/cat.png "a cat wearing a hat"
 
 | Flag | Description | Default |
 |------|-------------|---------|
+| `-Q, --quality <tier>` | Quality preset: fast\|hq\|pro (auto-selects model/steps/size) | - |
 | `-o, --output <path>` | Save to file | prints URL |
-| `-m, --model <id>` | Model ID | z_image_turbo_bf16 |
+| `-m, --model <id>` | Model ID (overrides --quality) | z_image_turbo_bf16 |
 | `-w, --width <px>` | Width | 512 |
 | `-h, --height <px>` | Height | 512 |
-| `-n, --count <num>` | Number of images | 1 |
+| `-n, --count <num>` | Number of images (supports {a\|b\|c} prompt variations) | 1 |
 | `-t, --timeout <sec>` | Timeout seconds | 30 (300 for video) |
 | `-s, --seed <num>` | Specific seed | random |
 | `--last-seed` | Reuse seed from last render | - |
@@ -146,7 +159,7 @@ node sogni-gen.mjs -q -o /tmp/cat.png "a cat wearing a hat"
 | `--loras <ids>` | Comma-separated LoRA ids | - |
 | `--lora-strength <n>` | LoRA strength (repeatable) | - |
 | `--lora-strengths <n>` | Comma-separated LoRA strengths | - |
-| `--token-type <type>` | Token type: spark\|sogni | spark |
+| `--token-type <type>` | Token type: spark\|sogni\|auto (auto retries with alternate) | spark |
 | `--balance, --balances` | Show SPARK/SOGNI balances and exit | - |
 | `-c, --context <path>` | Context image for editing | - |
 | `--last-image` | Use last generated image as context/ref | - |
@@ -373,7 +386,9 @@ For **any transition video work**, always use the **Sogni skill/plugin** (not ra
 
 ### Insufficient Funds Handling
 
-When you see **"Debit Error: Insufficient funds"**, reply:
+Use `--token-type auto` to automatically retry with SOGNI tokens when SPARK is insufficient.
+
+When you see **"Debit Error: Insufficient funds"** even with auto-fallback, reply:
 
 "Insufficient funds. Claim 50 free daily Spark points at https://app.sogni.ai/"
 
@@ -524,8 +539,12 @@ Use this shape instead: "A medium cinematic shot frames a woman in her 30s stand
 When user asks to generate/draw/create an image:
 
 ```bash
-# Generate and save locally
-node {{skillDir}}/sogni-gen.mjs -q -o /tmp/generated.png "user's prompt"
+# Generate and save locally (use -Q for quality presets instead of memorizing model IDs)
+node {{skillDir}}/sogni-gen.mjs -q -Q fast -o /tmp/generated.png "user's prompt"
+node {{skillDir}}/sogni-gen.mjs -q -Q pro -o /tmp/generated.png "user's prompt"
+
+# Generate with prompt variations (diverse images in one call)
+node {{skillDir}}/sogni-gen.mjs -q -n 3 -o /tmp/cars.png "a {red|blue|green} sports car"
 
 # Edit an existing image
 node {{skillDir}}/sogni-gen.mjs -q -c /path/to/input.jpg -o /tmp/edited.png "make it pop art style"
@@ -545,6 +564,9 @@ node {{skillDir}}/sogni-gen.mjs -q --video --ref /path/to/image.png -m ltx2-19b-
 # Photobooth: stylize a face photo
 node {{skillDir}}/sogni-gen.mjs -q --photobooth --ref /path/to/face.jpg -o /tmp/stylized.png "80s fashion portrait"
 
+# Token auto-fallback (tries SPARK first, retries with SOGNI on insufficient balance)
+node {{skillDir}}/sogni-gen.mjs -q --token-type auto -o /tmp/generated.png "user's prompt"
+
 # Check current SPARK/SOGNI balances (no prompt required)
 node {{skillDir}}/sogni-gen.mjs --json --balance
 
@@ -553,6 +575,36 @@ node {{skillDir}}/sogni-gen.mjs --json --list-media images
 
 # Then send via message tool with filePath
 ```
+
+### Quality Presets
+
+Use `-Q` / `--quality` instead of memorizing model IDs:
+
+| Preset | Model | Steps | Size | Speed |
+|--------|-------|-------|------|-------|
+| `fast` | z_image_turbo_bf16 | 8 | 512x512 | ~5-10s |
+| `hq` | z_image_turbo_bf16 | default | 768x768 | ~10-15s |
+| `pro` | flux2_dev_fp8 | 40 | 1024x1024 | ~2min |
+
+Explicit `-m` overrides the quality preset's model. Explicit `-w`/`-h` overrides dimensions. When the user asks for "high quality", "best quality", or "pro", use `-Q pro`. For quick drafts or previews, use `-Q fast`.
+
+### Dynamic Prompt Variations
+
+When the user wants multiple variations (different colors, styles, subjects), use `{option1|option2|option3}` syntax with `-n`:
+
+```bash
+# 3 color variations
+node {{skillDir}}/sogni-gen.mjs -q -n 3 "a {red|blue|green} sports car"
+
+# 4 style variations
+node {{skillDir}}/sogni-gen.mjs -q -n 4 "a portrait in {oil painting|watercolor|pencil sketch|pop art} style"
+```
+
+Options cycle sequentially per image. Without `{...}` syntax, `-n` generates multiple images with the same prompt.
+
+### Token Auto-Fallback
+
+Use `--token-type auto` when the user's SPARK balance might be low. It tries SPARK first (free daily tokens) and automatically retries with SOGNI if insufficient.
 
 ## High-Res Video Routing
 

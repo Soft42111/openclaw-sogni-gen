@@ -28,11 +28,14 @@ https://github.com/Sogni-AI/openclaw-sogni-gen
 
 Then ask your agent:
 - "Generate an image of a sunset over mountains"
+- "Generate a pro quality image of a mountain landscape"
 - "Make a video of a cat playing piano"
 - "Edit this image to add a rainbow"
 - "Check my Sogni balance"
 - "Turn my selfie into James bond using photobooth"
 - "Animate the last 3 images you generated together"
+- "Generate 3 variations of a sports car in red, blue, and green"
+- "Refine the last image at higher quality"
 
 ## OpenClaw Installation (Recommended)
 
@@ -197,11 +200,35 @@ Claude Desktop config using global binary:
 }
 ```
 
+### MCP Tools
+
+The MCP server exposes these tools to Claude Code and Claude Desktop:
+
+| Tool | Description |
+|------|-------------|
+| `generate_image` | Generate images with quality presets, prompt variations, and full model control |
+| `generate_video` | Multi-workflow video generation (t2v, i2v, s2v, ia2v, a2v, v2v, animate) |
+| `edit_image` | Edit images using 1-3 context images and a prompt |
+| `photobooth` | Face transfer portraits with InstantID |
+| `refine_result` | Re-run the last generation with tweaked parameters (quality, model, seed, etc.) |
+| `estimate_cost` | Estimate generation cost before running (precise for video, heuristic for images) |
+| `check_balance` | Show current SPARK/SOGNI token balances |
+| `list_models` | List all available models with speed estimates |
+| `extract_last_frame` | Extract the last frame from a video as an image |
+| `concat_videos` | Concatenate multiple video clips into one |
+| `list_media` | List recent inbound media files |
+| `get_version` | Show running sogni-gen version |
+
 ## Usage
 
 ```bash
 # Generate image, get URL
 node sogni-gen.mjs "a dragon eating tacos"
+
+# Quality presets (recommended — no need to remember model IDs)
+node sogni-gen.mjs -Q fast "a dragon eating tacos"          # z_image_turbo, 8 steps, 512x512
+node sogni-gen.mjs -Q hq "a dragon eating tacos"            # z_image_turbo, default steps, 768x768
+node sogni-gen.mjs -Q pro "a dragon eating tacos"            # flux2_dev, 40 steps, 1024x1024
 
 # Save to file
 node sogni-gen.mjs -o dragon.png "a dragon eating tacos"
@@ -209,13 +236,20 @@ node sogni-gen.mjs -o dragon.png "a dragon eating tacos"
 # JSON output
 node sogni-gen.mjs --json "a dragon eating tacos"
 
+# Dynamic prompt variations — generate diverse images in one call
+node sogni-gen.mjs -n 3 "a {red|blue|green} sports car on a highway"
+node sogni-gen.mjs -n 4 "a cat {sleeping|playing|eating|running} in a {garden|kitchen|bedroom|park}"
+
+# Token auto-fallback (tries SPARK first, falls back to SOGNI)
+node sogni-gen.mjs --token-type auto "a dragon eating tacos"
+
 # Check token balances (no prompt required)
 node sogni-gen.mjs --balance
 
 # Check token balances with JSON output
 node sogni-gen.mjs --json --balance
 
-# Different model
+# Different model (overrides --quality if both set)
 node sogni-gen.mjs -m flux1-schnell-fp8 "a dragon eating tacos"
 
 # JPG output
@@ -341,8 +375,9 @@ Multi-angle mode auto-builds the `<sks>` prompt and applies the `multiple_angles
 ## Options
 
 ```
+-Q, --quality <tier>  Quality preset: fast|hq|pro (auto-selects model/steps/size)
 -o, --output <path>   Save image to file
--m, --model <id>      Model (default: z_image_turbo_bf16)
+-m, --model <id>      Model (default: z_image_turbo_bf16, overrides --quality)
 -w, --width <px>      Width (default: 512)
 -h, --height <px>     Height (default: 512)
 -n, --count <num>     Number of images (default: 1)
@@ -367,11 +402,11 @@ Multi-angle mode auto-builds the `<sks>` prompt and applies the `multiple_angles
 --loras <ids>         Comma-separated LoRA ids
 --lora-strength <n>   LoRA strength (repeatable)
 --lora-strengths <n>  Comma-separated LoRA strengths
---token-type <type>   spark|sogni
+--token-type <type>   spark|sogni|auto (auto retries with alternate token on insufficient balance)
 --balance, --balances Show SPARK/SOGNI balances and exit
 --version, -V         Show sogni-gen version and exit
 --video, -v           Generate video instead of image
---workflow <type>     t2v|i2v|s2v|animate-move|animate-replace
+--workflow <type>     t2v|i2v|s2v|ia2v|a2v|v2v|animate-move|animate-replace
 --fps <num>           Frames per second (video)
 --duration <sec>      Video duration in seconds
 --frames <num>        Override total frames (video)
@@ -391,6 +426,43 @@ Multi-angle mode auto-builds the `<sks>` prompt and applies the `multiple_angles
 --strict-size         Do not auto-adjust i2v video size for reference resizing constraints
 -q, --quiet           Suppress progress
 ```
+
+### Quality Presets
+
+Instead of remembering model IDs, use `--quality` / `-Q` to auto-select the right model, steps, and dimensions:
+
+| Preset | Model | Steps | Size | Speed |
+|--------|-------|-------|------|-------|
+| `fast` | z_image_turbo_bf16 | 8 | 512x512 | ~5-10s |
+| `hq` | z_image_turbo_bf16 | default | 768x768 | ~10-15s |
+| `pro` | flux2_dev_fp8 | 40 | 1024x1024 | ~2min |
+
+Explicit `--model` overrides the quality preset's model. Explicit `-w`/`-h` overrides dimensions.
+
+### Dynamic Prompt Variations
+
+Generate diverse images in a single call using `{option1|option2|option3}` syntax:
+
+```bash
+# Generates 3 images: "a red car", "a blue car", "a green car"
+node sogni-gen.mjs -n 3 "a {red|blue|green} car"
+
+# Multiple variation groups cycle independently
+node sogni-gen.mjs -n 4 "a {cat|dog} in a {garden|kitchen}"
+# → "a cat in a garden", "a dog in a kitchen", "a cat in a garden", "a dog in a kitchen"
+```
+
+Options cycle sequentially per image. Without `{...}` syntax, `-n` generates multiple images with the same prompt as before.
+
+### Token Auto-Fallback
+
+Use `--token-type auto` to automatically retry with SOGNI tokens if SPARK balance is insufficient:
+
+```bash
+node sogni-gen.mjs --token-type auto "a dragon eating tacos"
+```
+
+This tries SPARK first (free daily tokens), then falls back to SOGNI if the balance is too low.
 
 ## Models
 
