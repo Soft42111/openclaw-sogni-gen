@@ -189,6 +189,23 @@ function generateRandomSeed() {
   return randomBytes(4).readUInt32BE(0);
 }
 
+// ---------------------------------------------------------------------------
+// Dynamic prompt variations — {option1|option2|option3} syntax
+// For count > 1, cycles through options sequentially per image.
+// ---------------------------------------------------------------------------
+const VARIATION_PATTERN = /\{([^}]+)\}/g;
+
+function hasPromptVariations(prompt) {
+  return /\{[^}]+\}/.test(prompt);
+}
+
+function expandPromptVariation(prompt, index) {
+  return prompt.replace(VARIATION_PATTERN, (_match, group) => {
+    const options = group.split('|').map(s => s.trim());
+    return options[index % options.length];
+  });
+}
+
 function computePromptHashSeed(opts) {
   const payload = {
     prompt: opts.prompt || '',
@@ -694,6 +711,7 @@ const options = {
   quiet: false,
   timeout: 30000,
   strictSize: false,
+  quality: null, // Quality tier: fast|hq|pro — auto-selects model, steps, dimensions
   tokenType: null,
   steps: null,
   guidance: null,
@@ -751,6 +769,7 @@ const cliSet = {
   count: false,
   timeout: false,
   strictSize: false,
+  quality: false,
   tokenType: false,
   steps: false,
   guidance: false,
@@ -825,6 +844,11 @@ for (let i = 0; i < args.length; i++) {
     i++;
     options.timeout = parsePositiveIntegerValue(raw, arg) * 1000;
     cliSet.timeout = true;
+  } else if (arg === '--quality' || arg === '-Q') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.quality = raw.toLowerCase();
+    cliSet.quality = true;
   } else if (arg === '--token-type' || arg === '--token') {
     const raw = requireFlagValue(args, i, arg);
     i++;
@@ -1115,7 +1139,8 @@ Usage: sogni-gen [options] "prompt"
 
 Image Options:
   -o, --output <path>   Save to file (otherwise prints URL)
-  -m, --model <id>      Model (default: z_image_turbo_bf16)
+  -Q, --quality <tier>  Quality preset: fast|hq|pro (auto-selects model/steps/size)
+  -m, --model <id>      Model (default: z_image_turbo_bf16, overrides --quality)
   -w, --width <px>      Width (default: 512)
   -h, --height <px>     Height (default: 512)
   -n, --count <num>     Number of images (default: 1)
@@ -1173,7 +1198,7 @@ General:
   -t, --timeout <sec>   Timeout in seconds (default: 30, video: 300)
   --steps <num>         Override steps (model-dependent)
   --guidance <num>      Override guidance (model-dependent)
-  --token-type <type>   Token type: spark|sogni (default: spark)
+  --token-type <type>   Token type: spark|sogni|auto (default: spark, auto retries with alternate)
   --balance, --balances Show SPARK/SOGNI balances and exit
   --version, -V         Show sogni-gen version and exit
   --extract-last-frame <video> <image>  Extract last frame from a video (safe ffmpeg wrapper)
@@ -1228,6 +1253,8 @@ Examples:
   sogni-gen -c subject.jpg -c style.jpg "apply the style to the subject"
   sogni-gen --photobooth --ref face.jpg "80s fashion portrait"
   sogni-gen --photobooth --ref face.jpg -n 4 "LinkedIn professional headshot"
+  sogni-gen -Q pro "a beautiful mountain landscape at sunset"
+  sogni-gen -n 3 "a {red|blue|green} sports car on a highway"
 `);
     process.exit(0);
   } else if (arg === '--') {
@@ -1285,13 +1312,45 @@ if (openclawConfig) {
 
 if (options.tokenType) {
   const token = options.tokenType.toLowerCase();
-  if (token !== 'spark' && token !== 'sogni') {
-    fatalCliError('--token-type must be "spark" or "sogni".', {
+  if (token !== 'spark' && token !== 'sogni' && token !== 'auto') {
+    fatalCliError('--token-type must be "spark", "sogni", or "auto".', {
       code: 'INVALID_ARGUMENT',
       details: { flag: '--token-type', value: options.tokenType }
     });
   }
   options.tokenType = token;
+}
+
+// ---------------------------------------------------------------------------
+// Quality tier presets — auto-select model, steps, and dimensions
+// ---------------------------------------------------------------------------
+const QUALITY_TIERS = {
+  fast: { model: 'z_image_turbo_bf16', steps: 8, shortSide: null },
+  hq:   { model: 'z_image_turbo_bf16', steps: null, shortSide: 768 },
+  pro:  { model: 'flux2_dev_fp8', steps: 40, shortSide: 1024 }
+};
+
+if (options.quality) {
+  if (!QUALITY_TIERS[options.quality]) {
+    fatalCliError('--quality must be "fast", "hq", or "pro".', {
+      code: 'INVALID_ARGUMENT',
+      details: { flag: '--quality', value: options.quality }
+    });
+  }
+  const tier = QUALITY_TIERS[options.quality];
+  // Only apply model if user didn't explicitly set one
+  if (!cliSet.model) {
+    options.model = tier.model;
+  }
+  // Only apply steps if user didn't explicitly set them
+  if (!cliSet.steps && tier.steps) {
+    options.steps = tier.steps;
+  }
+  // Auto-target short-side dimension if user didn't set width/height
+  if (tier.shortSide && !cliSet.width && !cliSet.height && !options.video) {
+    options.width = tier.shortSide;
+    options.height = tier.shortSide;
+  }
 }
 
 if (options.seedStrategy) {
@@ -2586,11 +2645,20 @@ async function ensureSufficientVideoBalance(client, log) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Token auto-fallback: resolve 'auto' to 'spark', retry with 'sogni' on
+// insufficient balance errors.
+// ---------------------------------------------------------------------------
+const _isAutoToken = options.tokenType === 'auto';
+if (_isAutoToken) {
+  options.tokenType = 'spark';
+}
+
 async function main() {
   let exitCode = 0;
   const log = options.quiet ? () => {} : console.error.bind(console);
   let client = null;
-  
+
   try {
     if (options.showVersion) {
       if (options.json) {
@@ -3099,39 +3167,52 @@ async function main() {
       const modelDefaults = getModelDefaults(options.model, openclawConfig);
       const guidance = options.guidance ?? modelDefaults?.guidance ?? 1.0;
       const steps = options.steps ?? modelDefaults?.steps;
-      
-      const projectConfig = {
-        modelId: options.model,
-        positivePrompt: options.prompt,
-        negativePrompt: '',
-        stylePrompt: '',
-        numberOfMedia: options.count,
-        tokenType: options.tokenType || 'spark',
-        waitForCompletion: false,
-        sizePreset: 'custom',
-        width: options.width,
-        height: options.height,
-        guidance,
-        disableNSFWFilter: true
-      };
-      if (options.outputFormat) {
-        projectConfig.outputFormat = options.outputFormat;
+
+      const useVariations = options.count > 1 && hasPromptVariations(options.prompt);
+      const variationCount = useVariations ? options.count : 1;
+      const imagesPerCall = useVariations ? 1 : options.count;
+
+      for (let vi = 0; vi < variationCount; vi++) {
+        const expandedPrompt = useVariations
+          ? expandPromptVariation(options.prompt, vi)
+          : options.prompt;
+        if (useVariations) {
+          log(`Variation ${vi + 1}/${variationCount}: "${expandedPrompt}"`);
+        }
+
+        const projectConfig = {
+          modelId: options.model,
+          positivePrompt: expandedPrompt,
+          negativePrompt: '',
+          stylePrompt: '',
+          numberOfMedia: imagesPerCall,
+          tokenType: options.tokenType || 'spark',
+          waitForCompletion: false,
+          sizePreset: 'custom',
+          width: options.width,
+          height: options.height,
+          guidance,
+          disableNSFWFilter: true
+        };
+        if (options.outputFormat) {
+          projectConfig.outputFormat = options.outputFormat;
+        }
+        if (options.sampler) {
+          projectConfig.sampler = options.sampler;
+        }
+        if (options.scheduler) {
+          projectConfig.scheduler = options.scheduler;
+        }
+        if (steps) {
+          projectConfig.steps = steps;
+        }
+
+        if (options.seed !== null && options.seed !== undefined) {
+          projectConfig.seed = options.seed;
+        }
+
+        await client.createImageProject(projectConfig);
       }
-      if (options.sampler) {
-        projectConfig.sampler = options.sampler;
-      }
-      if (options.scheduler) {
-        projectConfig.scheduler = options.scheduler;
-      }
-      if (steps) {
-        projectConfig.steps = steps;
-      }
-      
-      if (options.seed !== null && options.seed !== undefined) {
-        projectConfig.seed = options.seed;
-      }
-      
-      await client.createImageProject(projectConfig);
     }
     
     // Wait for completion via events
@@ -3156,7 +3237,8 @@ async function main() {
         projectId: firstResult.projectId,
         urls: urls,
         localPath: options.output || null,
-        tokenType: options.tokenType || 'spark'
+        tokenType: options.tokenType || 'spark',
+        quality: options.quality || null
       };
       if (options.outputFormat) {
         renderInfo.outputFormat = options.outputFormat;
@@ -3422,6 +3504,19 @@ async function main() {
     }
     
   } catch (error) {
+    // Token auto-fallback: if using auto mode and got insufficient balance, retry with the other token
+    const isBalanceError = error.code === 'INSUFFICIENT_BALANCE' || /insufficient/i.test(error.message);
+    if (_isAutoToken && isBalanceError && options.tokenType === 'spark') {
+      log('Insufficient SPARK balance — retrying with SOGNI tokens...');
+      options.tokenType = 'sogni';
+      try {
+        if (client?.isConnected?.()) {
+          await Promise.race([client.disconnect(), new Promise(r => setTimeout(r, 1000))]);
+        }
+      } catch (_) {}
+      return main();
+    }
+
     exitCode = 1;
     const shouldJson = options.json || IS_OPENCLAW_INVOCATION;
     if (shouldJson) {

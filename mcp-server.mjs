@@ -326,7 +326,15 @@ const TOOLS = [
     name: 'generate_image',
     description: `Generate an image using Sogni AI's decentralized GPU network.
 
+Quality presets (recommended — auto-selects model, steps, and dimensions):
+  fast — z_image_turbo_bf16, 8 steps, 512x512 (default, ~5-10s)
+  hq   — z_image_turbo_bf16, default steps, 768x768 (~10-15s)
+  pro  — flux2_dev_fp8, 40 steps, 1024x1024 (~2min, highest quality)
+
 ${IMAGE_MODEL_TABLE}
+
+Prompt variations: Use {option1|option2|option3} syntax with count > 1 to generate diverse images in one call.
+  Example: prompt="a {red|blue|green} car", count=3 → generates one of each color.
 
 Cost: Uses Spark tokens. 512x512 is most cost-efficient. Claim 50 free daily Spark at https://app.sogni.ai/`,
     inputSchema: {
@@ -334,11 +342,16 @@ Cost: Uses Spark tokens. 512x512 is most cost-efficient. Claim 50 free daily Spa
       properties: {
         prompt: {
           type: 'string',
-          description: 'Image description / generation prompt',
+          description: 'Image description / generation prompt. Supports {a|b|c} variation syntax with count > 1.',
+        },
+        quality: {
+          type: 'string',
+          enum: ['fast', 'hq', 'pro'],
+          description: 'Quality preset (auto-selects model/steps/size). Overridden by explicit model param.',
         },
         model: {
           type: 'string',
-          description: 'Model ID (default: z_image_turbo_bf16)',
+          description: 'Model ID (default: z_image_turbo_bf16). Overrides quality preset.',
         },
         width: {
           type: 'number',
@@ -670,6 +683,100 @@ The face likeness is preserved while applying the style from the prompt.`,
       },
     },
   },
+  {
+    name: 'refine_result',
+    description: `Re-run the last generation with tweaked parameters. Reads the last render metadata and lets you override specific settings while keeping everything else the same.
+
+Use this to:
+  - Bump quality: refine_result with quality="pro" to re-render at higher quality
+  - Try a different model: refine_result with model="flux2_dev_fp8"
+  - Lock a seed: refine_result with seed=12345
+  - Tweak the prompt: refine_result with prompt="..."
+  - Change dimensions: refine_result with width=1024, height=1024
+
+Requires a previous generation in this session (reads ~/.config/sogni/last-render.json).`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt: {
+          type: 'string',
+          description: 'Override the prompt (default: reuse last prompt)',
+        },
+        quality: {
+          type: 'string',
+          enum: ['fast', 'hq', 'pro'],
+          description: 'Quality preset override',
+        },
+        model: {
+          type: 'string',
+          description: 'Model override',
+        },
+        width: {
+          type: 'number',
+          description: 'Width override',
+        },
+        height: {
+          type: 'number',
+          description: 'Height override',
+        },
+        seed: {
+          type: 'number',
+          description: 'Seed override (use to lock the composition)',
+        },
+        count: {
+          type: 'number',
+          description: 'Number of images override',
+        },
+      },
+    },
+  },
+  {
+    name: 'estimate_cost',
+    description: `Estimate the cost of a generation before running it. Returns estimated cost in SPARK and SOGNI tokens.
+
+For video: requires model, width, height, fps, steps, and duration/frames.
+For images: returns a rough cost based on model and dimensions.
+
+Use this before expensive generations (pro quality, large videos) to check if the user has enough tokens.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        type: {
+          type: 'string',
+          enum: ['image', 'video'],
+          description: 'Generation type (default: image)',
+        },
+        model: {
+          type: 'string',
+          description: 'Model ID',
+        },
+        width: {
+          type: 'number',
+          description: 'Width in pixels',
+        },
+        height: {
+          type: 'number',
+          description: 'Height in pixels',
+        },
+        steps: {
+          type: 'number',
+          description: 'Number of steps (required for video cost estimation)',
+        },
+        duration: {
+          type: 'number',
+          description: 'Duration in seconds (video only)',
+        },
+        fps: {
+          type: 'number',
+          description: 'Frames per second (video only, default: 16)',
+        },
+        count: {
+          type: 'number',
+          description: 'Number of outputs (default: 1)',
+        },
+      },
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -679,6 +786,7 @@ The face likeness is preserved while applying the style from the prompt.`,
 async function handleGenerateImage(params) {
   sanitizeString(params.prompt, 'prompt');
   const args = [];
+  if (params.quality) args.push('--quality', validateEnum(params.quality, ['fast', 'hq', 'pro'], 'quality'));
   if (params.model) args.push('-m', sanitizeString(params.model, 'model'));
   if (params.width) args.push('-w', String(params.width));
   if (params.height) args.push('-h', String(params.height));
@@ -699,7 +807,7 @@ async function handleGenerateImage(params) {
 async function handleGenerateVideo(params) {
   sanitizeString(params.prompt, 'prompt');
   const args = ['--video'];
-  if (params.workflow) args.push('--workflow', validateEnum(params.workflow, ['t2v', 'i2v', 's2v', 'v2v', 'animate-move', 'animate-replace'], 'workflow'));
+  if (params.workflow) args.push('--workflow', validateEnum(params.workflow, ['t2v', 'i2v', 's2v', 'ia2v', 'a2v', 'v2v', 'animate-move', 'animate-replace'], 'workflow'));
   if (params.model) args.push('-m', sanitizeString(params.model, 'model'));
   if (params.width) args.push('-w', String(params.width));
   if (params.height) args.push('-h', String(params.height));
@@ -821,6 +929,137 @@ async function handleListMedia(params) {
   return { content: [{ type: 'text', text: `Recent ${result.mediaType || 'media'} (${files.length}):\n${lines.join('\n')}` }] };
 }
 
+async function handleRefineResult(params) {
+  const lastRenderPath = join(homedir(), '.config', 'sogni', 'last-render.json');
+  if (!existsSync(lastRenderPath)) {
+    return {
+      content: [{ type: 'text', text: 'Error: No previous render found. Generate something first, then use refine_result to tweak it.' }],
+      isError: true,
+    };
+  }
+
+  let lastRender;
+  try {
+    lastRender = JSON.parse(readFileSync(lastRenderPath, 'utf8'));
+  } catch {
+    return {
+      content: [{ type: 'text', text: 'Error: Could not read last render metadata.' }],
+      isError: true,
+    };
+  }
+
+  const isVideo = lastRender.type === 'video';
+
+  if (isVideo) {
+    // Re-run as video
+    const prompt = params.prompt ? sanitizeString(params.prompt, 'prompt') : lastRender.prompt;
+    const args = ['--video'];
+    if (lastRender.workflow) args.push('--workflow', lastRender.workflow);
+    if (params.quality) args.push('--quality', validateEnum(params.quality, ['fast', 'hq', 'pro'], 'quality'));
+    if (params.model) args.push('-m', sanitizeString(params.model, 'model'));
+    else if (lastRender.model) args.push('-m', lastRender.model);
+    if (params.width) args.push('-w', String(params.width));
+    else if (lastRender.width) args.push('-w', String(lastRender.width));
+    if (params.height) args.push('-h', String(params.height));
+    else if (lastRender.height) args.push('-h', String(lastRender.height));
+    if (params.seed != null) args.push('-s', String(params.seed));
+    else if (lastRender.seed != null) args.push('-s', String(lastRender.seed));
+    if (lastRender.fps) args.push('--fps', String(lastRender.fps));
+    if (lastRender.duration) args.push('--duration', String(lastRender.duration));
+    if (lastRender.refImage) args.push('--ref', lastRender.refImage);
+    if (lastRender.refAudio) args.push('--ref-audio', lastRender.refAudio);
+    if (lastRender.refVideo) args.push('--ref-video', lastRender.refVideo);
+    args.push('--', prompt);
+    return runAndFormat(args, { timeoutMs: 600_000 });
+  } else {
+    // Re-run as image
+    const prompt = params.prompt ? sanitizeString(params.prompt, 'prompt') : lastRender.prompt;
+    const args = [];
+    if (params.quality) args.push('--quality', validateEnum(params.quality, ['fast', 'hq', 'pro'], 'quality'));
+    if (params.model) args.push('-m', sanitizeString(params.model, 'model'));
+    else if (lastRender.model) args.push('-m', lastRender.model);
+    if (params.width) args.push('-w', String(params.width));
+    else if (lastRender.width) args.push('-w', String(lastRender.width));
+    if (params.height) args.push('-h', String(params.height));
+    else if (lastRender.height) args.push('-h', String(lastRender.height));
+    if (params.count) args.push('-n', String(params.count));
+    else if (lastRender.count) args.push('-n', String(lastRender.count));
+    if (params.seed != null) args.push('-s', String(params.seed));
+    else if (lastRender.seed != null) args.push('-s', String(lastRender.seed));
+    if (lastRender.contextImages?.length > 0) {
+      for (const img of lastRender.contextImages) {
+        args.push('-c', img);
+      }
+    }
+    if (lastRender.photobooth && lastRender.refImage) {
+      args.push('--photobooth', '--ref', lastRender.refImage);
+    }
+    args.push('--', prompt);
+    return runAndFormat(args, { timeoutMs: 60_000 });
+  }
+}
+
+async function handleEstimateCost(params) {
+  const isVideo = params.type === 'video';
+
+  if (isVideo) {
+    if (!params.steps) {
+      return {
+        content: [{ type: 'text', text: 'Error: Video cost estimation requires the "steps" parameter.' }],
+        isError: true,
+      };
+    }
+    const args = ['--video', '--estimate-video-cost'];
+    if (params.model) args.push('-m', sanitizeString(params.model, 'model'));
+    if (params.width) args.push('-w', String(params.width));
+    if (params.height) args.push('-h', String(params.height));
+    if (params.fps) args.push('--fps', String(params.fps));
+    if (params.duration) args.push('--duration', String(params.duration));
+    if (params.count) args.push('-n', String(params.count));
+    args.push('--steps', String(params.steps));
+    // Need a dummy prompt for the CLI
+    args.push('--', 'cost-estimate');
+    return runAndFormat(args, { timeoutMs: 30_000 });
+  } else {
+    // Image cost: check balance and provide guidance
+    const balanceResult = await runSogniGen(['--balance'], { timeoutMs: 30_000 });
+    if (balanceResult.success === false) return formatError(balanceResult);
+
+    const model = params.model || 'z_image_turbo_bf16';
+    const w = params.width || 512;
+    const h = params.height || 512;
+    const count = params.count || 1;
+
+    // Rough cost heuristic based on model and pixel count
+    const pixels = w * h;
+    const basePixels = 512 * 512;
+    const pixelMultiplier = pixels / basePixels;
+    let baseCost;
+    if (model.includes('flux2')) baseCost = 5.0;
+    else if (model.includes('flux1')) baseCost = 0.5;
+    else if (model.includes('chroma')) baseCost = 2.0;
+    else if (model.includes('qwen')) baseCost = 1.5;
+    else baseCost = 0.8; // z_image_turbo default
+
+    const estimatedCost = baseCost * pixelMultiplier * count;
+
+    const text = [
+      `Estimated image cost:`,
+      `  Model: ${model}`,
+      `  Size: ${w}x${h} (${count} image${count > 1 ? 's' : ''})`,
+      `  Estimated SPARK: ~${estimatedCost.toFixed(2)}`,
+      ``,
+      `Current balance:`,
+      `  SPARK: ${balanceResult.spark ?? 'N/A'}`,
+      `  SOGNI: ${balanceResult.sogni ?? 'N/A'}`,
+      ``,
+      `Note: Image cost estimates are approximate. Video estimates are precise (use type="video" with steps).`
+    ].join('\n');
+
+    return { content: [{ type: 'text', text }] };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Server setup
 // ---------------------------------------------------------------------------
@@ -856,6 +1095,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleConcatVideos(params);
       case 'list_media':
         return await handleListMedia(params);
+      case 'refine_result':
+        return await handleRefineResult(params);
+      case 'estimate_cost':
+        return await handleEstimateCost(params);
       default:
         return {
           content: [{ type: 'text', text: `Unknown tool: ${name}` }],

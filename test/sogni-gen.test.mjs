@@ -118,7 +118,7 @@ test('out-of-range seed returns a validation error', () => {
 });
 
 test('invalid token type returns a validation error', () => {
-  expectCliError(['--token-type', 'gold', 'a cat'], '--token-type must be "spark" or "sogni".');
+  expectCliError(['--token-type', 'gold', 'a cat'], '--token-type must be "spark", "sogni", or "auto".');
 });
 
 test('invalid seed strategy returns a validation error', () => {
