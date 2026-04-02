@@ -777,6 +777,210 @@ Use this before expensive generations (pro quality, large videos) to check if th
       },
     },
   },
+  {
+    name: 'manage_memory',
+    description: `Manage persistent user preferences that are respected across sessions. Memories are stored locally on the user's machine at ~/.config/sogni/memories.json.
+
+Use this to remember and recall user preferences like preferred style, aspect ratio, favorite artists, or any other context that should persist.
+
+Actions:
+  read   — List all saved memories (or get one by key)
+  write  — Save or update a memory (upsert by key)
+  delete — Remove a memory by key
+
+Always check memories before generating to respect saved preferences.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['read', 'write', 'delete'],
+          description: 'CRUD action',
+        },
+        key: {
+          type: 'string',
+          description: 'Memory key (required for write/delete, optional for read to get one specific memory)',
+        },
+        value: {
+          type: 'string',
+          description: 'Memory value (required for write)',
+        },
+        category: {
+          type: 'string',
+          enum: ['preference', 'fact', 'context'],
+          description: 'Memory category (default: preference)',
+        },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'manage_personality',
+    description: `Manage custom personality instructions that shape how the agent behaves. Stored at ~/.config/sogni/personality.txt.
+
+Actions:
+  get   — Read current personality instructions
+  set   — Save new personality instructions
+  clear — Reset to default personality
+
+Example personalities: "Be concise, skip small talk", "Always suggest cinematic lighting", "Use a warm and encouraging tone"`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['get', 'set', 'clear'],
+          description: 'Action to perform',
+        },
+        text: {
+          type: 'string',
+          description: 'Personality instructions (required for set)',
+        },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'manage_personas',
+    description: `Manage named personas — people with saved reference photos and optional voice clips for identity-preserving generation. Stored at ~/.config/sogni/personas/.
+
+Actions:
+  list    — List all saved personas
+  add     — Add a new persona with a reference photo
+  remove  — Remove a persona and its files
+  resolve — Look up a persona by name, tag, or relationship pronoun ("me", "my wife", etc.)
+
+Personas enable identity-preserving generation: "generate me as a superhero" works because the agent knows who "me" is and has their reference photo.
+
+For video with voice cloning, provide a voice_clip_path when adding the persona.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['list', 'add', 'remove', 'resolve'],
+          description: 'CRUD action',
+        },
+        name: {
+          type: 'string',
+          description: 'Persona name (required for add/remove/resolve)',
+        },
+        photo_path: {
+          type: 'string',
+          description: 'Path to reference photo (required for add)',
+        },
+        relationship: {
+          type: 'string',
+          enum: ['self', 'partner', 'child', 'friend', 'pet'],
+          description: 'Relationship to user (default: friend). "self" enables "me"/"myself" pronoun matching.',
+        },
+        description: {
+          type: 'string',
+          description: 'Appearance description for prompt engineering',
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Nicknames or aliases for matching',
+        },
+        voice: {
+          type: 'string',
+          description: 'Voice description (accent, tone, pitch) for prompt engineering',
+        },
+        voice_clip_path: {
+          type: 'string',
+          description: 'Path to voice clip audio file for LTX-2.3 voice cloning',
+        },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'apply_style',
+    description: `Apply an artistic style to an image. Wraps image editing with style-specific prompt engineering.
+
+Reference artists and styles BY NAME for best results:
+  - "Andy Warhol pop art"
+  - "Studio Ghibli watercolor"
+  - "Banksy street art"
+  - "oil painting in the style of Vermeer"
+  - "cyberpunk neon aesthetic"
+
+For photos with people, the prompt should include "Preserve all facial features, expressions, and identity."`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt: {
+          type: 'string',
+          description: 'Style description (reference artists BY NAME for best results)',
+        },
+        source_image: {
+          type: 'string',
+          description: 'Path to image to stylize',
+        },
+        model: {
+          type: 'string',
+          description: 'Model override (default: qwen_image_edit_2511_fp8_lightning)',
+        },
+        width: {
+          type: 'number',
+          description: 'Output width',
+        },
+        height: {
+          type: 'number',
+          description: 'Output height',
+        },
+      },
+      required: ['prompt', 'source_image'],
+    },
+  },
+  {
+    name: 'change_angle',
+    description: `Generate a photo from a different camera angle using Qwen + Multiple Angles LoRA.
+
+Azimuth options: front, front-right, right, back-right, back, back-left, left, front-left
+Elevation options: low-angle, eye-level, elevated, high-angle
+Distance options: close-up, medium, wide
+
+Maps common user terms:
+  "from the left" → left
+  "looking up at" → low-angle
+  "3/4 view" → front-right
+  "portrait" → front-right eye-level medium`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        source_image: {
+          type: 'string',
+          description: 'Path to source image',
+        },
+        azimuth: {
+          type: 'string',
+          enum: ['front', 'front-right', 'right', 'back-right', 'back', 'back-left', 'left', 'front-left'],
+          description: 'Horizontal camera angle (default: front-right)',
+        },
+        elevation: {
+          type: 'string',
+          enum: ['low-angle', 'eye-level', 'elevated', 'high-angle'],
+          description: 'Vertical camera angle (default: eye-level)',
+        },
+        distance: {
+          type: 'string',
+          enum: ['close-up', 'medium', 'wide'],
+          description: 'Camera distance (default: medium)',
+        },
+        prompt: {
+          type: 'string',
+          description: 'Subject description (optional, helps preserve identity)',
+        },
+        lora_strength: {
+          type: 'number',
+          description: 'LoRA strength 0.1-1.0 (default: 0.9, lower preserves more original appearance)',
+        },
+      },
+      required: ['source_image'],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1060,6 +1264,98 @@ async function handleEstimateCost(params) {
   }
 }
 
+async function handleManageMemory(params) {
+  const action = validateEnum(params.action, ['read', 'write', 'delete'], 'action');
+  if (action === 'read') {
+    const args = ['--json'];
+    if (params.key) {
+      args.push('--memory-get', sanitizeString(params.key, 'key'));
+    } else {
+      args.push('--memory-list');
+    }
+    return runAndFormat(args, { timeoutMs: 5_000, requireCredentials: false });
+  } else if (action === 'write') {
+    if (!params.key || !params.value) {
+      return { content: [{ type: 'text', text: 'Error: "key" and "value" are required for write.' }], isError: true };
+    }
+    const args = ['--json', '--memory-set', sanitizeString(params.key, 'key'), sanitizeString(params.value, 'value')];
+    if (params.category) args.push('--memory-category', validateEnum(params.category, ['preference', 'fact', 'context'], 'category'));
+    return runAndFormat(args, { timeoutMs: 5_000, requireCredentials: false });
+  } else {
+    if (!params.key) {
+      return { content: [{ type: 'text', text: 'Error: "key" is required for delete.' }], isError: true };
+    }
+    const args = ['--json', '--memory-remove', sanitizeString(params.key, 'key')];
+    return runAndFormat(args, { timeoutMs: 5_000, requireCredentials: false });
+  }
+}
+
+async function handleManagePersonality(params) {
+  const action = validateEnum(params.action, ['get', 'set', 'clear'], 'action');
+  if (action === 'get') {
+    return runAndFormat(['--json', '--personality-get'], { timeoutMs: 5_000, requireCredentials: false });
+  } else if (action === 'set') {
+    if (!params.text) {
+      return { content: [{ type: 'text', text: 'Error: "text" is required for set.' }], isError: true };
+    }
+    return runAndFormat(['--json', '--personality-set', sanitizeString(params.text, 'text')], { timeoutMs: 5_000, requireCredentials: false });
+  } else {
+    return runAndFormat(['--json', '--personality-clear'], { timeoutMs: 5_000, requireCredentials: false });
+  }
+}
+
+async function handleManagePersonas(params) {
+  const action = validateEnum(params.action, ['list', 'add', 'remove', 'resolve'], 'action');
+  if (action === 'list') {
+    return runAndFormat(['--json', '--persona-list'], { timeoutMs: 5_000, requireCredentials: false });
+  } else if (action === 'add') {
+    if (!params.name || !params.photo_path) {
+      return { content: [{ type: 'text', text: 'Error: "name" and "photo_path" are required for add.' }], isError: true };
+    }
+    const args = ['--json', '--persona-add', sanitizeString(params.name, 'name'), '--ref', sanitizeString(params.photo_path, 'photo_path')];
+    if (params.relationship) args.push('--relationship', validateEnum(params.relationship, ['self', 'partner', 'child', 'friend', 'pet'], 'relationship'));
+    if (params.description) args.push('--description', sanitizeString(params.description, 'description'));
+    if (params.tags?.length) args.push('--tags', params.tags.map((t, i) => sanitizeString(t, `tags[${i}]`)).join(','));
+    if (params.voice) args.push('--voice', sanitizeString(params.voice, 'voice'));
+    if (params.voice_clip_path) args.push('--voice-clip', sanitizeString(params.voice_clip_path, 'voice_clip_path'));
+    return runAndFormat(args, { timeoutMs: 10_000, requireCredentials: false });
+  } else if (action === 'remove') {
+    if (!params.name) {
+      return { content: [{ type: 'text', text: 'Error: "name" is required for remove.' }], isError: true };
+    }
+    return runAndFormat(['--json', '--persona-remove', sanitizeString(params.name, 'name')], { timeoutMs: 5_000, requireCredentials: false });
+  } else {
+    if (!params.name) {
+      return { content: [{ type: 'text', text: 'Error: "name" is required for resolve.' }], isError: true };
+    }
+    return runAndFormat(['--json', '--persona-resolve', sanitizeString(params.name, 'name')], { timeoutMs: 5_000, requireCredentials: false });
+  }
+}
+
+async function handleApplyStyle(params) {
+  sanitizeString(params.prompt, 'prompt');
+  sanitizeString(params.source_image, 'source_image');
+  const args = ['-c', params.source_image];
+  if (params.model) args.push('-m', sanitizeString(params.model, 'model'));
+  else args.push('-m', 'qwen_image_edit_2511_fp8_lightning');
+  if (params.width) args.push('-w', String(params.width));
+  if (params.height) args.push('-h', String(params.height));
+  args.push('--', `Apply style: ${params.prompt}`);
+  return runAndFormat(args, { timeoutMs: 60_000 });
+}
+
+async function handleChangeAngle(params) {
+  sanitizeString(params.source_image, 'source_image');
+  const args = ['--multi-angle', '-c', params.source_image];
+  if (params.azimuth) args.push('--azimuth', sanitizeString(params.azimuth, 'azimuth'));
+  if (params.elevation) args.push('--elevation', sanitizeString(params.elevation, 'elevation'));
+  if (params.distance) args.push('--distance', sanitizeString(params.distance, 'distance'));
+  if (params.lora_strength != null) args.push('--angle-strength', String(params.lora_strength));
+  if (params.prompt) args.push('--angle-description', sanitizeString(params.prompt, 'prompt'));
+  args.push('--', params.prompt || 'same subject from a different angle');
+  return runAndFormat(args, { timeoutMs: 60_000 });
+}
+
 // ---------------------------------------------------------------------------
 // Server setup
 // ---------------------------------------------------------------------------
@@ -1099,6 +1395,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleRefineResult(params);
       case 'estimate_cost':
         return await handleEstimateCost(params);
+      case 'manage_memory':
+        return await handleManageMemory(params);
+      case 'manage_personality':
+        return await handleManagePersonality(params);
+      case 'manage_personas':
+        return await handleManagePersonas(params);
+      case 'apply_style':
+        return await handleApplyStyle(params);
+      case 'change_angle':
+        return await handleChangeAngle(params);
       default:
         return {
           content: [{ type: 'text', text: `Unknown tool: ${name}` }],

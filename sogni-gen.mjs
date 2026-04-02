@@ -7,7 +7,7 @@
 import { SogniClientWrapper, ClientEvent, getMaxContextImages } from '@sogni-ai/sogni-client-wrapper';
 import JSON5 from 'json5';
 import { createHash, randomBytes } from 'crypto';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, statSync, readdirSync, realpathSync, lstatSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, statSync, readdirSync, realpathSync, lstatSync, unlinkSync, rmdirSync } from 'fs';
 import { join, dirname, basename, extname, sep } from 'path';
 import { homedir, tmpdir } from 'os';
 import sharp from 'sharp';
@@ -51,6 +51,10 @@ const DEFAULT_CREDENTIALS_PATH = join(homedir(), '.config', 'sogni', 'credential
 const DEFAULT_LAST_RENDER_PATH = join(homedir(), '.config', 'sogni', 'last-render.json');
 const DEFAULT_OPENCLAW_CONFIG_PATH = join(homedir(), '.openclaw', 'openclaw.json');
 const DEFAULT_MEDIA_INBOUND_DIR = join(homedir(), '.clawdbot', 'media', 'inbound');
+const DEFAULT_MEMORIES_PATH = join(homedir(), '.config', 'sogni', 'memories.json');
+const DEFAULT_PERSONALITY_PATH = join(homedir(), '.config', 'sogni', 'personality.txt');
+const DEFAULT_PERSONAS_DIR = join(homedir(), '.config', 'sogni', 'personas');
+const DEFAULT_PERSONAS_INDEX_PATH = join(homedir(), '.config', 'sogni', 'personas', 'index.json');
 const OPENCLAW_CONFIG_PATH = getEnv('OPENCLAW_CONFIG_PATH') || DEFAULT_OPENCLAW_CONFIG_PATH;
 const IS_OPENCLAW_INVOCATION = Boolean(getEnv('OPENCLAW_PLUGIN_CONFIG'));
 const RAW_ARGS = process.argv.slice(2);
@@ -204,6 +208,36 @@ function expandPromptVariation(prompt, index) {
     const options = group.split('|').map(s => s.trim());
     return options[index % options.length];
   });
+}
+
+// ---------------------------------------------------------------------------
+// Prompt sanitization — strip grid/collage-causing phrases for batch generation
+// Prevents models from rendering grids inside single images when count > 1.
+// ---------------------------------------------------------------------------
+const BATCH_SANITIZE_PATTERNS = [
+  /\b\d+\s+different\b/gi,
+  /\b\d+\s+versions?\b/gi,
+  /\b\d+\s+variations?\b/gi,
+  /\b\d+\s+separate\b/gi,
+  /\bdifferent\s+(?:expressions?|poses?|angles?|versions?|styles?)\b/gi,
+  /\bvarious\s+(?:expressions?|poses?|angles?)\b/gi,
+  /\bmultiple\s+(?:versions?|images?|photos?)\b/gi,
+  /\b(?:grid|collage|montage|triptych|side-by-side|split-screen|mood\s*board)\b/gi,
+  /\beach\s+(?:with|one|showing)\b/gi,
+  /\b(?:switch|mix)\s+up\b/gi,
+  /\bput\s+them\s+(?:all\s+)?together\b/gi,
+  /\ball\s+together\b/gi,
+  /\bin\s+one\s+image\b/gi,
+  /\brepeated?\s*(?:\d+\s*times?)?\b/gi,
+];
+
+function sanitizeBatchPrompt(prompt) {
+  let result = prompt;
+  for (const pattern of BATCH_SANITIZE_PATTERNS) {
+    result = result.replace(pattern, '');
+  }
+  // Clean up extra whitespace
+  return result.replace(/\s{2,}/g, ' ').trim();
 }
 
 function computePromptHashSeed(opts) {
@@ -759,7 +793,23 @@ const options = {
   extractLastFrameOutput: null,
   concatVideos: null, // --concat-videos <out> <clip1> <clip2> [...]
   concatVideosClips: null,
-  listMedia: null // --list-media [images|audio|all]
+  listMedia: null, // --list-media [images|audio|all]
+  // Memory, personality, persona commands
+  memoryAction: null, // set|get|list|remove
+  memoryKey: null,
+  memoryValue: null,
+  memoryCategory: null,
+  personalityAction: null, // set|get|clear
+  personalityText: null,
+  personaAction: null, // add|list|remove|resolve
+  personaName: null,
+  personaRelationship: null,
+  personaDescription: null,
+  personaTags: null,
+  personaVoice: null,
+  personaVoiceClip: null,
+  personaPhoto: null, // alias for --ref when used with --persona-add
+  noFilter: false // Disable NSFW content filter
 };
 const cliSet = {
   output: false,
@@ -1095,6 +1145,58 @@ for (let i = 0; i < args.length; i++) {
     } else {
       options.listMedia = 'images';
     }
+  // --- Memory commands ---
+  } else if (arg === '--memory-set') {
+    options.memoryAction = 'set';
+    options.memoryKey = requireFlagValue(args, i, arg); i++;
+    options.memoryValue = requireFlagValue(args, i, arg + ' (value)'); i++;
+  } else if (arg === '--memory-get') {
+    options.memoryAction = 'get';
+    options.memoryKey = requireFlagValue(args, i, arg); i++;
+  } else if (arg === '--memory-list') {
+    options.memoryAction = 'list';
+  } else if (arg === '--memory-remove' || arg === '--memory-delete') {
+    options.memoryAction = 'remove';
+    options.memoryKey = requireFlagValue(args, i, arg); i++;
+  } else if (arg === '--memory-category') {
+    options.memoryCategory = requireFlagValue(args, i, arg); i++;
+  // --- Personality commands ---
+  } else if (arg === '--personality-set') {
+    options.personalityAction = 'set';
+    options.personalityText = requireFlagValue(args, i, arg); i++;
+  } else if (arg === '--personality-get') {
+    options.personalityAction = 'get';
+  } else if (arg === '--personality-clear') {
+    options.personalityAction = 'clear';
+  // --- Persona commands ---
+  } else if (arg === '--persona-add') {
+    options.personaAction = 'add';
+    options.personaName = requireFlagValue(args, i, arg); i++;
+  } else if (arg === '--persona-list') {
+    options.personaAction = 'list';
+  } else if (arg === '--persona-remove' || arg === '--persona-delete') {
+    options.personaAction = 'remove';
+    options.personaName = requireFlagValue(args, i, arg); i++;
+  } else if (arg === '--persona-resolve') {
+    options.personaAction = 'resolve';
+    options.personaName = requireFlagValue(args, i, arg); i++;
+  } else if (arg === '--persona') {
+    // Shorthand: resolve persona + generate with context
+    options.personaAction = 'generate';
+    options.personaName = requireFlagValue(args, i, arg); i++;
+  } else if (arg === '--relationship') {
+    options.personaRelationship = requireFlagValue(args, i, arg); i++;
+  } else if (arg === '--description') {
+    options.personaDescription = requireFlagValue(args, i, arg); i++;
+  } else if (arg === '--tags') {
+    options.personaTags = requireFlagValue(args, i, arg).split(',').map(s => s.trim()); i++;
+  } else if (arg === '--voice') {
+    options.personaVoice = requireFlagValue(args, i, arg); i++;
+  } else if (arg === '--voice-clip') {
+    options.personaVoiceClip = requireFlagValue(args, i, arg); i++;
+  // --- Content filter ---
+  } else if (arg === '--no-filter') {
+    options.noFilter = true;
   } else if (arg === '--last-image') {
     // Use image from last render as reference/context
     if (existsSync(LAST_RENDER_PATH)) {
@@ -1204,10 +1306,35 @@ General:
   --extract-last-frame <video> <image>  Extract last frame from a video (safe ffmpeg wrapper)
   --concat-videos <out> <clips...>      Concatenate video clips (safe ffmpeg wrapper, min 2 clips)
   --list-media [type]   List recent inbound media files (images|audio|all, default: images)
+  --no-filter           Disable NSFW content filter
   --last                Show last render info (JSON)
   --json                Output JSON with all details
   --strict-size         Do not auto-adjust video size to satisfy i2v reference resizing constraints
   -q, --quiet           Suppress progress output
+
+Memory (persistent user preferences):
+  --memory-set <key> <value>  Save a preference (e.g. --memory-set preferred_style "watercolor")
+  --memory-get <key>          Get a specific memory
+  --memory-list               List all saved memories
+  --memory-remove <key>       Delete a memory
+  --memory-category <cat>     Category for --memory-set: preference|fact|context (default: preference)
+
+Personality (custom agent instructions):
+  --personality-set <text>    Set personality (e.g. --personality-set "Be concise, use cinematic lighting")
+  --personality-get           Show current personality
+  --personality-clear         Reset to default personality
+
+Personas (named people with reference photos):
+  --persona-add <name>        Add a persona (combine with --ref, --relationship, --description, --voice-clip)
+  --persona-list              List all saved personas
+  --persona-remove <name>     Remove a persona and its files
+  --persona-resolve <name>    Show persona details and file paths
+  --persona <name>            Generate using a persona's reference photo as context
+  --relationship <type>       Persona relationship: self|partner|child|friend|pet (default: friend)
+  --description <text>        Persona appearance description
+  --tags <names>              Comma-separated nicknames/aliases
+  --voice <text>              Voice description (accent, tone, pitch)
+  --voice-clip <path>         Voice clip audio file for LTX-2.3 voice cloning
 
 Image Models:
   z_image_turbo_bf16              Fast, general purpose (default)
@@ -1587,7 +1714,7 @@ if (options.video) {
   options.model = options.model || openclawConfig?.defaultImageModel || 'z_image_turbo_bf16';
 }
 
-if (!options.prompt && !options.estimateVideoCost && !options.multiAngle && !options.showBalance && !options.showVersion && !options.extractLastFrame && !options.concatVideos && !options.listMedia) {
+if (!options.prompt && !options.estimateVideoCost && !options.multiAngle && !options.showBalance && !options.showVersion && !options.extractLastFrame && !options.concatVideos && !options.listMedia && !options.memoryAction && !options.personalityAction && !(options.personaAction && options.personaAction !== 'generate')) {
   fatalCliError('No prompt provided. Use --help for usage.', { code: 'INVALID_ARGUMENT' });
 }
 
@@ -1939,6 +2066,177 @@ function saveLastRender(info) {
   } catch (e) {
     // Ignore save errors
   }
+}
+
+// ---------------------------------------------------------------------------
+// Memory system — persistent user preferences on disk
+// ---------------------------------------------------------------------------
+const MEMORIES_PATH = getEnv('SOGNI_MEMORIES_PATH') || DEFAULT_MEMORIES_PATH;
+
+function loadMemories() {
+  try {
+    if (existsSync(MEMORIES_PATH)) return JSON.parse(readFileSync(MEMORIES_PATH, 'utf8'));
+  } catch {}
+  return [];
+}
+
+function saveMemories(memories) {
+  const dir = dirname(MEMORIES_PATH);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(MEMORIES_PATH, JSON.stringify(memories, null, 2));
+}
+
+function memorySet(key, value, category = 'preference', source = 'user') {
+  const memories = loadMemories();
+  const existing = memories.findIndex(m => m.key === key);
+  const entry = { key, value, category, source, updatedAt: Date.now() };
+  if (existing >= 0) { memories[existing] = { ...memories[existing], ...entry }; }
+  else { memories.push({ id: randomBytes(8).toString('hex'), ...entry, createdAt: Date.now() }); }
+  saveMemories(memories);
+  return existing >= 0 ? 'updated' : 'created';
+}
+
+function memoryRemove(key) {
+  const memories = loadMemories();
+  const filtered = memories.filter(m => m.key !== key);
+  if (filtered.length === memories.length) return false;
+  saveMemories(filtered);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Personality system — custom instructions for agent behavior
+// ---------------------------------------------------------------------------
+const PERSONALITY_PATH = getEnv('SOGNI_PERSONALITY_PATH') || DEFAULT_PERSONALITY_PATH;
+
+function loadPersonality() {
+  try {
+    if (existsSync(PERSONALITY_PATH)) return readFileSync(PERSONALITY_PATH, 'utf8').trim();
+  } catch {}
+  return null;
+}
+
+function savePersonality(text) {
+  const dir = dirname(PERSONALITY_PATH);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(PERSONALITY_PATH, text);
+}
+
+function clearPersonality() {
+  try { if (existsSync(PERSONALITY_PATH)) unlinkSync(PERSONALITY_PATH); } catch {}
+}
+
+// ---------------------------------------------------------------------------
+// Persona system — named people with reference photos and voice clips
+// ---------------------------------------------------------------------------
+const PERSONAS_DIR = getEnv('SOGNI_PERSONAS_DIR') || DEFAULT_PERSONAS_DIR;
+const PERSONAS_INDEX_PATH = join(PERSONAS_DIR, 'index.json');
+
+function loadPersonas() {
+  try {
+    if (existsSync(PERSONAS_INDEX_PATH)) return JSON.parse(readFileSync(PERSONAS_INDEX_PATH, 'utf8'));
+  } catch {}
+  return [];
+}
+
+function savePersonasIndex(personas) {
+  if (!existsSync(PERSONAS_DIR)) mkdirSync(PERSONAS_DIR, { recursive: true });
+  writeFileSync(PERSONAS_INDEX_PATH, JSON.stringify(personas, null, 2));
+}
+
+function personaSlug(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+}
+
+function addPersona({ name, relationship, description, tags, voice, photoPath, voiceClipPath }) {
+  const personas = loadPersonas();
+  if (personas.find(p => p.name.toLowerCase() === name.toLowerCase())) {
+    throw new Error(`Persona "${name}" already exists. Remove it first or use a different name.`);
+  }
+  const slug = personaSlug(name);
+  const personaDir = join(PERSONAS_DIR, slug);
+  if (!existsSync(personaDir)) mkdirSync(personaDir, { recursive: true });
+
+  // Copy photo
+  let savedPhotoPath = null;
+  if (photoPath) {
+    const resolvedPhoto = expandHomePath(photoPath);
+    if (!existsSync(resolvedPhoto)) throw new Error(`Photo not found: ${resolvedPhoto}`);
+    const ext = extname(resolvedPhoto).toLowerCase() || '.jpg';
+    savedPhotoPath = join(personaDir, `photo${ext}`);
+    writeFileSync(savedPhotoPath, readFileSync(resolvedPhoto));
+  }
+
+  // Copy voice clip
+  let savedVoicePath = null;
+  if (voiceClipPath) {
+    const resolvedVoice = expandHomePath(voiceClipPath);
+    if (!existsSync(resolvedVoice)) throw new Error(`Voice clip not found: ${resolvedVoice}`);
+    const ext = extname(resolvedVoice).toLowerCase() || '.webm';
+    savedVoicePath = join(personaDir, `voice-clip${ext}`);
+    writeFileSync(savedVoicePath, readFileSync(resolvedVoice));
+  }
+
+  const persona = {
+    id: randomBytes(8).toString('hex'),
+    name,
+    slug,
+    relationship: relationship || 'friend',
+    description: description || '',
+    tags: tags || [],
+    voice: voice || null,
+    photoPath: savedPhotoPath,
+    voiceClipPath: savedVoicePath,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  personas.push(persona);
+  savePersonasIndex(personas);
+  return persona;
+}
+
+function removePersona(name) {
+  const personas = loadPersonas();
+  const idx = personas.findIndex(p => p.name.toLowerCase() === name.toLowerCase());
+  if (idx < 0) return false;
+  const persona = personas[idx];
+  // Remove persona directory
+  const personaDir = join(PERSONAS_DIR, persona.slug);
+  try {
+    if (existsSync(personaDir)) {
+      const entries = readdirSync(personaDir);
+      for (const entry of entries) {
+        const fp = join(personaDir, entry);
+        if (statSync(fp).isFile()) unlinkSync(fp);
+      }
+      rmdirSync(personaDir);
+    }
+  } catch {}
+  personas.splice(idx, 1);
+  savePersonasIndex(personas);
+  return true;
+}
+
+function resolvePersonaByName(name) {
+  const personas = loadPersonas();
+  // Match by name (case-insensitive)
+  let match = personas.find(p => p.name.toLowerCase() === name.toLowerCase());
+  if (match) return match;
+  // Match by tag
+  match = personas.find(p => p.tags?.some(t => t.toLowerCase() === name.toLowerCase()));
+  if (match) return match;
+  // Match implicit pronouns
+  const lower = name.toLowerCase();
+  if (lower === 'me' || lower === 'myself' || lower === 'i') {
+    match = personas.find(p => p.relationship === 'self');
+  } else if (lower.includes('wife') || lower.includes('husband') || lower.includes('partner')) {
+    match = personas.find(p => p.relationship === 'partner');
+  } else if (lower.includes('son') || lower.includes('daughter') || lower.includes('kid') || lower.includes('child')) {
+    match = personas.find(p => p.relationship === 'child');
+  } else if (lower.includes('dog') || lower.includes('cat') || lower.includes('pet')) {
+    match = personas.find(p => p.relationship === 'pet');
+  }
+  return match || null;
 }
 
 // Fetch image as buffer
@@ -2677,6 +2975,150 @@ async function main() {
 
     // --- Utility commands (no Sogni auth required) ---
 
+    // Memory commands
+    if (options.memoryAction) {
+      const jsonOut = options.json || JSON_ERROR_MODE;
+      if (options.memoryAction === 'list') {
+        const memories = loadMemories();
+        if (jsonOut) {
+          console.log(JSON.stringify({ success: true, type: 'memory-list', memories, timestamp: new Date().toISOString() }));
+        } else {
+          if (memories.length === 0) { console.log('No memories saved.'); }
+          else { memories.forEach(m => console.log(`  ${m.key}: ${m.value} [${m.category || 'preference'}]`)); }
+        }
+      } else if (options.memoryAction === 'get') {
+        const memories = loadMemories();
+        const found = memories.find(m => m.key === options.memoryKey);
+        if (jsonOut) {
+          console.log(JSON.stringify({ success: true, type: 'memory-get', key: options.memoryKey, found: !!found, memory: found || null, timestamp: new Date().toISOString() }));
+        } else {
+          console.log(found ? `${found.key}: ${found.value}` : `Memory "${options.memoryKey}" not found.`);
+        }
+      } else if (options.memoryAction === 'set') {
+        const action = memorySet(options.memoryKey, options.memoryValue, options.memoryCategory || 'preference');
+        if (jsonOut) {
+          console.log(JSON.stringify({ success: true, type: 'memory-set', action, key: options.memoryKey, value: options.memoryValue, timestamp: new Date().toISOString() }));
+        } else {
+          console.log(`Memory "${options.memoryKey}" ${action}.`);
+        }
+      } else if (options.memoryAction === 'remove') {
+        const removed = memoryRemove(options.memoryKey);
+        if (jsonOut) {
+          console.log(JSON.stringify({ success: true, type: 'memory-remove', removed, key: options.memoryKey, timestamp: new Date().toISOString() }));
+        } else {
+          console.log(removed ? `Memory "${options.memoryKey}" removed.` : `Memory "${options.memoryKey}" not found.`);
+        }
+      }
+      return;
+    }
+
+    // Personality commands
+    if (options.personalityAction) {
+      const jsonOut = options.json || JSON_ERROR_MODE;
+      if (options.personalityAction === 'get') {
+        const text = loadPersonality();
+        if (jsonOut) {
+          console.log(JSON.stringify({ success: true, type: 'personality-get', personality: text, timestamp: new Date().toISOString() }));
+        } else {
+          console.log(text || '(no personality set — using default)');
+        }
+      } else if (options.personalityAction === 'set') {
+        savePersonality(options.personalityText);
+        if (jsonOut) {
+          console.log(JSON.stringify({ success: true, type: 'personality-set', personality: options.personalityText, timestamp: new Date().toISOString() }));
+        } else {
+          console.log('Personality saved.');
+        }
+      } else if (options.personalityAction === 'clear') {
+        clearPersonality();
+        if (jsonOut) {
+          console.log(JSON.stringify({ success: true, type: 'personality-clear', timestamp: new Date().toISOString() }));
+        } else {
+          console.log('Personality cleared.');
+        }
+      }
+      return;
+    }
+
+    // Persona commands (non-generate)
+    if (options.personaAction && options.personaAction !== 'generate') {
+      const jsonOut = options.json || JSON_ERROR_MODE;
+      if (options.personaAction === 'list') {
+        const personas = loadPersonas();
+        if (jsonOut) {
+          console.log(JSON.stringify({ success: true, type: 'persona-list', personas, timestamp: new Date().toISOString() }));
+        } else {
+          if (personas.length === 0) { console.log('No personas saved.'); }
+          else { personas.forEach(p => console.log(`  ${p.name} (${p.relationship}) — ${p.description || 'no description'}${p.voiceClipPath ? ' [has voice]' : ''}`)); }
+        }
+      } else if (options.personaAction === 'add') {
+        const photoPath = options.personaPhoto || options.refImage;
+        if (!photoPath) {
+          fatalCliError('--persona-add requires a reference photo (--ref <path>).', { code: 'INVALID_ARGUMENT' });
+        }
+        const persona = addPersona({
+          name: options.personaName,
+          relationship: options.personaRelationship,
+          description: options.personaDescription,
+          tags: options.personaTags,
+          voice: options.personaVoice,
+          photoPath,
+          voiceClipPath: options.personaVoiceClip
+        });
+        if (jsonOut) {
+          console.log(JSON.stringify({ success: true, type: 'persona-add', persona, timestamp: new Date().toISOString() }));
+        } else {
+          console.log(`Persona "${persona.name}" saved (${persona.relationship}).`);
+          if (persona.photoPath) console.log(`  Photo: ${persona.photoPath}`);
+          if (persona.voiceClipPath) console.log(`  Voice: ${persona.voiceClipPath}`);
+        }
+      } else if (options.personaAction === 'remove') {
+        const removed = removePersona(options.personaName);
+        if (jsonOut) {
+          console.log(JSON.stringify({ success: true, type: 'persona-remove', removed, name: options.personaName, timestamp: new Date().toISOString() }));
+        } else {
+          console.log(removed ? `Persona "${options.personaName}" removed.` : `Persona "${options.personaName}" not found.`);
+        }
+      } else if (options.personaAction === 'resolve') {
+        const persona = resolvePersonaByName(options.personaName);
+        if (jsonOut) {
+          console.log(JSON.stringify({ success: true, type: 'persona-resolve', found: !!persona, persona: persona || null, timestamp: new Date().toISOString() }));
+        } else {
+          if (!persona) { console.log(`Persona "${options.personaName}" not found.`); }
+          else {
+            console.log(`  Name: ${persona.name}`);
+            console.log(`  Relationship: ${persona.relationship}`);
+            if (persona.description) console.log(`  Description: ${persona.description}`);
+            if (persona.tags?.length) console.log(`  Tags: ${persona.tags.join(', ')}`);
+            if (persona.voice) console.log(`  Voice: ${persona.voice}`);
+            if (persona.photoPath) console.log(`  Photo: ${persona.photoPath}`);
+            if (persona.voiceClipPath) console.log(`  Voice clip: ${persona.voiceClipPath}`);
+          }
+        }
+      }
+      return;
+    }
+
+    // Persona generate mode: resolve persona and inject as context image
+    if (options.personaAction === 'generate' && options.personaName) {
+      const persona = resolvePersonaByName(options.personaName);
+      if (!persona) {
+        fatalCliError(`Persona "${options.personaName}" not found. Use --persona-list to see available personas.`, { code: 'PERSONA_NOT_FOUND' });
+      }
+      if (persona.photoPath && existsSync(persona.photoPath)) {
+        options.contextImages.push(persona.photoPath);
+        if (!options.model) {
+          options.model = 'qwen_image_edit_2511_fp8_lightning';
+        }
+        log(`Using persona "${persona.name}" (${persona.relationship}) photo as context`);
+      }
+      // For video with voice, inject voice clip as ref-audio
+      if (options.video && persona.voiceClipPath && existsSync(persona.voiceClipPath)) {
+        options.refAudio = persona.voiceClipPath;
+        log(`Using persona "${persona.name}" voice clip`);
+      }
+    }
+
     if (options.extractLastFrame) {
       const videoPath = sanitizePath(options.extractLastFrame, '--extract-last-frame video');
       const outputPath = sanitizePath(options.extractLastFrameOutput, '--extract-last-frame output');
@@ -3173,9 +3615,11 @@ async function main() {
       const imagesPerCall = useVariations ? 1 : options.count;
 
       for (let vi = 0; vi < variationCount; vi++) {
-        const expandedPrompt = useVariations
+        let expandedPrompt = useVariations
           ? expandPromptVariation(options.prompt, vi)
           : options.prompt;
+        // Sanitize batch prompts to prevent grid/collage artifacts
+        if (imagesPerCall > 1) expandedPrompt = sanitizeBatchPrompt(expandedPrompt);
         if (useVariations) {
           log(`Variation ${vi + 1}/${variationCount}: "${expandedPrompt}"`);
         }

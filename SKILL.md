@@ -1,7 +1,7 @@
 ---
 name: sogni-gen
 version: "1.5.16"
-description: Generate images **and videos** using Sogni AI's decentralized network, with local credential/config files and optional local media inputs. Ask the agent to "draw", "generate", "create an image", or "make a video/animate" from a prompt or reference image.
+description: Creative AI studio — generate images, videos, and music using Sogni AI's decentralized network. Supports personas (named people with saved reference photos and voice clips), persistent memories (user preferences across sessions), custom personality, style transfer, angle synthesis, and multi-step creative workflows. Ask the agent to "draw", "generate", "create an image", "make a video/animate", "apply a style", or "generate me as a superhero".
 homepage: https://sogni.ai
 metadata:
   clawdbot:
@@ -191,6 +191,21 @@ node sogni-gen.mjs -q -o /tmp/cat.png "a cat wearing a hat"
 | `--extract-last-frame <video> <image>` | Extract last frame from video (safe ffmpeg wrapper) | - |
 | `--concat-videos <out> <clips...>` | Concatenate video clips (safe ffmpeg wrapper) | - |
 | `--list-media [type]` | List recent inbound media (images\|audio\|all) | images |
+| `--no-filter` | Disable NSFW content filter | - |
+| `--memory-set <key> <value>` | Save a user preference | - |
+| `--memory-get <key>` | Get a specific memory | - |
+| `--memory-list` | List all saved memories | - |
+| `--memory-remove <key>` | Delete a memory | - |
+| `--personality-set <text>` | Set custom agent personality instructions | - |
+| `--personality-get` | Show current personality | - |
+| `--personality-clear` | Reset personality to default | - |
+| `--persona-add <name>` | Add a persona (with --ref, --relationship, --description) | - |
+| `--persona-list` | List all saved personas | - |
+| `--persona-remove <name>` | Remove a persona and its files | - |
+| `--persona-resolve <name>` | Look up persona by name/tag/pronoun | - |
+| `--persona <name>` | Generate using persona's reference photo as context | - |
+| `--relationship <type>` | Persona relationship: self\|partner\|child\|friend\|pet | friend |
+| `--voice-clip <path>` | Voice clip audio for LTX-2.3 voice cloning | - |
 
 ## OpenClaw Config Defaults
 
@@ -692,7 +707,153 @@ Balance check example (`--json --balance`):
 
 ## Cost
 
-Uses Spark tokens from your Sogni account. 512x512 images are most cost-efficient.
+Uses Spark tokens from your Sogni account. 512x512 images are most cost-efficient. Use `--token-type auto` to automatically fall back to SOGNI tokens when SPARK is insufficient.
+
+## Persona System
+
+Personas are named people with saved reference photos and optional voice clips. They enable identity-preserving generation across sessions.
+
+### Managing Personas
+
+```bash
+# Add a persona with a reference photo
+node {{skillDir}}/sogni-gen.mjs --persona-add "Mark" --ref face.jpg --relationship self --description "30s male, brown hair, brown eyes"
+
+# Add with voice clip for video voice cloning
+node {{skillDir}}/sogni-gen.mjs --persona-add "Sarah" --ref sarah.jpg --relationship partner --voice-clip sarah-voice.webm --voice "warm alto with British accent"
+
+# List all personas
+node {{skillDir}}/sogni-gen.mjs --persona-list --json
+
+# Resolve a persona by name, tag, or pronoun
+node {{skillDir}}/sogni-gen.mjs --persona-resolve "me" --json
+
+# Generate using a persona (auto-injects photo as context)
+node {{skillDir}}/sogni-gen.mjs --persona "Mark" -o /tmp/hero.png "superhero in dramatic lighting"
+
+# Remove a persona
+node {{skillDir}}/sogni-gen.mjs --persona-remove "Mark"
+```
+
+### Persona Pipeline Rules
+
+When a user mentions a persona (by name, tag, or pronoun):
+
+1. **For images:** Use `--persona "Name" "prompt"` which auto-injects the persona's reference photo as context and selects the Qwen editing model
+2. **For video with voice cloning:** The persona's voice clip is auto-injected as `--ref-audio` when `--video` is combined with `--persona`
+3. **For video without voice clip:** Describe the voice in the prompt ("speaks in a warm alto with a British accent")
+
+**Pronoun matching:**
+- "me" / "myself" / "I" → persona with `relationship: self`
+- "my wife" / "my husband" / "my partner" → persona with `relationship: partner`
+- "my son" / "my daughter" / "my kid" → persona with `relationship: child`
+- "my dog" / "my cat" / "my pet" → persona with `relationship: pet`
+
+**Important:** User-uploaded photos are NOT personas. Only use `--persona` when referring to a saved persona by name or pronoun. For ad-hoc photos, use `-c` (context image) directly.
+
+## Memory System
+
+Memories are persistent key-value preferences stored locally at `~/.config/sogni/memories.json`.
+
+```bash
+# Save a preference
+node {{skillDir}}/sogni-gen.mjs --memory-set preferred_style "watercolor and soft lighting"
+node {{skillDir}}/sogni-gen.mjs --memory-set aspect_ratio "16:9"
+node {{skillDir}}/sogni-gen.mjs --memory-set favorite_artist "Studio Ghibli"
+
+# Read all memories
+node {{skillDir}}/sogni-gen.mjs --memory-list --json
+
+# Get one memory
+node {{skillDir}}/sogni-gen.mjs --memory-get preferred_style --json
+
+# Delete a memory
+node {{skillDir}}/sogni-gen.mjs --memory-remove preferred_style
+```
+
+**Agent behavior:** Before generating, check memories with `--memory-list` and respect saved preferences. If the user says "I always want watercolor style", save it with `--memory-set`. Categories: `preference` (default), `fact`, `context`.
+
+## Personality (Custom Agent Instructions)
+
+Users can set custom instructions that shape agent behavior, stored at `~/.config/sogni/personality.txt`.
+
+```bash
+# Set personality
+node {{skillDir}}/sogni-gen.mjs --personality-set "Be concise, always use cinematic lighting, suggest bold creative ideas"
+
+# Read current personality
+node {{skillDir}}/sogni-gen.mjs --personality-get --json
+
+# Clear (reset to default)
+node {{skillDir}}/sogni-gen.mjs --personality-clear
+```
+
+**Agent behavior:** Check personality on startup and adopt those instructions. Personality overrides default style but not hard constraints (safety, tool usage rules).
+
+## Style Transfer
+
+Apply artistic styles to existing images:
+
+```bash
+# Apply a named artist style
+node {{skillDir}}/sogni-gen.mjs -c photo.jpg -o /tmp/styled.png "Apply style: Andy Warhol pop art with bold primary colors"
+
+# Studio Ghibli transformation
+node {{skillDir}}/sogni-gen.mjs -c photo.jpg -o /tmp/ghibli.png "Apply style: Studio Ghibli watercolor with soft pastel sky and lush greenery"
+
+# For photos with people, always preserve identity
+node {{skillDir}}/sogni-gen.mjs -c portrait.jpg -o /tmp/styled.png "Apply style: oil painting in the style of Vermeer. Preserve all facial features, expressions, and identity."
+```
+
+**Tips:** Reference artists and styles BY NAME for best results. Use positive phrasing. For photos with people, always append identity preservation instructions.
+
+## Change Angle (Novel View Synthesis)
+
+Generate a photo from a different camera angle:
+
+```bash
+# 3/4 view
+node {{skillDir}}/sogni-gen.mjs --multi-angle -c subject.jpg --azimuth front-right "same subject"
+
+# Side view
+node {{skillDir}}/sogni-gen.mjs --multi-angle -c subject.jpg --azimuth left --elevation eye-level --distance medium "same subject"
+
+# Full 360 turntable
+node {{skillDir}}/sogni-gen.mjs --angles-360 -c subject.jpg "same subject"
+```
+
+**User term mapping:**
+- "from the left" / "side view" → `--azimuth left`
+- "3/4 view" / "three-quarter" → `--azimuth front-right`
+- "from behind" / "back" → `--azimuth back`
+- "looking up at" → `--elevation low-angle`
+- "bird's eye" / "top-down" → `--elevation high-angle`
+- "closeup" → `--distance close-up`
+
+## Creative Workflow Patterns
+
+### After Image Generation — Suggest Next Steps:
+- "Animate into a video" → `--video --ref <result>`
+- "Apply a different style" → `-c <result> "Apply style: ..."`
+- "Change the angle" → `--multi-angle -c <result>`
+- "Generate variations" → `-n 3 "{style1|style2|style3}"`
+- "Refine at higher quality" → use `refine_result` MCP tool or `-Q pro`
+
+### After Video Generation — Suggest Next Steps:
+- "Try different motion" → re-generate with adjusted prompt
+- "Add dialogue" → include spoken words in the LTX-2.3 prompt
+- "Make it longer" → increase `--duration`
+- "Combine videos" → `--concat-videos`
+
+### Music-to-Video Pipeline:
+1. Generate music (when available via MCP)
+2. Use the audio file as `--ref-audio` with `--workflow s2v` for music-synced video
+3. Or use `--workflow ia2v` to combine an image + audio into video
+
+### Multi-Persona Scene:
+1. Resolve all personas: `--persona-resolve "Mark" --json` and `--persona-resolve "Sarah" --json`
+2. Generate scene with both: `-c mark-photo.jpg -c sarah-photo.jpg "Mark and Sarah at a cafe, use face from picture 1 for Mark, face from picture 2 for Sarah"`
+3. Animate with one persona's voice: `--video --ref <scene.png> --ref-audio <mark-voice.webm> "Mark speaks..."`
 
 ## Troubleshooting
 

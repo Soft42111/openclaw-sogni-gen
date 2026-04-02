@@ -214,6 +214,11 @@ The MCP server exposes these tools to Claude Code and Claude Desktop:
 | `estimate_cost` | Estimate generation cost before running (precise for video, heuristic for images) |
 | `check_balance` | Show current SPARK/SOGNI token balances |
 | `list_models` | List all available models with speed estimates |
+| `manage_memory` | Save/read/delete persistent user preferences across sessions |
+| `manage_personality` | Get/set/clear custom agent personality instructions |
+| `manage_personas` | CRUD for named people with reference photos and voice clips |
+| `apply_style` | Apply artistic styles to images (Warhol, Ghibli, Banksy, etc.) |
+| `change_angle` | Generate a photo from a different camera angle |
 | `extract_last_frame` | Extract the last frame from a video as an image |
 | `concat_videos` | Concatenate multiple video clips into one |
 | `list_media` | List recent inbound media files |
@@ -425,6 +430,21 @@ Multi-angle mode auto-builds the `<sks>` prompt and applies the `multiple_angles
 --json                JSON output
 --strict-size         Do not auto-adjust i2v video size for reference resizing constraints
 -q, --quiet           Suppress progress
+--no-filter           Disable NSFW content filter
+--memory-set <k> <v>  Save a user preference
+--memory-get <key>    Get a specific memory
+--memory-list         List all saved memories
+--memory-remove <key> Delete a memory
+--personality-set <t> Set custom personality instructions
+--personality-get     Show current personality
+--personality-clear   Reset personality to default
+--persona-add <name>  Add persona (with --ref, --relationship, --description, --voice-clip)
+--persona-list        List all personas
+--persona-remove <n>  Remove a persona
+--persona-resolve <n> Look up a persona
+--persona <name>      Generate using persona's reference photo
+--relationship <type> self|partner|child|friend|pet
+--voice-clip <path>   Voice clip for LTX-2.3 voice cloning
 ```
 
 ### Quality Presets
@@ -463,6 +483,52 @@ node sogni-gen.mjs --token-type auto "a dragon eating tacos"
 ```
 
 This tries SPARK first (free daily tokens), then falls back to SOGNI if the balance is too low.
+
+### Personas
+
+Named people with saved reference photos and optional voice clips for identity-preserving generation:
+
+```bash
+# Add a persona
+node sogni-gen.mjs --persona-add "Mark" --ref face.jpg --relationship self --description "30s male, brown hair"
+
+# Add with voice clip for video voice cloning
+node sogni-gen.mjs --persona-add "Sarah" --ref sarah.jpg --relationship partner --voice-clip voice.webm
+
+# Generate using a persona (auto-injects photo as context)
+node sogni-gen.mjs --persona "Mark" -o hero.png "superhero in dramatic lighting"
+
+# List / remove
+node sogni-gen.mjs --persona-list
+node sogni-gen.mjs --persona-remove "Mark"
+```
+
+Personas are stored at `~/.config/sogni/personas/`. Pronouns like "me"/"myself" auto-resolve to the `self` persona. "my wife" resolves to `partner`, etc.
+
+### Memory (Persistent Preferences)
+
+Save preferences that agents respect across sessions:
+
+```bash
+node sogni-gen.mjs --memory-set preferred_style "watercolor and soft lighting"
+node sogni-gen.mjs --memory-set aspect_ratio "16:9"
+node sogni-gen.mjs --memory-list
+node sogni-gen.mjs --memory-remove preferred_style
+```
+
+Stored at `~/.config/sogni/memories.json`.
+
+### Personality (Custom Agent Instructions)
+
+Set how the agent should behave:
+
+```bash
+node sogni-gen.mjs --personality-set "Be concise, always use cinematic lighting"
+node sogni-gen.mjs --personality-get
+node sogni-gen.mjs --personality-clear
+```
+
+Stored at `~/.config/sogni/personality.txt`.
 
 ## Models
 
