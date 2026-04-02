@@ -1,6 +1,6 @@
 ---
 name: sogni-gen
-version: "1.6.0"
+version: "1.6.1"
 description: Creative AI studio — generate images, videos, and music using Sogni AI's decentralized network. Supports personas (named people with saved reference photos and voice clips), persistent memories (user preferences across sessions), custom personality, style transfer, angle synthesis, and multi-step creative workflows. Ask the agent to "draw", "generate", "create an image", "make a video/animate", "apply a style", or "generate me as a superhero".
 homepage: https://sogni.ai
 metadata:
@@ -40,6 +40,10 @@ metadata:
 # Sogni Image & Video Generation
 
 Generate **images and videos** using Sogni AI's decentralized GPU network.
+
+## MCP vs CLI Routing
+
+If sogni MCP tools are available in your session (e.g., `generate_image`, `manage_personas`), **prefer MCP tools over direct CLI invocation**. MCP tools handle input validation, credential checking, file downloads, and result formatting automatically. Only fall back to the CLI (`node sogni-gen.mjs ...`) if MCP tools are not registered in your environment.
 
 ## Setup
 

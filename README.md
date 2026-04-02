@@ -7,23 +7,28 @@
 🎨 Generate **images and videos** using [Sogni AI](https://sogni.ai)'s decentralized GPU network.
 
 Works as:
-- an [OpenClaw](https://github.com/OpenClaw/OpenClaw) plugin (recommended)
-- a skill source for Manus AI agent
-- an [MCP server](https://modelcontextprotocol.io/) for **Claude Code** and **Claude Desktop**
+- an [MCP server](https://modelcontextprotocol.io/) for **Claude Code**, **Claude Desktop**, and any MCP-compatible agent
+- an [OpenClaw](https://github.com/OpenClaw/OpenClaw) plugin
+- a skill source for [Hermes Agent](https://hermes-agent.nousresearch.com/), [Manus AI](https://manus.im), and other agent frameworks
+- a standalone Node.js CLI
 
-## Quick Start (OpenClaw + Manus)
+## Quick Start
 
 1. Create Sogni credentials (one-time): see [Setup](#setup).
-2. For OpenClaw, install the plugin:
+2. Install for your platform:
 
 ```bash
+# MCP (Claude Code — one command)
+claude mcp add sogni -- npx -y -p sogni-gen sogni-gen-mcp
+
+# OpenClaw
 openclaw plugins install sogni-gen
-```
 
-3. For Manus AI agent, point it to this repository:
+# Hermes Agent / Manus / other frameworks — point to this repo:
+# https://github.com/Sogni-AI/openclaw-sogni-gen
 
-```
-https://github.com/Sogni-AI/openclaw-sogni-gen
+# Standalone CLI
+npm install -g sogni-gen
 ```
 
 Then ask your agent:
@@ -37,9 +42,9 @@ Then ask your agent:
 - "Generate 3 variations of a sports car in red, blue, and green"
 - "Refine the last image at higher quality"
 
-## OpenClaw Installation (Recommended)
+## Installation
 
-### Plugin Install
+### OpenClaw Plugin
 
 ```bash
 openclaw plugins install sogni-gen
@@ -47,9 +52,9 @@ openclaw plugins install sogni-gen
 
 The installed plugin loads its behavior from [`SKILL.md`](./SKILL.md) via [`openclaw.plugin.json`](./openclaw.plugin.json).
 
-### Optional Install Helper
+### Hermes Agent / Manus / Other Frameworks
 
-[`llm.txt`](https://raw.githubusercontent.com/Sogni-AI/openclaw-sogni-gen/main/llm.txt) is now only a lightweight install/setup helper. It is not the primary behavior source for the installed OpenClaw plugin.
+Point the agent to this repository's [`SKILL.md`](./SKILL.md) for behavior guidance and [`llm.txt`](https://raw.githubusercontent.com/Sogni-AI/openclaw-sogni-gen/main/llm.txt) for install/setup help. The agent can then invoke `sogni-gen` via the CLI or MCP server.
 
 ### Manual Installation
 
