@@ -13,6 +13,7 @@ import { homedir, tmpdir } from 'os';
 import sharp from 'sharp';
 import { getEnv, hasEnv } from './env.mjs';
 import { PACKAGE_VERSION } from './version.mjs';
+import { assertSafeUrl } from './ssrf-guard.mjs';
 
 // ---------------------------------------------------------------------------
 // Path sanitization — defense-in-depth for any value that becomes a file path
@@ -2242,6 +2243,7 @@ function resolvePersonaByName(name) {
 // Fetch image as buffer
 async function fetchMediaBuffer(pathOrUrl) {
   if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
+    await assertSafeUrl(pathOrUrl);
     const response = await fetch(pathOrUrl);
     if (!response.ok) {
       const err = new Error(`Failed to fetch media (${response.status} ${response.statusText})`);
