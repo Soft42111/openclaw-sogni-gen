@@ -2,44 +2,47 @@
   <img src="https://raw.githubusercontent.com/Sogni-AI/openclaw-sogni-gen/main/docs/screenshot.jpg" alt="Telegram image render workflow" width="320" />
 </p>
 
-# Sogni Gen — AI Image & Video Generation
+# Sogni Gen - AI Image & Video Generation
 
-🎨 Generate **images and videos** using [Sogni AI](https://sogni.ai)'s decentralized GPU network.
+Sogni Gen gives AI agents image and video generation tools powered by [Sogni AI](https://sogni.ai)'s decentralized GPU network.
 
-Works as:
-- an [MCP server](https://modelcontextprotocol.io/) for **Claude Code**, **Claude Desktop**, and any MCP-compatible agent
-- an [OpenClaw](https://github.com/OpenClaw/OpenClaw) plugin
-- a skill source for [Hermes Agent](https://hermes-agent.nousresearch.com/), [Manus AI](https://manus.im), and other agent frameworks
-- a standalone Node.js CLI
+Use it in the setup you already have:
+- as an [MCP server](https://modelcontextprotocol.io/) for **Claude Code**, **Claude Desktop**, and any MCP-compatible agent
+- as an [OpenClaw](https://github.com/OpenClaw/OpenClaw) plugin
+- as a skill source for [Hermes Agent](https://hermes-agent.nousresearch.com/), [Manus AI](https://manus.im), and other agent frameworks
+- as a standalone Node.js CLI
+
+With Sogni Gen, an agent can:
+- generate images from prompts
+- edit and restyle existing images
+- create videos from text, images, audio, or reference video
+- save personas, preferences, and last-render state across sessions
+- check balances, list models, and refine previous results
 
 ## Quick Start
 
-1. Create Sogni credentials (one-time): see [Setup](#setup).
-2. Install for your platform:
+1. Create Sogni credentials once. See [Setup](#setup).
+2. Install the version that matches your environment:
 
 ```bash
-# MCP (Claude Code — one command)
+# MCP (Claude Code - one command)
 claude mcp add sogni -- npx -y -p sogni-gen sogni-gen-mcp
 
 # OpenClaw
 openclaw plugins install sogni-gen
 
-# Hermes Agent / Manus / other frameworks — point to this repo:
+# Hermes Agent / Manus / other frameworks
 # https://github.com/Sogni-AI/openclaw-sogni-gen
 
 # Standalone CLI
 npm install -g sogni-gen
 ```
 
-Then ask your agent:
+Then ask your agent to do something simple, for example:
 - "Generate an image of a sunset over mountains"
-- "Generate a pro quality image of a mountain landscape"
-- "Make a video of a cat playing piano"
 - "Edit this image to add a rainbow"
-- "Check my Sogni balance"
-- "Turn my selfie into James bond using photobooth"
-- "Animate the last 3 images you generated together"
-- "Generate 3 variations of a sports car in red, blue, and green"
+- "Make a video of a cat playing piano"
+- "Turn my selfie into James Bond using photobooth"
 - "Refine the last image at higher quality"
 
 ## Installation
