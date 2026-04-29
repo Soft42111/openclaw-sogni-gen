@@ -35,17 +35,17 @@ const PROCESS_TIMEOUT_MS = Math.max(IMAGE_TIMEOUT_SEC, VIDEO_TIMEOUT_SEC) * 1000
 
 const TESTS = [
   { key: 't2i', name: 'Text-to-image 512x512' },
-  { key: 't2v', name: 'Text-to-video 512x512' },
+  { key: 't2v', name: 'Text-to-video 640x640' },
   { key: 'i2v', name: 'Image-to-video 512x512' }
 ];
 
 const VIDEO_WORKFLOW_DEFAULT_MODELS = {
-  t2v: 'wan_v2.2-14b-fp8_t2v_lightx2v',
+  t2v: 'ltx23-22b-fp8_t2v_distilled',
   i2v: 'wan_v2.2-14b-fp8_i2v_lightx2v',
   s2v: 'wan_v2.2-14b-fp8_s2v_lightx2v',
-  ia2v: 'ltx2-19b-fp8_ia2v_distilled',
-  a2v: 'ltx2-19b-fp8_a2v_distilled',
-  v2v: 'ltx2-19b-fp8_v2v_distilled',
+  ia2v: 'ltx23-22b-fp8_ia2v_distilled',
+  a2v: 'ltx23-22b-fp8_a2v_distilled',
+  v2v: 'ltx23-22b-fp8_v2v_distilled',
   'animate-move': 'wan_v2.2-14b-fp8_animate-move_lightx2v',
   'animate-replace': 'wan_v2.2-14b-fp8_animate-replace_lightx2v'
 };
@@ -450,33 +450,33 @@ if (!shouldRun) {
 
       const t2vBudget = await checkVideoBudget({
         workflow: 't2v',
-        label: 'Text-to-video 512x512',
-        width: 512,
-        height: 512,
+        label: 'Text-to-video 640x640',
+        width: 640,
+        height: 640,
         count: 1
       });
       if (!t2vBudget.ok) {
         const reason = t2vBudget.reason || 'Insufficient balance for video render';
         status.setSkip('t2v');
-        await t.test('Text-to-video 512x512', { skip: reason }, () => {});
+        await t.test('Text-to-video 640x640', { skip: reason }, () => {});
       } else {
-        await runSubtest(t, status, 't2v', 'Text-to-video 512x512', async () => {
-          console.log(`Running test 2/${total}: Text-to-video 512x512`);
+        await runSubtest(t, status, 't2v', 'Text-to-video 640x640', async () => {
+          console.log(`Running test 2/${total}: Text-to-video 640x640`);
           const json = await runCli([
             '--json',
             '--video',
             '--workflow', 't2v',
-            '--width', '512',
-            '--height', '512',
+            '--width', '640',
+            '--height', '640',
             '--timeout', String(VIDEO_TIMEOUT_SEC),
             'soft clouds drifting across the sky'
-          ], 'Text-to-video 512x512');
+          ], 'Text-to-video 640x640');
 
           assert.equal(json.success, true);
           assert.equal(json.type, 'video');
           assert.equal(json.workflow, 't2v');
-          assert.equal(json.width, 512);
-          assert.equal(json.height, 512);
+          assert.equal(json.width, 640);
+          assert.equal(json.height, 640);
           assert.ok(Array.isArray(json.urls) && json.urls.length > 0, 'video url missing');
         });
       }

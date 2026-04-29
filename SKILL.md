@@ -1,7 +1,7 @@
 ---
 name: sogni-agent
 version: "2.0.0"
-description: Sogni Agent: Creative AI superpowers for all AI agent runtimes. Generates images, videos, and music using Sogni AI's decentralized GPU network. Supports personas (named people with saved reference photos and voice clips), persistent memories (user preferences across sessions), custom personality, style transfer, angle synthesis, and multi-step creative workflows. Ask the agent to "draw", "generate", "create an image", "make a video/animate", "apply a style", or "generate me as a superhero".
+description: Sogni Agent: Creative AI superpowers for all AI agent runtimes. Generates images and videos using Sogni AI's decentralized GPU network. Supports personas (named people with saved reference photos and voice clips), persistent memories (user preferences across sessions), custom personality, style transfer, angle synthesis, and multi-step creative workflows. Ask the agent to "draw", "generate", "create an image", "make a video/animate", "apply a style", or "generate me as a superhero".
 homepage: https://sogni.ai
 metadata:
   clawdbot:
@@ -41,9 +41,22 @@ metadata:
 
 Generate **images and videos** using Sogni AI's decentralized GPU network.
 
-## MCP vs CLI Routing
+## Install Request Policy
 
-If sogni MCP tools are available in your session (e.g., `generate_image`, `manage_personas`), **prefer MCP tools over direct CLI invocation**. MCP tools handle input validation, credential checking, file downloads, and result formatting automatically. Only fall back to the CLI (`node sogni-agent.mjs ...`) if MCP tools are not registered in your environment.
+When a user asks to install this plugin, skill, or Sogni Agent without specifically asking for MCP, install it as the command-line tool plus this skill by default. Do not add Claude MCP, Claude Desktop MCP, or an MCP server registration unless the user explicitly asks for MCP.
+
+Default install path:
+
+```bash
+npm install -g @sogni-ai/sogni-agent
+sogni-agent --version
+```
+
+Then configure the agent/runtime to use this `SKILL.md` and invoke the `sogni-agent` CLI.
+
+## Runtime Routing
+
+If sogni MCP tools are already available in your session (e.g., `generate_image`, `manage_personas`), **prefer MCP tools over direct CLI invocation**. MCP tools handle input validation, credential checking, file downloads, and result formatting automatically. Only fall back to the CLI (`node sogni-agent.mjs ...`) if MCP tools are not registered in your environment. This runtime preference does not change the install default above.
 
 ## Setup
 
@@ -62,13 +75,21 @@ chmod 600 ~/.config/sogni/credentials
 
 You can also export `SOGNI_API_KEY`, or `SOGNI_USERNAME` + `SOGNI_PASSWORD`, instead of writing the file.
 
-3. **Install dependencies (if cloned):**
+3. **Install the CLI and skill by default:**
+```bash
+npm install -g @sogni-ai/sogni-agent
+sogni-agent --version
+```
+
+Configure the agent/runtime to use this `SKILL.md`. Do not configure MCP unless the user specifically asks for MCP.
+
+4. **Install dependencies if working from a clone:**
 ```bash
 cd /path/to/sogni-agent
 npm i
 ```
 
-4. **Or install from npm (no git clone):**
+5. **Or install from npm into a local skill directory (no git clone):**
 ```bash
 mkdir -p ~/.clawdbot/skills
 cd ~/.clawdbot/skills
@@ -169,9 +190,10 @@ node sogni-agent.mjs -q -o /tmp/cat.png "a cat wearing a hat"
 | `--last-image` | Use last generated image as context/ref | - |
 | `--video, -v` | Generate video instead of image | - |
 | `--workflow <type>` | Video workflow (t2v\|i2v\|s2v\|ia2v\|a2v\|v2v\|animate-move\|animate-replace) | inferred |
-| `--fps <num>` | Frames per second (video) | 16 |
+| `--fps <num>` | Frames per second (video) | model default |
 | `--duration <sec>` | Duration in seconds (video) | 5 |
 | `--frames <num>` | Override total frames (video) | - |
+| `--target-resolution <px>` | Short-side video target preserving aspect ratio | - |
 | `--auto-resize-assets` | Auto-resize video assets | true |
 | `--no-auto-resize-assets` | Disable auto-resize | - |
 | `--estimate-video-cost` | Estimate video cost and exit (requires --steps) | - |
@@ -180,10 +202,15 @@ node sogni-agent.mjs -q -o /tmp/cat.png "a cat wearing a hat"
 | `--cn-guidance-end <n>` | ControlNet guidance end point (photobooth) | 0.3 |
 | `--ref <path>` | Reference image for video or photobooth face | required for video/photobooth |
 | `--ref-end <path>` | End frame for i2v interpolation | - |
-| `--ref-audio <path>` | Reference audio for s2v | - |
+| `--ref-audio <path>` | Uploaded/generated audio for ia2v/a2v, or s2v lip-sync | - |
+| `--audio-start <sec>` | Start offset into `--ref-audio` | - |
+| `--audio-duration <sec>` | Duration slice from `--ref-audio` | - |
+| `--reference-audio-identity <path>` | Voice identity clip for LTX native audio | - |
+| `--voice-persona <name>` | Use saved persona voice clip as LTX voice identity | - |
 | `--ref-video <path>` | Reference video for animate/v2v workflows | - |
+| `--video-start <sec>` | Start offset into `--ref-video` for segmented V2V/animate | - |
 | `--controlnet-name <name>` | ControlNet type for v2v: canny\|pose\|depth\|detailer | - |
-| `--controlnet-strength <n>` | ControlNet strength for v2v (0.0-1.0) | 0.8 |
+| `--controlnet-strength <n>` | ControlNet strength for v2v (0.0-1.0) | canny/pose/depth 0.85, detailer 1.0 |
 | `--sam2-coordinates <coords>` | SAM2 click coords for animate-replace (x,y or x1,y1;x2,y2) | - |
 | `--trim-end-frame` | Trim last frame for seamless video stitching | - |
 | `--first-frame-strength <n>` | Keyframe strength for start frame (0.0-1.0) | - |
@@ -194,6 +221,8 @@ node sogni-agent.mjs -q -o /tmp/cat.png "a cat wearing a hat"
 | `-q, --quiet` | No progress output | false |
 | `--extract-last-frame <video> <image>` | Extract last frame from video (safe ffmpeg wrapper) | - |
 | `--concat-videos <out> <clips...>` | Concatenate video clips (safe ffmpeg wrapper) | - |
+| `--concat-audio <path>` | Optional audio track to mux over `--concat-videos` output | - |
+| `--concat-audio-start <sec>` | Start offset into `--concat-audio` | - |
 | `--list-media [type]` | List recent inbound media (images\|audio\|all) | images |
 | `--no-filter` | Disable NSFW content filter | - |
 | `--memory-set <key> <value>` | Save a user preference | - |
@@ -228,14 +257,14 @@ When installed as an OpenClaw plugin, `sogni-agent` will read defaults from:
           "defaultEditModel": "qwen_image_edit_2511_fp8_lightning",
           "defaultPhotoboothModel": "coreml-sogniXLturbo_alpha1_ad",
           "videoModels": {
-            "t2v": "wan_v2.2-14b-fp8_t2v_lightx2v",
+            "t2v": "ltx23-22b-fp8_t2v_distilled",
             "i2v": "wan_v2.2-14b-fp8_i2v_lightx2v",
             "s2v": "wan_v2.2-14b-fp8_s2v_lightx2v",
-            "ia2v": "ltx2-19b-fp8_ia2v_distilled",
-            "a2v": "ltx2-19b-fp8_a2v_distilled",
+            "ia2v": "ltx23-22b-fp8_ia2v_distilled",
+            "a2v": "ltx23-22b-fp8_a2v_distilled",
             "animate-move": "wan_v2.2-14b-fp8_animate-move_lightx2v",
             "animate-replace": "wan_v2.2-14b-fp8_animate-replace_lightx2v",
-            "v2v": "ltx2-19b-fp8_v2v_distilled"
+            "v2v": "ltx23-22b-fp8_v2v_distilled"
           },
           "defaultVideoWorkflow": "t2v",
           "defaultNetwork": "fast",
@@ -284,10 +313,19 @@ Seed strategies: `prompt-hash` (deterministic) or `random`.
 
 | Model | Speed | Use Case |
 |-------|-------|----------|
-| `wan_v2.2-14b-fp8_i2v_lightx2v` | Fast | Default video generation |
+| `ltx23-22b-fp8_t2v_distilled` | Fast (~2-3min) | Default text-to-video with native dialogue/audio |
+| `ltx23-22b-fp8_i2v_distilled` | Fast (~2-3min) | Image-to-video with native dialogue/audio |
+| `ltx23-22b-fp8_ia2v_distilled` | Fast (~2-3min) | Image+audio-to-video |
+| `ltx23-22b-fp8_a2v_distilled` | Fast (~2-3min) | Audio-to-video |
+| `ltx23-22b-fp8_v2v_distilled` | Fast (~3min) | Video-to-video with ControlNet |
+| `seedance2` | Variable | Seedance 2.0 text-to-video alias, 4-15s, native audio |
+| `seedance2-fast` | Variable | Fast Seedance 2.0 text-to-video alias |
+| `seedance2-ia2v` | Variable | Seedance 2.0 image+audio-to-video alias |
+| `seedance2-v2v` | Variable | Seedance 2.0 video-to-video alias, no ControlNet |
+| `wan_v2.2-14b-fp8_i2v_lightx2v` | Fast | Simple image-to-video |
 | `wan_v2.2-14b-fp8_i2v` | Slow | Higher quality video |
 | `wan_v2.2-14b-fp8_t2v_lightx2v` | Fast | Text-to-video |
-| `wan_v2.2-14b-fp8_s2v_lightx2v` | Fast | Sound-to-video |
+| `wan_v2.2-14b-fp8_s2v_lightx2v` | Fast | Face lip-sync with uploaded audio |
 | `wan_v2.2-14b-fp8_animate-move_lightx2v` | Fast | Animate-move |
 | `wan_v2.2-14b-fp8_animate-replace_lightx2v` | Fast | Animate-replace |
 
@@ -303,7 +341,6 @@ Seed strategies: `prompt-hash` (deterministic) or `random`.
 | `ltx2-19b-fp8_a2v_distilled` | Fast (~2-3min) | Audio-to-video |
 | `ltx2-19b-fp8_v2v_distilled` | Fast (~3min) | Video-to-video with ControlNet |
 | `ltx2-19b-fp8_v2v` | Medium (~5min) | Video-to-video with ControlNet, quality |
-| `ltx23-22b-fp8_t2v_distilled` | Fast (~2-3min) | Text-to-video, LTX-2.3 |
 
 ## Image Editing with Context
 
@@ -417,7 +454,7 @@ Generate videos from a reference image:
 
 ```bash
 # Text-to-video (t2v)
-node sogni-agent.mjs --video "ocean waves at sunset"
+node sogni-agent.mjs --video "A narrator says \"welcome to the story\" as ocean waves crash"
 
 # Basic video from image
 node sogni-agent.mjs --video --ref cat.jpg -o cat.mp4 "cat walks around"
@@ -428,17 +465,29 @@ node sogni-agent.mjs --last-image --video "gentle camera pan"
 # Custom duration and FPS
 node sogni-agent.mjs --video --ref scene.png --duration 10 --fps 24 "zoom out slowly"
 
+# Bare "720p" / "HD" without exact pixels: preserve aspect via short-side target
+node sogni-agent.mjs --video --target-resolution 768 \
+  "A calm cinematic shot of lanterns drifting across a night lake"
+
+# Seedance 2.0 explicit text-to-video alias
+node sogni-agent.mjs --video -m seedance2 --duration 8 \
+  "A polished product reveal with native ambient sound"
+
 # Sound-to-video (s2v)
 node sogni-agent.mjs --video --ref face.jpg --ref-audio speech.m4a \
   -m wan_v2.2-14b-fp8_s2v_lightx2v "lip sync talking head"
 
-# Image+audio-to-video (ia2v, LTX)
-node sogni-agent.mjs --video --workflow ia2v --ref cover.jpg --ref-audio song.mp3 \
+# Image+audio-to-video (auto-routes to LTX 2.3 ia2v)
+node sogni-agent.mjs --video --ref cover.jpg --ref-audio song.mp3 \
   "music video with synchronized motion"
 
-# Audio-to-video (a2v, LTX)
-node sogni-agent.mjs --video --workflow a2v --ref-audio song.mp3 \
+# Audio-to-video (auto-routes to LTX 2.3 a2v)
+node sogni-agent.mjs --video --ref-audio song.mp3 \
   "abstract audio-reactive visualizer"
+
+# Persona/voice identity with LTX native audio
+node sogni-agent.mjs --video --reference-audio-identity voice.webm \
+  "NARRATOR: \"This is my voice.\""
 
 # LTX-2.3 text-to-video
 node sogni-agent.mjs --video -m ltx23-22b-fp8_t2v_distilled --duration 20 \
@@ -447,6 +496,11 @@ node sogni-agent.mjs --video -m ltx23-22b-fp8_t2v_distilled --duration 20 \
 # Animate (motion transfer)
 node sogni-agent.mjs --video --ref subject.jpg --ref-video motion.mp4 \
   --workflow animate-move "transfer motion"
+
+# Segment a longer reference video for local stitched workflows
+node sogni-agent.mjs --video --workflow v2v --ref-video dance.mp4 \
+  --video-start 10 --duration 8 --controlnet-name pose \
+  "robot dancing"
 ```
 
 ## Video-to-Video (V2V) with ControlNet
@@ -468,6 +522,13 @@ node sogni-agent.mjs --video --workflow v2v --ref-video scene.mp4 \
 ```
 
 ControlNet types: `canny` (edge detection), `pose` (body pose), `depth` (depth map), `detailer` (detail enhancement).
+Default V2V strengths are tuned from Sogni Chat: `canny`/`pose`/`depth` use `0.85` plus detailer assist, while `detailer` uses `1.0` for preservation. For Seedance V2V, use `-m seedance2-v2v` and omit ControlNet.
+
+```bash
+# Seedance V2V without ControlNet
+node sogni-agent.mjs --video --workflow v2v -m seedance2-v2v \
+  --ref-video input.mp4 "make the clip more cinematic"
+```
 
 ## Photo Restoration
 
@@ -578,7 +639,7 @@ node {{skillDir}}/sogni-agent.mjs -q --video -o /tmp/video.mp4 "A wide cinematic
 node {{skillDir}}/sogni-agent.mjs -q --video -m ltx23-22b-fp8_t2v_distilled -w 1920 -h 1088 -o /tmp/video.mp4 "A wide cinematic aerial shot opens over a rugged ocean coastline at golden hour, warm sunlight catching the cliff faces while white surf breaks against dark rock below. Low sea mist hangs over the water and bands of foam trace the shoreline as gulls wheel through the distance. The camera glides forward in one continuous pass, revealing the curve of the coast while wet stone flashes with reflected light and the scene keeps smooth stabilized motion from start to finish. The overall mood feels expansive and polished, with crisp environmental detail and steady travel-film energy."
 
 # HD / "4K" image-to-video: prefer LTX i2v
-node {{skillDir}}/sogni-agent.mjs -q --video --ref /path/to/image.png -m ltx2-19b-fp8_i2v_distilled -w 1920 -h 1088 -o /tmp/video.mp4 "A medium cinematic shot holds on the scene with clean subject separation and stable environmental detail as directional light shapes the surfaces and background depth. The camera performs a slow push-in while the main subject makes one subtle continuous movement, keeping posture and identity consistent from start to finish. Ambient motion in the background stays gentle and the overall clip remains smooth, stabilized, and visually coherent."
+node {{skillDir}}/sogni-agent.mjs -q --video --ref /path/to/image.png -m ltx23-22b-fp8_i2v_distilled -w 1920 -h 1088 -o /tmp/video.mp4 "A medium cinematic shot holds on the scene with clean subject separation and stable environmental detail as directional light shapes the surfaces and background depth. The camera performs a slow push-in while the main subject makes one subtle continuous movement, keeping posture and identity consistent from start to finish. Ambient motion in the background stays gentle and the overall clip remains smooth, stabilized, and visually coherent."
 
 # Photobooth: stylize a face photo
 node {{skillDir}}/sogni-agent.mjs -q --photobooth --ref /path/to/face.jpg -o /tmp/stylized.png "80s fashion portrait"
@@ -630,8 +691,9 @@ Use `--token-type auto` when the user's SPARK balance might be low. It tries SPA
 When the user asks for video in **"hd"**, **"1080p"**, **"4k"**, **"uhd"**, or **"high-res"**, do not use the default WAN video models.
 
 - For **text-to-video**, use `-m ltx23-22b-fp8_t2v_distilled`.
-- For **image-to-video**, use `-m ltx2-19b-fp8_i2v_distilled`.
+- For **image-to-video**, use `-m ltx23-22b-fp8_i2v_distilled`.
 - Prefer LTX-sized dimensions such as `-w 1920 -h 1088`.
+- For bare named resolutions such as "720p" without orientation or exact pixels, prefer `--target-resolution 768` or the closest requested short side instead of forcing landscape dimensions.
 - If the user explicitly asks for `vertical`, `portrait`, `story`, `reel`, `tiktok`, `square`, or `4:3`, apply the matching dimensions from the **Orientation Mapping** rules instead of defaulting to 16:9.
 - Rewrite the user's request using the **LTX-2.3 Prompt Rule** before invoking the command. Do not send short slogan-style prompts to LTX.
 - Treat "4k" as a signal to use the highest practical LTX path exposed by this skill, even if the exact output is not literal 3840x2160.
@@ -666,6 +728,8 @@ When a user asks to **animate from a video to an image** (or "continue" a video 
 
 This ensures visual continuity — the new clip picks up exactly where the previous one ended.
 
+When the final stitched output needs a single external soundtrack, add `--concat-audio /path/to/audio.mp3` and optional `--concat-audio-start <sec>` to the same `--concat-videos` command. This is the local-agent advantage over browser-only workflows: generate clips with Sogni, then use the safe FFmpeg wrapper to stitch and mux audio locally.
+
 **Do NOT run raw `ffmpeg` commands.** Always use `--extract-last-frame` and `--concat-videos` for video manipulation.
 
 **Always apply this pattern when:**
@@ -692,9 +756,9 @@ On error (with `--json`), the script returns a single JSON object like:
 ```json
 {
   "success": false,
-  "error": "Video width and height must be divisible by 16 (got 500x512).",
+  "error": "Reference image 2314x1200 would resize to 512x266, but both dimensions must be divisible by 16.",
   "errorCode": "INVALID_VIDEO_SIZE",
-  "hint": "Choose --width/--height divisible by 16. For i2v, also match the reference aspect ratio."
+  "hint": "Try: --width 1296 --height 672 (or omit --strict-size)"
 }
 ```
 
@@ -744,7 +808,7 @@ node {{skillDir}}/sogni-agent.mjs --persona-remove "Mark"
 When a user mentions a persona (by name, tag, or pronoun):
 
 1. **For images:** Use `--persona "Name" "prompt"` which auto-injects the persona's reference photo as context and selects the Qwen editing model
-2. **For video with voice cloning:** The persona's voice clip is auto-injected as `--ref-audio` when `--video` is combined with `--persona`
+2. **For video with voice cloning:** The persona's voice clip is used as `--reference-audio-identity` when `--video` is combined with `--persona`
 3. **For video without voice clip:** Describe the voice in the prompt ("speaks in a warm alto with a British accent")
 
 **Pronoun matching:**
@@ -848,22 +912,26 @@ node {{skillDir}}/sogni-agent.mjs --angles-360 -c subject.jpg "same subject"
 - "Add dialogue" → include spoken words in the LTX-2.3 prompt
 - "Make it longer" → increase `--duration`
 - "Combine videos" → `--concat-videos`
+- "Add one soundtrack over stitched clips" → `--concat-videos ... --concat-audio <audio>`
+- "Use a section of a source video/audio" → `--video-start`, `--audio-start`, and `--audio-duration`
 
 ### Music-to-Video Pipeline:
-1. Generate music (when available via MCP)
-2. Use the audio file as `--ref-audio` with `--workflow s2v` for music-synced video
-3. Or use `--workflow ia2v` to combine an image + audio into video
+1. Use the provided/generated audio file as `--ref-audio`
+2. If there is also a reference image, omit `--workflow` and let the CLI auto-select LTX 2.3 `ia2v`
+3. If there is no reference image, omit `--workflow` and let the CLI auto-select LTX 2.3 `a2v`
+4. Use `--workflow s2v` only for explicit face lip-sync with a face image
+5. If only part of the song/audio should drive the clip, pass `--audio-start <sec>` and optionally `--audio-duration <sec>`
 
 ### Multi-Persona Scene:
 1. Resolve all personas: `--persona-resolve "Mark" --json` and `--persona-resolve "Sarah" --json`
 2. Generate scene with both: `-c mark-photo.jpg -c sarah-photo.jpg "Mark and Sarah at a cafe, use face from picture 1 for Mark, face from picture 2 for Sarah"`
-3. Animate with one persona's voice: `--video --ref <scene.png> --ref-audio <mark-voice.webm> "Mark speaks..."`
+3. Animate with one persona's voice identity: `--video --ref <scene.png> --reference-audio-identity <mark-voice.webm> "MARK: \"Exact spoken words.\""`
 
 ## Troubleshooting
 
 - **Auth errors**: Check `SOGNI_API_KEY` or the credentials in `~/.config/sogni/credentials`
-- **i2v sizing gotchas**: Video sizes are constrained (min 480px, max 1536px, divisible by 16). For i2v, the client wrapper resizes the reference (`fit: inside`) and uses the resized dimensions as the final video size. Because this uses rounding, a requested size can still yield an invalid final size (example: `1024x1536` requested but ref becomes `1024x1535`).
-- **Auto-adjustment**: With a local `--ref`, the script will auto-adjust the requested size to avoid non-16 resized reference dimensions.
+- **i2v sizing gotchas**: Video sizes are model-specific. WAN uses min 480px, max 1536px, divisible by 16. LTX uses divisible-by-64 dimensions, and LTX 2.3 supports up to 3840px. For i2v, the client wrapper resizes the reference (`fit: inside`) and uses the resized dimensions as the final video size. Because this uses rounding, a requested size can still yield an invalid final size.
+- **Auto-adjustment**: With a local `--ref`, the script will auto-adjust the requested size to avoid resized reference dimensions that miss the model divisor.
 - **If the script adjusts your size but you want to fail instead**: pass `--strict-size` and it will print a suggested `--width/--height`.
 - **Timeouts**: Try a faster model or increase `-t` timeout
 - **No workers**: Check https://sogni.ai for network status

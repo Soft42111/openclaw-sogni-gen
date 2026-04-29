@@ -165,9 +165,89 @@ test('audio-only video input infers a2v and LTX audio-to-video default model', (
   ]);
   assert.equal(exitCode, 0);
   assert.ok(state?.lastVideoProject, 'createVideoProject was called');
-  assert.equal(state.lastVideoProject.modelId, 'ltx2-19b-fp8_a2v_distilled');
+  assert.equal(state.lastVideoProject.modelId, 'ltx23-22b-fp8_a2v_distilled');
   assert.equal(state.lastVideoProject.referenceAudio != null, true);
   assert.equal(state.lastVideoProject.referenceImage == null, true);
+});
+
+test('image plus audio infers LTX image-audio-to-video instead of WAN s2v by default', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    '--ref', SCREENSHOT_FIXTURE,
+    '--ref-audio', SCREENSHOT_FIXTURE,
+    'music video with synchronized motion'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastVideoProject, 'createVideoProject was called');
+  assert.equal(state.lastVideoProject.modelId, 'ltx23-22b-fp8_ia2v_distilled');
+  assert.equal(state.lastVideoProject.referenceImage != null, true);
+  assert.equal(state.lastVideoProject.referenceAudio != null, true);
+});
+
+test('lip-sync image plus audio prompt infers WAN s2v', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    '--ref', SCREENSHOT_FIXTURE,
+    '--ref-audio', SCREENSHOT_FIXTURE,
+    'lip sync talking head'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastVideoProject, 'createVideoProject was called');
+  assert.equal(state.lastVideoProject.modelId, 'wan_v2.2-14b-fp8_s2v_lightx2v');
+  assert.equal(state.lastVideoProject.referenceImage != null, true);
+  assert.equal(state.lastVideoProject.referenceAudio != null, true);
+});
+
+test('text-to-video defaults to LTX 2.3 for native audio capable generation', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    'a narrator says "welcome to the story" while ocean waves crash'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastVideoProject, 'createVideoProject was called');
+  assert.equal(state.lastVideoProject.modelId, 'ltx23-22b-fp8_t2v_distilled');
+  assert.equal(state.lastVideoProject.fps, 24);
+});
+
+test('target resolution scales video short side while preserving aspect', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    '--target-resolution', '768',
+    'wide cinematic landscape'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastVideoProject, 'createVideoProject was called');
+  assert.equal(state.lastVideoProject.modelId, 'ltx23-22b-fp8_t2v_distilled');
+  assert.equal(state.lastVideoProject.width, 1344);
+  assert.equal(state.lastVideoProject.height, 768);
+});
+
+test('seedance alias selects Seedance T2V without step overrides', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    '-m', 'seedance2',
+    'cinematic product reveal with ambient audio'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastVideoProject, 'createVideoProject was called');
+  assert.equal(state.lastVideoProject.modelId, 'seedance-2-0_t2v');
+  assert.equal(state.lastVideoProject.fps, 24);
+  assert.equal(Object.hasOwn(state.lastVideoProject, 'steps'), false);
+});
+
+test('seedance v2v alias does not require or send ControlNet', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    '--workflow', 'v2v',
+    '-m', 'seedance2',
+    '--ref-video', SCREENSHOT_FIXTURE,
+    'make the clip more cinematic'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastVideoProject, 'createVideoProject was called');
+  assert.equal(state.lastVideoProject.modelId, 'seedance-2-0_v2v');
+  assert.equal(state.lastVideoProject.referenceVideo != null, true);
+  assert.equal(state.lastVideoProject.controlNet, undefined);
 });
 
 test('looping is only supported with i2v workflow', () => {
@@ -265,6 +345,7 @@ test('video dims are normalized to 16-multiples instead of hard failing', () => 
   const { exitCode, stdout } = runCli([
     '--json',
     '--video',
+    '-m', 'wan_v2.2-14b-fp8_t2v_lightx2v',
     '--width', '500',
     '--height', '512',
     'ocean waves'
@@ -304,6 +385,47 @@ test('ltx2.3 distilled models use LTX-family defaults for cost estimation', () =
   assert.equal(state?.lastEstimateVideoCost?.modelId, 'ltx23-22b-fp8_t2v_distilled');
   assert.equal(state?.lastEstimateVideoCost?.steps, 8);
   assert.equal(state?.lastEstimateVideoCost?.duration, 20);
+});
+
+test('LTX 2.3 video dimensions use 64-multiple high-resolution rules', () => {
+  const { exitCode, stdout } = runCli([
+    '--json',
+    '--video',
+    '-m', 'ltx23-22b-fp8_t2v_distilled',
+    '--width', '3840',
+    '--height', '2160',
+    'cinematic ocean waves'
+  ]);
+  assert.equal(exitCode, 0);
+  const payload = JSON.parse(stdout.trim());
+  assert.equal(payload.model, 'ltx23-22b-fp8_t2v_distilled');
+  assert.equal(payload.width, 3840);
+  assert.equal(payload.height, 2112);
+});
+
+test('quoted dialogue auto-extends implicit video duration', () => {
+  const dialogue = 'one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty';
+  const { exitCode, state } = runCli([
+    '--video',
+    `a host says "${dialogue}" to camera`
+  ]);
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastVideoProject, 'createVideoProject was called');
+  assert.equal(state.lastVideoProject.duration, 10);
+});
+
+test('reference audio identity uses LTX native voice identity instead of ref-audio', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    '--reference-audio-identity', SCREENSHOT_FIXTURE,
+    'a narrator says "this is my voice"'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastVideoProject, 'createVideoProject was called');
+  assert.equal(state.lastVideoProject.modelId, 'ltx23-22b-fp8_t2v_distilled');
+  assert.equal(state.lastVideoProject.referenceAudioIdentity != null, true);
+  assert.equal(state.lastVideoProject.referenceAudio == null, true);
+  assert.ok(state.lastVideoProject.positivePrompt.includes('[SPEECH]'));
 });
 
 test('api key auth is accepted when username/password are absent', () => {
@@ -372,8 +494,8 @@ test('i2v auto-adjust handles near-matching aspects that still round to a non-16
   ]);
   assert.equal(exitCode, 0);
   assert.ok(state?.lastVideoProject);
-  // CLI chooses a compatible bounding box; wrapper will resize the reference inside it (to 480x720).
-  assert.equal(state.lastVideoProject.width, 512);
+  // CLI chooses a compatible bounding box near the WAN i2v model default.
+  assert.equal(state.lastVideoProject.width, 832);
   assert.equal(state.lastVideoProject.height, 720);
 });
 
@@ -485,6 +607,58 @@ test('valid --controlnet-name values are accepted (canny)', () => {
   assert.ok(!stderr.includes('Unknown --controlnet-name'), `Should accept canny, got: ${stderr}`);
 });
 
+test('v2v ControlNet applies chat-derived defaults', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    '--workflow', 'v2v',
+    '--ref-video', SCREENSHOT_FIXTURE,
+    '--controlnet-name', 'canny',
+    'stylized edges'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.equal(state.lastVideoProject.controlNet.name, 'canny');
+  assert.equal(state.lastVideoProject.controlNet.strength, 0.85);
+  assert.equal(state.lastVideoProject.detailerStrength, 0.6);
+});
+
+test('detailer ControlNet defaults to full preservation strength', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    '--workflow', 'v2v',
+    '--ref-video', SCREENSHOT_FIXTURE,
+    '--controlnet-name', 'detailer',
+    'enhance details'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.equal(state.lastVideoProject.controlNet.name, 'detailer');
+  assert.equal(state.lastVideoProject.controlNet.strength, 1.0);
+  assert.equal(state.lastVideoProject.detailerStrength, undefined);
+});
+
+test('audio and video start offsets are passed to video projects', () => {
+  const audioRun = runCli([
+    '--video',
+    '--ref-audio', SCREENSHOT_FIXTURE,
+    '--audio-start', '3.5',
+    '--audio-duration', '8',
+    'abstract visualizer'
+  ]);
+  assert.equal(audioRun.exitCode, 0);
+  assert.equal(audioRun.state.lastVideoProject.audioStart, 3.5);
+  assert.equal(audioRun.state.lastVideoProject.audioDuration, 8);
+
+  const videoRun = runCli([
+    '--video',
+    '--workflow', 'v2v',
+    '--ref-video', SCREENSHOT_FIXTURE,
+    '--video-start', '12.25',
+    '--controlnet-name', 'pose',
+    'robot dance'
+  ]);
+  assert.equal(videoRun.exitCode, 0);
+  assert.equal(videoRun.state.lastVideoProject.videoStart, 12.25);
+});
+
 test('--sam2-coordinates is only supported with animate-replace', () => {
   expectCliError(
     ['--video', '--workflow', 't2v', '--sam2-coordinates', '100,200', 'a cat'],
@@ -526,6 +700,15 @@ test('--concat-videos requires at least 2 clips', () => {
 
 test('--concat-videos with missing output arg returns an error', () => {
   expectCliError(['--concat-videos'], '--concat-videos (output path) requires a value.');
+});
+
+test('--concat-audio flags are recognized with concat-videos', () => {
+  const { stderr } = runCli([
+    '--concat-videos', '/tmp/out.mp4', '/tmp/missing-a.mp4', '/tmp/missing-b.mp4',
+    '--concat-audio', '/tmp/music.mp3',
+    '--concat-audio-start', '2.5'
+  ]);
+  assert.ok(!stderr.includes('Unknown option'), `Should recognize concat audio flags, got: ${stderr}`);
 });
 
 test('--list-media with valid type is recognized', () => {

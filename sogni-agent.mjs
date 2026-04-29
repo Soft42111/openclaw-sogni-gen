@@ -61,19 +61,388 @@ const IS_OPENCLAW_INVOCATION = Boolean(getEnv('OPENCLAW_PLUGIN_CONFIG'));
 const RAW_ARGS = process.argv.slice(2);
 const CLI_WANTS_JSON = RAW_ARGS.includes('--json');
 const JSON_ERROR_MODE = CLI_WANTS_JSON || IS_OPENCLAW_INVOCATION;
+const LTX23_WORKFLOW_MODELS = {
+  t2v: 'ltx23-22b-fp8_t2v_distilled',
+  i2v: 'ltx23-22b-fp8_i2v_distilled',
+  ia2v: 'ltx23-22b-fp8_ia2v_distilled',
+  a2v: 'ltx23-22b-fp8_a2v_distilled',
+  v2v: 'ltx23-22b-fp8_v2v_distilled'
+};
+
+const SEEDANCE_WORKFLOW_MODELS = {
+  t2v: 'seedance-2-0_t2v',
+  t2vFast: 'seedance-2-0-fast_t2v',
+  ia2v: 'seedance-2-0_ia2v',
+  v2v: 'seedance-2-0_v2v'
+};
+
+const VIDEO_MODEL_REGISTRY = {
+  [LTX23_WORKFLOW_MODELS.t2v]: {
+    workflow: 't2v',
+    family: 'ltx23',
+    defaultWidth: 1920,
+    defaultHeight: 1088,
+    minDimension: 640,
+    maxDimension: 3840,
+    dimensionMultiple: 64,
+    steps: 8,
+    guidance: 1.0,
+    fps: 24,
+    frameStep: 8,
+    minFrames: 25,
+    maxFrames: 505,
+    sampler: 'euler_ancestral',
+    scheduler: 'simple',
+    supportsNativeAudio: true
+  },
+  [LTX23_WORKFLOW_MODELS.i2v]: {
+    workflow: 'i2v',
+    family: 'ltx23',
+    defaultWidth: 1920,
+    defaultHeight: 1088,
+    minDimension: 640,
+    maxDimension: 3840,
+    dimensionMultiple: 64,
+    steps: 8,
+    guidance: 1.0,
+    fps: 24,
+    frameStep: 8,
+    minFrames: 25,
+    maxFrames: 505,
+    sampler: 'euler_ancestral',
+    scheduler: 'simple',
+    supportsNativeAudio: true
+  },
+  [LTX23_WORKFLOW_MODELS.ia2v]: {
+    workflow: 'ia2v',
+    family: 'ltx23',
+    defaultWidth: 1920,
+    defaultHeight: 1088,
+    minDimension: 640,
+    maxDimension: 3840,
+    dimensionMultiple: 64,
+    steps: 8,
+    guidance: 1.0,
+    fps: 24,
+    frameStep: 8,
+    minFrames: 25,
+    maxFrames: 505,
+    sampler: 'euler_ancestral',
+    scheduler: 'simple'
+  },
+  [LTX23_WORKFLOW_MODELS.a2v]: {
+    workflow: 'a2v',
+    family: 'ltx23',
+    defaultWidth: 1920,
+    defaultHeight: 1088,
+    minDimension: 640,
+    maxDimension: 3840,
+    dimensionMultiple: 64,
+    steps: 8,
+    guidance: 1.0,
+    fps: 24,
+    frameStep: 8,
+    minFrames: 25,
+    maxFrames: 505,
+    sampler: 'euler_ancestral',
+    scheduler: 'simple'
+  },
+  [LTX23_WORKFLOW_MODELS.v2v]: {
+    workflow: 'v2v',
+    family: 'ltx23',
+    defaultWidth: 1920,
+    defaultHeight: 1088,
+    minDimension: 640,
+    maxDimension: 3840,
+    dimensionMultiple: 64,
+    steps: 8,
+    guidance: 1.0,
+    fps: 25,
+    frameStep: 8,
+    minFrames: 25,
+    maxFrames: 505,
+    sampler: 'euler_ancestral',
+    scheduler: 'simple'
+  },
+  'wan_v2.2-14b-fp8_t2v_lightx2v': {
+    workflow: 't2v',
+    family: 'wan22',
+    defaultWidth: 640,
+    defaultHeight: 640,
+    minDimension: 480,
+    maxDimension: 1536,
+    dimensionMultiple: 16,
+    steps: 4,
+    guidance: 1.0,
+    fps: 32,
+    internalFps: 16,
+    frameStep: 1,
+    minFrames: 17,
+    maxFrames: 161,
+    sampler: 'euler',
+    scheduler: 'simple',
+    shift: 5.0
+  },
+  'wan_v2.2-14b-fp8_i2v_lightx2v': {
+    workflow: 'i2v',
+    family: 'wan22',
+    defaultWidth: 832,
+    defaultHeight: 480,
+    minDimension: 480,
+    maxDimension: 1536,
+    dimensionMultiple: 16,
+    steps: 4,
+    guidance: 1.0,
+    fps: 32,
+    internalFps: 16,
+    frameStep: 1,
+    minFrames: 17,
+    maxFrames: 321,
+    sampler: 'euler',
+    scheduler: 'simple',
+    shift: 8.0
+  },
+  'wan_v2.2-14b-fp8_s2v_lightx2v': {
+    workflow: 's2v',
+    family: 'wan22',
+    defaultWidth: 832,
+    defaultHeight: 480,
+    minDimension: 480,
+    maxDimension: 1536,
+    dimensionMultiple: 16,
+    steps: 4,
+    guidance: 1.0,
+    fps: 32,
+    internalFps: 16,
+    frameStep: 1,
+    minFrames: 17,
+    maxFrames: 321,
+    sampler: 'uni_pc',
+    scheduler: 'simple',
+    shift: 8.0
+  },
+  'wan_v2.2-14b-fp8_animate-move_lightx2v': {
+    workflow: 'animate-move',
+    family: 'wan22',
+    defaultWidth: 832,
+    defaultHeight: 480,
+    minDimension: 480,
+    maxDimension: 1536,
+    dimensionMultiple: 16,
+    steps: 4,
+    guidance: 1.0,
+    fps: 32,
+    internalFps: 16,
+    frameStep: 1,
+    minFrames: 17,
+    maxFrames: 321,
+    sampler: 'euler',
+    scheduler: 'simple',
+    shift: 8.0
+  },
+  'wan_v2.2-14b-fp8_animate-replace_lightx2v': {
+    workflow: 'animate-replace',
+    family: 'wan22',
+    defaultWidth: 832,
+    defaultHeight: 480,
+    minDimension: 480,
+    maxDimension: 1536,
+    dimensionMultiple: 16,
+    steps: 4,
+    guidance: 1.0,
+    fps: 32,
+    internalFps: 16,
+    frameStep: 1,
+    minFrames: 17,
+    maxFrames: 321,
+    sampler: 'euler',
+    scheduler: 'simple',
+    shift: 8.0
+  },
+  [SEEDANCE_WORKFLOW_MODELS.t2v]: {
+    workflow: 't2v',
+    family: 'seedance2',
+    defaultWidth: 1920,
+    defaultHeight: 1088,
+    minDimension: 1,
+    maxDimension: 99999,
+    dimensionMultiple: 1,
+    fps: 24,
+    frameStep: 1,
+    minFrames: 97,
+    maxFrames: 361,
+    supportsNativeAudio: true
+  },
+  [SEEDANCE_WORKFLOW_MODELS.t2vFast]: {
+    workflow: 't2v',
+    family: 'seedance2',
+    defaultWidth: 1280,
+    defaultHeight: 720,
+    minDimension: 1,
+    maxDimension: 1280,
+    dimensionMultiple: 1,
+    fps: 24,
+    frameStep: 1,
+    minFrames: 97,
+    maxFrames: 361,
+    supportsNativeAudio: true
+  },
+  [SEEDANCE_WORKFLOW_MODELS.ia2v]: {
+    workflow: 'ia2v',
+    family: 'seedance2',
+    defaultWidth: 1920,
+    defaultHeight: 1088,
+    minDimension: 1,
+    maxDimension: 99999,
+    dimensionMultiple: 1,
+    fps: 24,
+    frameStep: 1,
+    minFrames: 97,
+    maxFrames: 361
+  },
+  [SEEDANCE_WORKFLOW_MODELS.v2v]: {
+    workflow: 'v2v',
+    family: 'seedance2',
+    defaultWidth: 1920,
+    defaultHeight: 1088,
+    minDimension: 1,
+    maxDimension: 99999,
+    dimensionMultiple: 1,
+    fps: 24,
+    frameStep: 1,
+    minFrames: 96,
+    maxFrames: 360
+  }
+};
+
+for (const workflow of ['t2v', 'i2v', 'ia2v', 'a2v', 'v2v']) {
+  const ltx2Distilled = `ltx2-19b-fp8_${workflow}_distilled`;
+  const ltx2Quality = `ltx2-19b-fp8_${workflow}`;
+  const base = VIDEO_MODEL_REGISTRY[LTX23_WORKFLOW_MODELS[workflow]];
+  if (!base) continue;
+  VIDEO_MODEL_REGISTRY[ltx2Distilled] = {
+    ...base,
+    family: 'ltx2',
+    defaultWidth: 768,
+    defaultHeight: 768,
+    minDimension: 480,
+    maxDimension: 1536,
+    steps: 8,
+    supportsNativeAudio: workflow === 't2v' || workflow === 'i2v'
+  };
+  VIDEO_MODEL_REGISTRY[ltx2Quality] = {
+    ...VIDEO_MODEL_REGISTRY[ltx2Distilled],
+    steps: 20
+  };
+}
+
 const VIDEO_WORKFLOW_DEFAULT_MODELS = {
-  't2v': 'wan_v2.2-14b-fp8_t2v_lightx2v',
+  't2v': LTX23_WORKFLOW_MODELS.t2v,
   'i2v': 'wan_v2.2-14b-fp8_i2v_lightx2v',
   's2v': 'wan_v2.2-14b-fp8_s2v_lightx2v',
-  'ia2v': 'ltx2-19b-fp8_ia2v_distilled',
-  'a2v': 'ltx2-19b-fp8_a2v_distilled',
+  'ia2v': LTX23_WORKFLOW_MODELS.ia2v,
+  'a2v': LTX23_WORKFLOW_MODELS.a2v,
   'animate-move': 'wan_v2.2-14b-fp8_animate-move_lightx2v',
   'animate-replace': 'wan_v2.2-14b-fp8_animate-replace_lightx2v',
-  'v2v': 'ltx2-19b-fp8_v2v_distilled'
+  'v2v': LTX23_WORKFLOW_MODELS.v2v
 };
 
 function isLtx2Model(modelId) { return modelId?.startsWith('ltx2-') || modelId?.startsWith('ltx23-') || false; }
 function isWanModel(modelId) { return modelId?.startsWith('wan_') || false; }
+function isSeedanceModel(modelId) { return modelId?.startsWith('seedance-2-0') || false; }
+
+function resolveVideoControlNetStrength(name, explicitStrength) {
+  if (explicitStrength !== null && explicitStrength !== undefined) return explicitStrength;
+  return name === 'detailer' ? 1.0 : 0.85;
+}
+
+const VIDEO_MODEL_ALIASES = {
+  ltx23: LTX23_WORKFLOW_MODELS.t2v,
+  'ltx23-t2v': LTX23_WORKFLOW_MODELS.t2v,
+  'ltx23-i2v': LTX23_WORKFLOW_MODELS.i2v,
+  'ltx23-ia2v': LTX23_WORKFLOW_MODELS.ia2v,
+  'ltx23-a2v': LTX23_WORKFLOW_MODELS.a2v,
+  'ltx23-v2v': LTX23_WORKFLOW_MODELS.v2v,
+  wan22: 'wan_v2.2-14b-fp8_t2v_lightx2v',
+  'wan22-t2v': 'wan_v2.2-14b-fp8_t2v_lightx2v',
+  'wan22-i2v': 'wan_v2.2-14b-fp8_i2v_lightx2v',
+  'wan22-s2v': 'wan_v2.2-14b-fp8_s2v_lightx2v',
+  'wan22-animate-move': 'wan_v2.2-14b-fp8_animate-move_lightx2v',
+  'wan22-animate-replace': 'wan_v2.2-14b-fp8_animate-replace_lightx2v',
+  seedance2: SEEDANCE_WORKFLOW_MODELS.t2v,
+  'seedance2-t2v': SEEDANCE_WORKFLOW_MODELS.t2v,
+  'seedance2-fast': SEEDANCE_WORKFLOW_MODELS.t2vFast,
+  'seedance2-fast-t2v': SEEDANCE_WORKFLOW_MODELS.t2vFast,
+  'seedance2-ia2v': SEEDANCE_WORKFLOW_MODELS.ia2v,
+  'seedance2-v2v': SEEDANCE_WORKFLOW_MODELS.v2v
+};
+
+function resolveVideoModelAlias(modelId, workflow) {
+  if (!modelId) return modelId;
+  const key = String(modelId).trim().toLowerCase();
+  if (key === 'ltx23' && workflow && LTX23_WORKFLOW_MODELS[workflow]) {
+    return LTX23_WORKFLOW_MODELS[workflow];
+  }
+  if (key === 'wan22' && workflow) {
+    return VIDEO_WORKFLOW_DEFAULT_MODELS[workflow] || VIDEO_MODEL_ALIASES.wan22;
+  }
+  if (key === 'seedance2' && workflow && SEEDANCE_WORKFLOW_MODELS[workflow]) {
+    return SEEDANCE_WORKFLOW_MODELS[workflow];
+  }
+  return VIDEO_MODEL_ALIASES[key] || modelId;
+}
+
+function getBuiltinVideoModelConfig(modelId) {
+  if (!modelId) return null;
+  const id = resolveVideoModelAlias(modelId);
+  if (VIDEO_MODEL_REGISTRY[id]) return VIDEO_MODEL_REGISTRY[id];
+  const workflow = inferVideoWorkflowFromModel(id);
+  if (!workflow) return null;
+  if (id.startsWith('ltx23-') && LTX23_WORKFLOW_MODELS[workflow]) {
+    return VIDEO_MODEL_REGISTRY[LTX23_WORKFLOW_MODELS[workflow]] || null;
+  }
+  if (id.startsWith('ltx2-')) {
+    return {
+      workflow,
+      family: 'ltx2',
+      defaultWidth: 768,
+      defaultHeight: 768,
+      minDimension: 480,
+      maxDimension: 1536,
+      dimensionMultiple: 64,
+      steps: id.includes('distilled') ? 8 : 20,
+      guidance: 1.0,
+      fps: workflow === 'v2v' ? 25 : 24,
+      frameStep: 8,
+      minFrames: 25,
+      maxFrames: 321,
+      sampler: 'euler_ancestral',
+      scheduler: 'simple'
+    };
+  }
+  if (isWanModel(id)) {
+    return {
+      workflow,
+      family: 'wan22',
+      defaultWidth: workflow === 't2v' ? 640 : 832,
+      defaultHeight: workflow === 't2v' ? 640 : 480,
+      minDimension: 480,
+      maxDimension: 1536,
+      dimensionMultiple: 16,
+      steps: id.includes('lightx2v') ? 4 : 20,
+      guidance: 1.0,
+      fps: 32,
+      internalFps: 16,
+      frameStep: 1,
+      minFrames: 17,
+      maxFrames: workflow === 't2v' ? 161 : 321,
+      sampler: workflow === 's2v' ? 'uni_pc' : 'euler',
+      scheduler: 'simple',
+      shift: workflow === 't2v' ? 5.0 : 8.0
+    };
+  }
+  return null;
+}
 
 function expandHomePath(rawPath) {
   if (typeof rawPath !== 'string') return rawPath;
@@ -157,7 +526,7 @@ function normalizeVideoWorkflow(value) {
 
 function inferVideoWorkflowFromModel(modelId) {
   if (!modelId) return null;
-  const id = modelId.toLowerCase();
+  const id = resolveVideoModelAlias(modelId).toLowerCase();
   if (id.includes('animate-move')) return 'animate-move';
   if (id.includes('animate-replace')) return 'animate-replace';
   if (id.includes('_v2v')) return 'v2v';
@@ -169,10 +538,139 @@ function inferVideoWorkflowFromModel(modelId) {
   return null;
 }
 
+function promptExplicitlyDisablesSpeech(prompt) {
+  return /\b(no dialogue|no speech|without dialogue|without speech|silent|no voiceover|no voice-over)\b/i.test(prompt || '');
+}
+
+function containsQuotedDialogue(prompt) {
+  return /"[^"]{1,400}"/.test(prompt || '');
+}
+
+function promptMentionsSpeech(prompt) {
+  if (!prompt || promptExplicitlyDisablesSpeech(prompt)) return false;
+  return /\b(dialogue|speaks?|speaking|says?|said|asks?|asked|whispers?|shouts?|yells?|narrates?|narration|voiceover|voice-over|conversation|monologue|interview|talking|tells? (?:a )?story)\b/i.test(prompt);
+}
+
+function promptMentionsAudio(prompt) {
+  if (!prompt) return false;
+  return /\b(audio|sound|sounds|ambient sound|music|song|singing|sings|voice|voices|dialogue|speech|voiceover|voice-over|narration|foley)\b/i.test(prompt);
+}
+
+function promptLooksLikeLongFormStory(prompt) {
+  return /\b(story|screenplay|script|scene|episode|short film|commercial|storyboard|chapter|narrative)\b/i.test(prompt || '');
+}
+
+function promptLooksLikeLipSync(prompt) {
+  return /\b(lip[- ]?sync|lipsync|talking head|mouth movement|sync(?:hronize)? (?:the )?(?:lips|mouth|speech)|face speaks|sing along)\b/i.test(prompt || '');
+}
+
+function promptNeedsLtxNativeAudio(prompt) {
+  return !promptExplicitlyDisablesSpeech(prompt) && (
+    containsQuotedDialogue(prompt) ||
+    promptMentionsSpeech(prompt) ||
+    promptMentionsAudio(prompt) ||
+    promptLooksLikeLongFormStory(prompt)
+  );
+}
+
+function normalizeScreenplayDialogueQuotes(prompt) {
+  if (!prompt) return prompt;
+  return prompt
+    .replace(/^(\s*[A-Za-z][A-Za-z0-9 _.-]{0,48}:\s*)'([^'\n]{1,300})'/gm, '$1"$2"')
+    .replace(/([\s(])'([^'\n]{1,180})'(?=[\s).,!?:;]|$)/g, '$1"$2"');
+}
+
+function extractQuotedDialogueSegments(prompt) {
+  const matches = [];
+  const pattern = /"([^"]{1,800})"/g;
+  let match;
+  while ((match = pattern.exec(prompt || '')) !== null) {
+    matches.push(match[1]);
+  }
+  return matches;
+}
+
+function countWords(text) {
+  const words = String(text || '').trim().match(/\b[\w'-]+\b/g);
+  return words ? words.length : 0;
+}
+
+function quotedDialogueWordCount(prompt) {
+  return extractQuotedDialogueSegments(prompt).reduce((sum, segment) => sum + countWords(segment), 0);
+}
+
+function suggestedDurationForDialogue(prompt, currentDuration) {
+  const words = quotedDialogueWordCount(prompt);
+  if (words <= 0) return currentDuration;
+  const speechSeconds = Math.ceil(words / 2.5) + 2;
+  return Math.max(currentDuration, Math.min(20, speechSeconds));
+}
+
+function formatAudioIdPrompt(prompt, voiceName) {
+  if (!prompt || /\[VISUAL\]|\[SPEECH\]|\[SOUNDS\]/i.test(prompt)) return prompt;
+  const dialogue = extractQuotedDialogueSegments(prompt);
+  const speechLines = dialogue.length > 0
+    ? dialogue.map((line, index) => `${voiceName || `SPEAKER_${index + 1}`}: "${line}"`).join('\n')
+    : 'No spoken dialogue unless exact quoted words are present in the visual prompt.';
+  return [
+    '[VISUAL]',
+    prompt.trim(),
+    '',
+    '[SPEECH]',
+    speechLines,
+    '',
+    '[SOUNDS]',
+    'Use natural ambient sound that matches the scene unless the prompt specifies silence.'
+  ].join('\n');
+}
+
+function applyVideoPromptGuardrails() {
+  if (!options.video || !options.prompt) return;
+
+  const normalizedPrompt = normalizeScreenplayDialogueQuotes(options.prompt);
+  if (normalizedPrompt !== options.prompt) {
+    options.prompt = normalizedPrompt;
+    if (!options.quiet) {
+      console.error('Normalized screenplay dialogue to double quotes for video prompting.');
+    }
+  }
+
+  if (promptMentionsSpeech(options.prompt) && !containsQuotedDialogue(options.prompt) && !options.quiet) {
+    console.error(
+      'Warning: video prompt mentions speech/dialogue but has no exact spoken words in double quotes. ' +
+      'LTX native audio works best with concrete quoted dialogue.'
+    );
+  }
+
+  if (!options.frames && !cliSet.duration) {
+    const suggested = suggestedDurationForDialogue(options.prompt, options.duration);
+    if (suggested > options.duration) {
+      if (!options.quiet) {
+        console.error(`Auto-extended video duration from ${options.duration}s to ${suggested}s to fit quoted dialogue.`);
+      }
+      options.duration = suggested;
+    }
+  } else if (!options.quiet) {
+    const dialogueWords = quotedDialogueWordCount(options.prompt);
+    const hardBudget = Math.floor((options.frames ? options.frames / options.fps : options.duration) * 3.75);
+    if (dialogueWords > hardBudget) {
+      console.error(
+        `Warning: quoted dialogue has about ${dialogueWords} words, which may not fit in ` +
+        `${options.frames ? `${options.frames} frames` : `${options.duration}s`}.`
+      );
+    }
+  }
+
+  if (options.referenceAudioIdentity) {
+    options.prompt = formatAudioIdPrompt(options.prompt, options._voicePersonaResolvedName || options.voicePersonaName || 'SPEAKER');
+  }
+}
+
 function inferVideoWorkflowFromAssets(opts) {
   if (opts.refVideo && opts.videoControlNetName) return 'v2v';
   if (opts.refVideo) return 'animate-move';
   if (opts.refAudio && !opts.refImage && !opts.refImageEnd) return 'a2v';
+  if (opts.refAudio && opts.refImage) return promptLooksLikeLipSync(opts.prompt) ? 's2v' : 'ia2v';
   if (opts.refAudio) return 's2v';
   if (opts.refImage || opts.refImageEnd) return 'i2v';
   return null;
@@ -255,12 +753,17 @@ function computePromptHashSeed(opts) {
     outputFormat: opts.outputFormat || '',
     sampler: opts.sampler || '',
     scheduler: opts.scheduler || '',
+    targetResolution: opts.targetResolution ?? null,
     loras: opts.loras || [],
     loraStrengths: opts.loraStrengths || [],
     refImage: opts.refImage || '',
     refImageEnd: opts.refImageEnd || '',
     refAudio: opts.refAudio || '',
+    audioStart: opts.audioStart ?? null,
+    audioDuration: opts.audioDuration ?? null,
+    referenceAudioIdentity: opts.referenceAudioIdentity || '',
     refVideo: opts.refVideo || '',
+    videoStart: opts.videoStart ?? null,
     contextImages: opts.contextImages || [],
     autoResizeVideoAssets: opts.autoResizeVideoAssets,
     tokenType: opts.tokenType || '',
@@ -282,6 +785,17 @@ function parseNumberValue(raw, flagName) {
     fatalCliError(`${flagName} must be a number.`, {
       code: 'INVALID_ARGUMENT',
       details: { flag: flagName, value: raw }
+    });
+  }
+  return num;
+}
+
+function parseNonNegativeNumberValue(raw, flagName) {
+  const num = parseNumberValue(raw, flagName);
+  if (num < 0) {
+    fatalCliError(`${flagName} must be >= 0.`, {
+      code: 'INVALID_ARGUMENT',
+      details: { flag: flagName, value: raw, min: 0 }
     });
   }
   return num;
@@ -337,10 +851,41 @@ function parseSeedValue(raw, flagName) {
 }
 
 function getModelDefaults(modelId, config) {
-  if (!modelId || !config?.modelDefaults) return null;
-  const entry = config.modelDefaults[modelId];
-  if (!entry || typeof entry !== 'object') return null;
-  return entry;
+  if (!modelId) return null;
+  const normalizedModelId = resolveVideoModelAlias(modelId);
+  const builtin = getBuiltinVideoModelConfig(normalizedModelId);
+  const entry = config?.modelDefaults?.[normalizedModelId] || config?.modelDefaults?.[modelId];
+  if (!entry || typeof entry !== 'object') return builtin;
+  return { ...(builtin || {}), ...entry };
+}
+
+function selectDefaultVideoModel(workflow, opts, config) {
+  if (!workflow) return null;
+  const configured = config?.videoModels?.[workflow];
+  if (configured) return resolveVideoModelAlias(configured, workflow);
+  if (workflow === 'ia2v') return LTX23_WORKFLOW_MODELS.ia2v;
+  if (workflow === 'a2v') return LTX23_WORKFLOW_MODELS.a2v;
+  if (workflow === 'v2v') return LTX23_WORKFLOW_MODELS.v2v;
+  if (workflow === 't2v') return LTX23_WORKFLOW_MODELS.t2v;
+  if (workflow === 'i2v' && (opts.referenceAudioIdentity || promptNeedsLtxNativeAudio(opts.prompt) || opts.quality === 'hq' || opts.quality === 'pro')) {
+    return LTX23_WORKFLOW_MODELS.i2v;
+  }
+  return VIDEO_WORKFLOW_DEFAULT_MODELS[workflow] || null;
+}
+
+function dimensionsWithShortSide(width, height, shortSide) {
+  const w = Number(width);
+  const h = Number(height);
+  const s = Number(shortSide);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || !Number.isFinite(s) || w <= 0 || h <= 0 || s <= 0) {
+    return { width, height };
+  }
+  const currentShort = Math.min(w, h);
+  const scale = s / currentShort;
+  return {
+    width: Math.round(w * scale),
+    height: Math.round(h * scale)
+  };
 }
 
 function formatTokenValue(value) {
@@ -350,6 +895,7 @@ function formatTokenValue(value) {
 
 function inferDefaultVideoSteps(modelId) {
   const id = (modelId || '').toLowerCase();
+  if (isSeedanceModel(id)) return undefined;
   if (isLtx2Model(id) && id.includes('distilled')) return 8;
   if (id.includes('lightx2v')) return 4;
   if (id.includes('lightning') || id.includes('turbo') || id.includes('lcm')) return 4;
@@ -470,15 +1016,30 @@ function getImageDimensionsFromBuffer(buffer) {
   return getPngDimensions(buffer) || getJpegDimensions(buffer);
 }
 
+const DEFAULT_VIDEO_DIMENSION_RULES = {
+  minDimension: 480,
+  maxDimension: 1536,
+  dimensionMultiple: 16
+};
+const VIDEO_DIMENSION_MULTIPLE = DEFAULT_VIDEO_DIMENSION_RULES.dimensionMultiple;
+
+function videoDimensionRulesFromDefaults(modelDefaults) {
+  return {
+    minDimension: modelDefaults?.minDimension || DEFAULT_VIDEO_DIMENSION_RULES.minDimension,
+    maxDimension: modelDefaults?.maxDimension || DEFAULT_VIDEO_DIMENSION_RULES.maxDimension,
+    dimensionMultiple: modelDefaults?.dimensionMultiple || DEFAULT_VIDEO_DIMENSION_RULES.dimensionMultiple
+  };
+}
+
 /**
- * Resizes an image buffer to the nearest div-16 dimensions that maintain aspect ratio.
- * Uses sharp's fit:inside to preserve aspect, then rounds to div-16.
+ * Resizes an image buffer to model-compatible dimensions while maintaining aspect ratio.
+ * Uses sharp's fit:inside to preserve aspect, then rounds to the model divisor.
  */
-async function resizeImageBufferToDiv16(buffer, originalWidth, originalHeight) {
-  // Calculate target div-16 dimensions that maintain aspect ratio
-  const roundToDiv16 = (n) => Math.round(n / 16) * 16;
-  const targetWidth = Math.max(MIN_VIDEO_DIMENSION, Math.min(MAX_VIDEO_DIMENSION, roundToDiv16(originalWidth)));
-  const targetHeight = Math.max(MIN_VIDEO_DIMENSION, Math.min(MAX_VIDEO_DIMENSION, roundToDiv16(originalHeight)));
+async function resizeImageBufferForVideo(buffer, originalWidth, originalHeight, rules = DEFAULT_VIDEO_DIMENSION_RULES) {
+  const multiple = rules.dimensionMultiple || VIDEO_DIMENSION_MULTIPLE;
+  const roundToMultiple = (n) => Math.max(multiple, Math.round(n / multiple) * multiple);
+  const targetWidth = Math.max(rules.minDimension, Math.min(rules.maxDimension, roundToMultiple(originalWidth)));
+  const targetHeight = Math.max(rules.minDimension, Math.min(rules.maxDimension, roundToMultiple(originalHeight)));
 
   // Resize using sharp with fit:inside (maintains aspect ratio)
   const resizedBuffer = await sharp(buffer)
@@ -487,10 +1048,10 @@ async function resizeImageBufferToDiv16(buffer, originalWidth, originalHeight) {
 
   // Get actual dimensions after resize
   const metadata = await sharp(resizedBuffer).metadata();
-  const actualWidth = roundToDiv16(metadata.width);
-  const actualHeight = roundToDiv16(metadata.height);
+  const actualWidth = roundToMultiple(metadata.width);
+  const actualHeight = roundToMultiple(metadata.height);
 
-  // If dimensions aren't exactly div-16, do a final resize/crop
+  // If dimensions aren't exactly model-compatible, do a final resize/crop.
   if (metadata.width !== actualWidth || metadata.height !== actualHeight) {
     return await sharp(resizedBuffer)
       .resize(actualWidth, actualHeight, { fit: 'cover' })
@@ -500,23 +1061,21 @@ async function resizeImageBufferToDiv16(buffer, originalWidth, originalHeight) {
   return resizedBuffer;
 }
 
-const MIN_VIDEO_DIMENSION = 480;
-const MAX_VIDEO_DIMENSION = 1536;
-const VIDEO_DIMENSION_MULTIPLE = 16;
-
-function normalizeVideoDimensionsLikeWrapper(width, height) {
+function normalizeVideoDimensionsLikeWrapper(width, height, rules = DEFAULT_VIDEO_DIMENSION_RULES) {
   let targetWidth = Number(width);
   let targetHeight = Number(height);
   let adjusted = false;
 
-  const effectiveMin = MIN_VIDEO_DIMENSION;
+  const effectiveMin = rules.minDimension || DEFAULT_VIDEO_DIMENSION_RULES.minDimension;
+  const effectiveMax = rules.maxDimension || DEFAULT_VIDEO_DIMENSION_RULES.maxDimension;
+  const effectiveMultiple = rules.dimensionMultiple || DEFAULT_VIDEO_DIMENSION_RULES.dimensionMultiple;
 
   if (!Number.isFinite(targetWidth) || !Number.isFinite(targetHeight)) {
     return { width: targetWidth, height: targetHeight, adjusted: false };
   }
 
-  if (targetWidth > MAX_VIDEO_DIMENSION || targetHeight > MAX_VIDEO_DIMENSION) {
-    const scaleFactor = Math.min(MAX_VIDEO_DIMENSION / targetWidth, MAX_VIDEO_DIMENSION / targetHeight);
+  if (targetWidth > effectiveMax || targetHeight > effectiveMax) {
+    const scaleFactor = Math.min(effectiveMax / targetWidth, effectiveMax / targetHeight);
     targetWidth = Math.floor(targetWidth * scaleFactor);
     targetHeight = Math.floor(targetHeight * scaleFactor);
     adjusted = true;
@@ -527,15 +1086,15 @@ function normalizeVideoDimensionsLikeWrapper(width, height) {
     targetWidth = Math.floor(targetWidth * scaleFactor);
     targetHeight = Math.floor(targetHeight * scaleFactor);
     adjusted = true;
-    if (targetWidth > MAX_VIDEO_DIMENSION || targetHeight > MAX_VIDEO_DIMENSION) {
-      const downscaleFactor = Math.min(MAX_VIDEO_DIMENSION / targetWidth, MAX_VIDEO_DIMENSION / targetHeight);
+    if (targetWidth > effectiveMax || targetHeight > effectiveMax) {
+      const downscaleFactor = Math.min(effectiveMax / targetWidth, effectiveMax / targetHeight);
       targetWidth = Math.floor(targetWidth * downscaleFactor);
       targetHeight = Math.floor(targetHeight * downscaleFactor);
     }
   }
 
-  const roundedWidth = Math.floor(targetWidth / VIDEO_DIMENSION_MULTIPLE) * VIDEO_DIMENSION_MULTIPLE;
-  const roundedHeight = Math.floor(targetHeight / VIDEO_DIMENSION_MULTIPLE) * VIDEO_DIMENSION_MULTIPLE;
+  const roundedWidth = Math.floor(targetWidth / effectiveMultiple) * effectiveMultiple;
+  const roundedHeight = Math.floor(targetHeight / effectiveMultiple) * effectiveMultiple;
   if (roundedWidth !== targetWidth || roundedHeight !== targetHeight) {
     adjusted = true;
   }
@@ -543,11 +1102,11 @@ function normalizeVideoDimensionsLikeWrapper(width, height) {
   targetHeight = roundedHeight;
 
   if (targetWidth < effectiveMin) {
-    targetWidth = Math.ceil(effectiveMin / VIDEO_DIMENSION_MULTIPLE) * VIDEO_DIMENSION_MULTIPLE;
+    targetWidth = Math.ceil(effectiveMin / effectiveMultiple) * effectiveMultiple;
     adjusted = true;
   }
   if (targetHeight < effectiveMin) {
-    targetHeight = Math.ceil(effectiveMin / VIDEO_DIMENSION_MULTIPLE) * VIDEO_DIMENSION_MULTIPLE;
+    targetHeight = Math.ceil(effectiveMin / effectiveMultiple) * effectiveMultiple;
     adjusted = true;
   }
 
@@ -574,23 +1133,26 @@ function predictSharpInsideResizeDims(refWidth, refHeight, targetWidth, targetHe
   return { width: Math.round(rw * th / rh), height: th };
 }
 
-function pickCompatibleI2vBoundingBox(refWidth, refHeight, desiredWidth, desiredHeight, { allowImperfect = false } = {}) {
+function pickCompatibleI2vBoundingBox(refWidth, refHeight, desiredWidth, desiredHeight, { allowImperfect = false, rules = DEFAULT_VIDEO_DIMENSION_RULES } = {}) {
+  const effectiveMin = rules.minDimension || DEFAULT_VIDEO_DIMENSION_RULES.minDimension;
+  const effectiveMax = rules.maxDimension || DEFAULT_VIDEO_DIMENSION_RULES.maxDimension;
+  const effectiveMultiple = rules.dimensionMultiple || DEFAULT_VIDEO_DIMENSION_RULES.dimensionMultiple;
   const desiredW = Number.isFinite(Number(desiredWidth)) ? Number(desiredWidth) : 512;
   const desiredH = Number.isFinite(Number(desiredHeight)) ? Number(desiredHeight) : 512;
-  const desiredMax = Math.max(MIN_VIDEO_DIMENSION, Math.min(MAX_VIDEO_DIMENSION, Math.max(desiredW, desiredH)));
+  const desiredMax = Math.max(effectiveMin, Math.min(effectiveMax, Math.max(desiredW, desiredH)));
   let best = null;
   let bestImperfect = null;
 
-  for (let w = MIN_VIDEO_DIMENSION; w <= MAX_VIDEO_DIMENSION; w += VIDEO_DIMENSION_MULTIPLE) {
-    for (let h = MIN_VIDEO_DIMENSION; h <= MAX_VIDEO_DIMENSION; h += VIDEO_DIMENSION_MULTIPLE) {
-      const normalized = normalizeVideoDimensionsLikeWrapper(w, h);
+  for (let w = effectiveMin; w <= effectiveMax; w += effectiveMultiple) {
+    for (let h = effectiveMin; h <= effectiveMax; h += effectiveMultiple) {
+      const normalized = normalizeVideoDimensionsLikeWrapper(w, h, rules);
       if (!Number.isFinite(normalized.width) || !Number.isFinite(normalized.height)) continue;
       const out = predictSharpInsideResizeDims(refWidth, refHeight, normalized.width, normalized.height);
       if (!out) continue;
-      // Require both output dimensions >= MIN_VIDEO_DIMENSION for API compatibility
-      if (out.width < MIN_VIDEO_DIMENSION || out.height < MIN_VIDEO_DIMENSION) continue;
+      // Require both output dimensions >= model minimum for API compatibility.
+      if (out.width < effectiveMin || out.height < effectiveMin) continue;
 
-      const isPerfect = out.width % VIDEO_DIMENSION_MULTIPLE === 0 && out.height % VIDEO_DIMENSION_MULTIPLE === 0;
+      const isPerfect = out.width % effectiveMultiple === 0 && out.height % effectiveMultiple === 0;
 
       const outMax = Math.max(out.width, out.height);
       const distance = Math.abs(normalized.width - desiredW) + Math.abs(normalized.height - desiredH);
@@ -602,16 +1164,15 @@ function pickCompatibleI2vBoundingBox(refWidth, refHeight, desiredWidth, desired
           best = { width: normalized.width, height: normalized.height, output: out, score, perfect: true };
         }
       } else if (allowImperfect) {
-        // Track imperfect candidates: prefer those closest to div-16
-        const widthRemainder = out.width % VIDEO_DIMENSION_MULTIPLE;
-        const heightRemainder = out.height % VIDEO_DIMENSION_MULTIPLE;
-        const div16Distance = Math.min(widthRemainder, VIDEO_DIMENSION_MULTIPLE - widthRemainder) +
-                            Math.min(heightRemainder, VIDEO_DIMENSION_MULTIPLE - heightRemainder);
-        const imperfectScore = -div16Distance * 1e10 + score;
+        // Track imperfect candidates: prefer those closest to the model divisor.
+        const widthRemainder = out.width % effectiveMultiple;
+        const heightRemainder = out.height % effectiveMultiple;
+        const divisorDistance = Math.min(widthRemainder, effectiveMultiple - widthRemainder) +
+                            Math.min(heightRemainder, effectiveMultiple - heightRemainder);
+        const imperfectScore = -divisorDistance * 1e10 + score;
         if (!bestImperfect || imperfectScore > bestImperfect.score) {
-          // Calculate adjusted output dimensions (rounded to div-16)
-          const adjustedWidth = Math.round(out.width / VIDEO_DIMENSION_MULTIPLE) * VIDEO_DIMENSION_MULTIPLE;
-          const adjustedHeight = Math.round(out.height / VIDEO_DIMENSION_MULTIPLE) * VIDEO_DIMENSION_MULTIPLE;
+          const adjustedWidth = Math.round(out.width / effectiveMultiple) * effectiveMultiple;
+          const adjustedHeight = Math.round(out.height / effectiveMultiple) * effectiveMultiple;
           bestImperfect = {
             width: normalized.width,
             height: normalized.height,
@@ -770,6 +1331,7 @@ const options = {
   fps: 16,
   duration: 5,
   frames: null,
+  targetResolution: null, // Short-side target for video, preserving aspect ratio
   autoResizeVideoAssets: null,
   estimateVideoCost: false,
   showBalance: false,
@@ -777,8 +1339,13 @@ const options = {
   angles360Video: null,
   refImage: null, // Reference image for video (start frame)
   refImageEnd: null, // End frame for video interpolation
-  refAudio: null, // Reference audio for s2v
+  refAudio: null, // Uploaded/generated audio for ia2v/a2v, or s2v lip-sync
+  audioStart: null, // Optional start offset into reference audio
+  audioDuration: null, // Optional duration slice for reference audio
+  referenceAudioIdentity: null, // Voice identity reference for LTX native audio
+  voicePersonaName: null,
   refVideo: null, // Reference video for animate workflows
+  videoStart: null, // Optional start offset into reference video
   contextImages: [], // Context images for image editing
   looping: false, // Create looping video (i2v only): generate A→B then B→A and concatenate
   photobooth: false, // Photobooth mode (InstantID face transfer)
@@ -794,6 +1361,8 @@ const options = {
   extractLastFrameOutput: null,
   concatVideos: null, // --concat-videos <out> <clip1> <clip2> [...]
   concatVideosClips: null,
+  concatAudio: null, // Optional audio file to mux over concatenated clips
+  concatAudioStart: null,
   listMedia: null, // --list-media [images|audio|all]
   // Memory, personality, persona commands
   memoryAction: null, // set|get|list|remove
@@ -842,13 +1411,19 @@ const cliSet = {
   fps: false,
   duration: false,
   frames: false,
+  targetResolution: false,
   autoResizeVideoAssets: false,
   angles360Video: false,
   videoModel: false,
   refImage: false,
   refImageEnd: false,
   refAudio: false,
+  audioStart: false,
+  audioDuration: false,
+  referenceAudioIdentity: false,
+  voicePersonaName: false,
   refVideo: false,
+  videoStart: false,
   context: false,
   looping: false,
   photobooth: false,
@@ -1028,6 +1603,11 @@ for (let i = 0; i < args.length; i++) {
     i++;
     options.frames = parsePositiveIntegerValue(raw, arg);
     cliSet.frames = true;
+  } else if (arg === '--target-resolution' || arg === '--short-side') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.targetResolution = parsePositiveIntegerValue(raw, arg);
+    cliSet.targetResolution = true;
   } else if (arg === '--auto-resize-assets') {
     options.autoResizeVideoAssets = true;
     cliSet.autoResizeVideoAssets = true;
@@ -1049,11 +1629,36 @@ for (let i = 0; i < args.length; i++) {
     i++;
     options.refAudio = raw;
     cliSet.refAudio = true;
+  } else if (arg === '--audio-start') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.audioStart = parseNonNegativeNumberValue(raw, arg);
+    cliSet.audioStart = true;
+  } else if (arg === '--audio-duration') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.audioDuration = parseNonNegativeNumberValue(raw, arg);
+    cliSet.audioDuration = true;
+  } else if (arg === '--reference-audio-identity' || arg === '--voice-identity') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.referenceAudioIdentity = raw;
+    cliSet.referenceAudioIdentity = true;
+  } else if (arg === '--voice-persona') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.voicePersonaName = raw;
+    cliSet.voicePersonaName = true;
   } else if (arg === '--ref-video') {
     const raw = requireFlagValue(args, i, arg);
     i++;
     options.refVideo = raw;
     cliSet.refVideo = true;
+  } else if (arg === '--video-start' || arg === '--video-start-offset') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.videoStart = parseNonNegativeNumberValue(raw, arg);
+    cliSet.videoStart = true;
   } else if (arg === '--looping' || arg === '--loop') {
     options.looping = true;
     cliSet.looping = true;
@@ -1137,6 +1742,14 @@ for (let i = 0; i < args.length; i++) {
     }
     options.concatVideos = outArg;
     options.concatVideosClips = clips;
+  } else if (arg === '--concat-audio') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.concatAudio = raw;
+  } else if (arg === '--concat-audio-start') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.concatAudioStart = parseNonNegativeNumberValue(raw, arg);
   } else if (arg === '--list-media') {
     // Optional type argument (images|audio|all), default: images
     const next = args[i + 1];
@@ -1277,17 +1890,23 @@ Photobooth (Face Transfer):
 
 Video Options:
   --video, -v           Generate video instead of image
-  --workflow <type>     Video workflow: t2v|i2v|s2v|v2v|animate-move|animate-replace
-  --fps <num>           Frames per second (default: 16)
+  --workflow <type>     Video workflow: t2v|i2v|s2v|ia2v|a2v|v2v|animate-move|animate-replace
+  --fps <num>           Frames per second (model default unless set)
   --duration <sec>      Duration in seconds (default: 5)
   --frames <num>        Override total frames (optional)
+  --target-resolution <px> Short-side target that preserves aspect ratio
   --auto-resize-assets  Auto-resize video reference assets (default)
   --no-auto-resize-assets  Disable auto-resize for video assets
   --estimate-video-cost Estimate video cost and exit (requires --steps)
   --ref <path|url>      Reference image for video (start frame)
   --ref-end <path|url>  End frame for interpolation/morphing
-  --ref-audio <path>    Reference audio for s2v
+  --ref-audio <path>    Uploaded/generated audio for ia2v/a2v, or s2v lip-sync
+  --audio-start <sec>   Start offset into --ref-audio for audio-driven clips
+  --audio-duration <sec> Duration slice from --ref-audio
+  --reference-audio-identity <path>  Voice identity clip for LTX native audio
+  --voice-persona <name>  Use saved persona voice clip as LTX voice identity
   --ref-video <path>    Reference video for animate/v2v workflows
+  --video-start <sec>   Start offset into --ref-video for segmented V2V/animate
   --controlnet-name <n> ControlNet type for v2v: canny|pose|depth|detailer
   --controlnet-strength <n>  ControlNet strength for v2v (0.0-1.0, default: 0.8)
   --sam2-coordinates <coords>  SAM2 click coords for animate-replace (x,y or x1,y1;x2,y2)
@@ -1306,6 +1925,8 @@ General:
   --version, -V         Show sogni-agent version and exit
   --extract-last-frame <video> <image>  Extract last frame from a video (safe ffmpeg wrapper)
   --concat-videos <out> <clips...>      Concatenate video clips (safe ffmpeg wrapper, min 2 clips)
+  --concat-audio <path> Optional audio track to mux over --concat-videos output
+  --concat-audio-start <sec> Start offset into --concat-audio
   --list-media [type]   List recent inbound media files (images|audio|all, default: images)
   --no-filter           Disable NSFW content filter
   --last                Show last render info (JSON)
@@ -1330,12 +1951,12 @@ Personas (named people with reference photos):
   --persona-list              List all saved personas
   --persona-remove <name>     Remove a persona and its files
   --persona-resolve <name>    Show persona details and file paths
-  --persona <name>            Generate using a persona's reference photo as context
+  --persona <name>            Generate using a persona's reference photo (image context, video ref frame)
   --relationship <type>       Persona relationship: self|partner|child|friend|pet (default: friend)
   --description <text>        Persona appearance description
   --tags <names>              Comma-separated nicknames/aliases
   --voice <text>              Voice description (accent, tone, pitch)
-  --voice-clip <path>         Voice clip audio file for LTX-2.3 voice cloning
+  --voice-clip <path>         Voice clip audio file for LTX 2.3 voice cloning
 
 Image Models:
   z_image_turbo_bf16              Fast, general purpose (default)
@@ -1344,11 +1965,24 @@ Image Models:
   qwen_image_edit_2511_fp8        Image editing with context (up to 3 images)
   qwen_image_edit_2511_fp8_lightning  Fast image editing
 
+Recommended LTX 2.3 Video Models:
+  ltx23-22b-fp8_t2v_distilled     Text-to-video with native dialogue/audio
+  ltx23-22b-fp8_i2v_distilled     Image-to-video with native dialogue/audio
+  ltx23-22b-fp8_ia2v_distilled    Image+audio-to-video
+  ltx23-22b-fp8_a2v_distilled     Audio-to-video
+  ltx23-22b-fp8_v2v_distilled     Video-to-video with ControlNet
+
+Seedance 2.0 Video Aliases:
+  seedance2                         Text-to-video, 4-15s, native audio
+  seedance2-fast                    Fast 720p-capped text-to-video
+  seedance2-ia2v                    Image+audio-to-video
+  seedance2-v2v                     Video-to-video without ControlNet
+
 WAN 2.2 Video Models:
   wan_v2.2-14b-fp8_t2v_lightx2v   Text-to-video (fast)
-  wan_v2.2-14b-fp8_i2v_lightx2v   Fast (default)
+  wan_v2.2-14b-fp8_i2v_lightx2v   Fast simple image-to-video
   wan_v2.2-14b-fp8_i2v            Higher quality
-  wan_v2.2-14b-fp8_s2v_lightx2v   Sound-to-video (fast)
+  wan_v2.2-14b-fp8_s2v_lightx2v   Face lip-sync with uploaded audio (fast)
   wan_v2.2-14b-fp8_s2v            Sound-to-video (quality)
   wan_v2.2-14b-fp8_animate-move_lightx2v     Animate-move (fast)
   wan_v2.2-14b-fp8_animate-replace_lightx2v  Animate-replace (fast)
@@ -1362,7 +1996,6 @@ LTX-2 / LTX-2.3 Video Models:
   ltx2-19b-fp8_a2v_distilled      Audio-to-video, fast 8-step
   ltx2-19b-fp8_v2v_distilled      Video-to-video with ControlNet (fast)
   ltx2-19b-fp8_v2v                Video-to-video with ControlNet (quality)
-  ltx23-22b-fp8_t2v_distilled     Text-to-video, LTX-2.3 fast distilled
 
 Examples:
   sogni-agent "a cat wearing a hat"
@@ -1370,10 +2003,11 @@ Examples:
   sogni-agent --multi-angle -c subject.jpg --azimuth front-right --elevation eye-level --distance medium "studio portrait"
   sogni-agent --angles-360 -c subject.jpg "studio portrait"
   sogni-agent --video --ref cat.jpg -o cat.mp4 "cat walks around"
-  sogni-agent --video "ocean waves at sunset"
+  sogni-agent --video "A narrator says \"welcome to the story\" as ocean waves crash"
   sogni-agent --video --ref cat.jpg --ref-audio speech.m4a -m wan_v2.2-14b-fp8_s2v_lightx2v "lip sync"
-  sogni-agent --video --workflow ia2v --ref cover.jpg --ref-audio song.mp3 "music video"
-  sogni-agent --video --workflow a2v --ref-audio song.mp3 "abstract music visualizer"
+  sogni-agent --video --ref cover.jpg --ref-audio song.mp3 "music video"
+  sogni-agent --video --ref-audio song.mp3 "abstract music visualizer"
+  sogni-agent --video --reference-audio-identity voice.webm "NARRATOR: \"This is my voice.\""
   sogni-agent --video -m ltx23-22b-fp8_t2v_distilled --duration 20 "A wide cinematic aerial shot opens over steep tropical cliffs at golden hour, warm sunlight grazing the rock faces while sea mist drifts above the water below. Palm trees bend gently along the ridge as waves roll against the shoreline, leaving bright bands of foam across the dark stone. The camera glides forward in one continuous pass, revealing more of the coastline as sunlight flickers across wet surfaces and distant birds wheel through the haze. The scene holds a calm, upscale travel-film mood with smooth stabilized motion and crisp environmental detail."
   sogni-agent --video --ref subject.jpg --ref-video motion.mp4 --workflow animate-move "transfer motion"
   sogni-agent --video --last-image "gentle camera pan"
@@ -1401,13 +2035,19 @@ Examples:
 }
 
 let timeoutFromConfig = false;
+let widthFromConfig = false;
+let heightFromConfig = false;
+let fpsFromConfig = false;
+let configuredDefaultVideoWorkflow = null;
 if (openclawConfig) {
   const isNumber = (value) => Number.isFinite(value);
   if (!cliSet.width && isNumber(openclawConfig.defaultWidth)) {
     options.width = openclawConfig.defaultWidth;
+    widthFromConfig = true;
   }
   if (!cliSet.height && isNumber(openclawConfig.defaultHeight)) {
     options.height = openclawConfig.defaultHeight;
+    heightFromConfig = true;
   }
   if (!cliSet.count && isNumber(openclawConfig.defaultCount)) {
     options.count = openclawConfig.defaultCount;
@@ -1420,10 +2060,11 @@ if (openclawConfig) {
   }
   if (options.video) {
     if (!cliSet.workflow && openclawConfig.defaultVideoWorkflow) {
-      options.videoWorkflow = openclawConfig.defaultVideoWorkflow;
+      configuredDefaultVideoWorkflow = openclawConfig.defaultVideoWorkflow;
     }
     if (!cliSet.fps && isNumber(openclawConfig.defaultFps)) {
       options.fps = openclawConfig.defaultFps;
+      fpsFromConfig = true;
     }
     if (!cliSet.frames && !cliSet.duration && isNumber(openclawConfig.defaultDurationSec)) {
       options.duration = openclawConfig.defaultDurationSec;
@@ -1453,9 +2094,24 @@ if (options.tokenType) {
 // Quality tier presets — auto-select model, steps, and dimensions
 // ---------------------------------------------------------------------------
 const QUALITY_TIERS = {
-  fast: { model: 'z_image_turbo_bf16', steps: 8, shortSide: null },
-  hq:   { model: 'z_image_turbo_bf16', steps: null, shortSide: 768 },
-  pro:  { model: 'flux2_dev_fp8', steps: 40, shortSide: 1024 }
+  fast: {
+    model: 'z_image_turbo_bf16',
+    steps: 8,
+    shortSide: null,
+    video: { steps: 8, shortSide: null }
+  },
+  hq: {
+    model: 'z_image_turbo_bf16',
+    steps: null,
+    shortSide: 768,
+    video: { steps: 8, shortSide: 1088 }
+  },
+  pro: {
+    model: 'flux2_dev_fp8',
+    steps: 40,
+    shortSide: 1024,
+    video: { steps: 20, shortSide: 1920 }
+  }
 };
 
 if (options.quality) {
@@ -1466,18 +2122,20 @@ if (options.quality) {
     });
   }
   const tier = QUALITY_TIERS[options.quality];
-  // Only apply model if user didn't explicitly set one
-  if (!cliSet.model) {
-    options.model = tier.model;
-  }
-  // Only apply steps if user didn't explicitly set them
-  if (!cliSet.steps && tier.steps) {
-    options.steps = tier.steps;
-  }
-  // Auto-target short-side dimension if user didn't set width/height
-  if (tier.shortSide && !cliSet.width && !cliSet.height && !options.video) {
-    options.width = tier.shortSide;
-    options.height = tier.shortSide;
+  if (!options.video) {
+    // Only apply model if user didn't explicitly set one.
+    if (!cliSet.model) {
+      options.model = tier.model;
+    }
+    // Only apply steps if user didn't explicitly set them.
+    if (!cliSet.steps && tier.steps) {
+      options.steps = tier.steps;
+    }
+    // Auto-target short-side dimension if user didn't set width/height.
+    if (tier.shortSide && !cliSet.width && !cliSet.height) {
+      options.width = tier.shortSide;
+      options.height = tier.shortSide;
+    }
   }
 }
 
@@ -1636,6 +2294,8 @@ if (options.video && (options.sampler || options.scheduler)) {
   fatalCliError('--sampler/--scheduler are image-only options.', { code: 'INVALID_ARGUMENT' });
 }
 
+applyPersonaAndVoiceReferences();
+
 if (!options.video && options.autoResizeVideoAssets !== null) {
   fatalCliError('--auto-resize-assets is only valid with --video.', { code: 'INVALID_ARGUMENT' });
 }
@@ -1661,7 +2321,7 @@ if (options.video) {
     options.videoWorkflow = normalized;
   }
 
-  const workflowFromModel = inferVideoWorkflowFromModel(options.model);
+  const workflowFromModel = inferVideoWorkflowFromModel(resolveVideoModelAlias(options.model, options.videoWorkflow));
   if (options.videoWorkflow && workflowFromModel && options.videoWorkflow !== workflowFromModel) {
     fatalCliError(`Workflow "${options.videoWorkflow}" does not match model "${options.model}".`, {
       code: 'INVALID_ARGUMENT',
@@ -1669,7 +2329,10 @@ if (options.video) {
     });
   }
   if (!options.videoWorkflow) {
-    options.videoWorkflow = workflowFromModel || inferVideoWorkflowFromAssets(options) || openclawConfig?.defaultVideoWorkflow || 't2v';
+    options.videoWorkflow = workflowFromModel || inferVideoWorkflowFromAssets(options) || configuredDefaultVideoWorkflow || 't2v';
+  }
+  if (options.model) {
+    options.model = resolveVideoModelAlias(options.model, options.videoWorkflow);
   }
 }
 
@@ -1691,9 +2354,33 @@ if (options._lastImagePath) {
 
 // Set defaults based on type and context
 if (options.video) {
-  const cfgVideoModels = openclawConfig?.videoModels || {};
-  const cfgModel = options.videoWorkflow ? cfgVideoModels[options.videoWorkflow] : null;
-  options.model = options.model || cfgModel || VIDEO_WORKFLOW_DEFAULT_MODELS[options.videoWorkflow] || 'wan_v2.2-14b-fp8_i2v_lightx2v';
+  options.model = options.model || selectDefaultVideoModel(options.videoWorkflow, options, openclawConfig) || 'wan_v2.2-14b-fp8_i2v_lightx2v';
+  options.model = resolveVideoModelAlias(options.model, options.videoWorkflow);
+  const videoModelDefaults = getModelDefaults(options.model, openclawConfig);
+  const isSeedanceVideo = isSeedanceModel(options.model);
+  if (!cliSet.width && !widthFromConfig && Number.isFinite(videoModelDefaults?.defaultWidth)) {
+    options.width = videoModelDefaults.defaultWidth;
+  }
+  if (!cliSet.height && !heightFromConfig && Number.isFinite(videoModelDefaults?.defaultHeight)) {
+    options.height = videoModelDefaults.defaultHeight;
+  }
+  if (!cliSet.fps && !fpsFromConfig && Number.isFinite(videoModelDefaults?.fps)) {
+    options.fps = videoModelDefaults.fps;
+  }
+  const videoQuality = options.quality ? QUALITY_TIERS[options.quality]?.video : null;
+  if (videoQuality) {
+    if (!isSeedanceVideo && !cliSet.steps && Number.isFinite(videoQuality.steps)) {
+      options.steps = videoQuality.steps;
+    }
+  }
+  const videoShortSide = cliSet.targetResolution
+    ? options.targetResolution
+    : (!isSeedanceVideo ? videoQuality?.shortSide : null);
+  if (videoShortSide && !cliSet.width && !cliSet.height && !widthFromConfig && !heightFromConfig) {
+    const dims = dimensionsWithShortSide(options.width, options.height, videoShortSide);
+    options.width = dims.width;
+    options.height = dims.height;
+  }
   if (!cliSet.timeout && !timeoutFromConfig && options.timeout === 30000) {
     options.timeout = 300000; // 5 min for video
   }
@@ -1719,8 +2406,8 @@ if (!options.prompt && !options.estimateVideoCost && !options.multiAngle && !opt
   fatalCliError('No prompt provided. Use --help for usage.', { code: 'INVALID_ARGUMENT' });
 }
 
-if (!options.video && (options.refAudio || options.refVideo || options.videoWorkflow || options.frames)) {
-  fatalCliError('Video-only options (--workflow/--frames/--ref-audio/--ref-video) require --video.', {
+if (!options.video && (options.refAudio || options.refVideo || options.referenceAudioIdentity || options.voicePersonaName || options.videoWorkflow || options.frames || options.targetResolution || options.audioStart !== null || options.audioDuration !== null || options.videoStart !== null)) {
+  fatalCliError('Video-only options (--workflow/--frames/--target-resolution/--ref-audio/--ref-video/--reference-audio-identity/--voice-persona) require --video.', {
     code: 'INVALID_ARGUMENT'
   });
 }
@@ -1776,7 +2463,7 @@ if (options.video) {
     if (!options.refVideo) {
       fatalCliError('v2v requires --ref-video.', { code: 'INVALID_ARGUMENT' });
     }
-    if (!options.videoControlNetName) {
+    if (!options.videoControlNetName && !isSeedanceModel(options.model)) {
       fatalCliError('v2v requires --controlnet-name (canny|pose|depth|detailer).', { code: 'INVALID_ARGUMENT' });
     }
     if (options.refAudio) {
@@ -1789,6 +2476,25 @@ if (options.video) {
     if (options.refAudio) {
       fatalCliError('animate workflows do not accept reference audio.', { code: 'INVALID_ARGUMENT' });
     }
+  }
+
+  if ((options.audioStart !== null || options.audioDuration !== null) && !options.refAudio) {
+    fatalCliError('--audio-start/--audio-duration require --ref-audio.', { code: 'INVALID_ARGUMENT' });
+  }
+  if (options.videoStart !== null && !options.refVideo) {
+    fatalCliError('--video-start requires --ref-video.', { code: 'INVALID_ARGUMENT' });
+  }
+
+  if (options.referenceAudioIdentity && !['t2v', 'i2v'].includes(options.videoWorkflow)) {
+    fatalCliError('--reference-audio-identity/--voice-persona is only supported for LTX native-audio t2v/i2v workflows.', {
+      code: 'INVALID_ARGUMENT'
+    });
+  }
+  if (options.referenceAudioIdentity && !isLtx2Model(options.model)) {
+    fatalCliError('--reference-audio-identity/--voice-persona requires an LTX video model.', {
+      code: 'INVALID_ARGUMENT',
+      hint: `Use -m ${LTX23_WORKFLOW_MODELS[options.videoWorkflow] || LTX23_WORKFLOW_MODELS.t2v}`
+    });
   }
 
   // Validate controlnet-name values
@@ -1824,12 +2530,25 @@ if (options.video) {
   }
 }
 
+applyVideoPromptGuardrails();
+
+if (options.video && isSeedanceModel(options.model) && !options.frames) {
+  const clampedDuration = Math.max(4, Math.min(15, options.duration));
+  if (clampedDuration !== options.duration) {
+    if (!options.quiet) {
+      console.error(`Adjusted Seedance video duration from ${options.duration}s to ${clampedDuration}s (supported range: 4-15s).`);
+    }
+    options.duration = clampedDuration;
+  }
+}
+
 // Video dimensions:
-// - Sogni video pipelines require dims within [480..1536] and divisible by 16.
+// - Sogni video pipelines have model-specific min/max dimensions and divisors.
 // - When using i2v (or any ref-based workflow), the Sogni client wrapper will *resize the reference image*
 //   with sharp `fit: inside` and then override the project width/height with the resized reference dims.
-//   That means a "valid" requested size can still fail if the resized ref lands on a non-16-multiple (e.g. 1024x1535).
+//   That means a "valid" requested size can still fail if the resized ref lands off the model divisor.
 if (options.video) {
+  const videoDimensionRules = videoDimensionRulesFromDefaults(getModelDefaults(options.model, openclawConfig));
   if (!Number.isFinite(options.width) || options.width <= 0 || !Number.isFinite(options.height) || options.height <= 0) {
     fatalCliError('Video width/height must be positive numbers.', {
       code: 'INVALID_ARGUMENT',
@@ -1839,7 +2558,7 @@ if (options.video) {
 
   const originalVideoWidth = options.width;
   const originalVideoHeight = options.height;
-  const normalizedVideoDims = normalizeVideoDimensionsLikeWrapper(options.width, options.height);
+  const normalizedVideoDims = normalizeVideoDimensionsLikeWrapper(options.width, options.height, videoDimensionRules);
   options.width = normalizedVideoDims.width;
   options.height = normalizedVideoDims.height;
   if (normalizedVideoDims.adjusted && !options.quiet) {
@@ -1867,10 +2586,10 @@ if (options.video) {
     const localRefDims = new Map();
 
     const isIncompatible = (predicted) => Boolean(predicted) && (
-      predicted.width % VIDEO_DIMENSION_MULTIPLE !== 0 ||
-      predicted.height % VIDEO_DIMENSION_MULTIPLE !== 0 ||
-      predicted.width < MIN_VIDEO_DIMENSION ||
-      predicted.height < MIN_VIDEO_DIMENSION
+      predicted.width % videoDimensionRules.dimensionMultiple !== 0 ||
+      predicted.height % videoDimensionRules.dimensionMultiple !== 0 ||
+      predicted.width < videoDimensionRules.minDimension ||
+      predicted.height < videoDimensionRules.minDimension
     );
 
     for (const ref of references) {
@@ -1883,12 +2602,12 @@ if (options.video) {
       const predicted = predictSharpInsideResizeDims(dims.width, dims.height, options.width, options.height);
       if (!isIncompatible(predicted)) continue;
 
-      const candidate = pickCompatibleI2vBoundingBox(dims.width, dims.height, options.width, options.height, { allowImperfect: true });
+      const candidate = pickCompatibleI2vBoundingBox(dims.width, dims.height, options.width, options.height, { allowImperfect: true, rules: videoDimensionRules });
       if (!candidate) {
         options[ref.resizeFlag] = true;
         if (!options.quiet) {
           console.error(
-            `${ref.label} ${dims.width}x${dims.height} will be pre-resized to div-16 dimensions ` +
+            `${ref.label} ${dims.width}x${dims.height} will be pre-resized to model-compatible dimensions ` +
             'because no compatible bounding box exists for i2v workflow.'
           );
         }
@@ -1898,7 +2617,7 @@ if (options.video) {
       if ((cliSet.width || cliSet.height) && options.strictSize) {
         fatalCliError(
           `${ref.label} ${dims.width}x${dims.height} would resize to ${predicted.width}x${predicted.height}, ` +
-          'but both dimensions must be divisible by 16.',
+          `but both dimensions must be divisible by ${videoDimensionRules.dimensionMultiple}.`,
           {
             code: 'INVALID_VIDEO_SIZE',
             details: {
@@ -1920,7 +2639,7 @@ if (options.video) {
 
       const predictedAfter = predictSharpInsideResizeDims(dims.width, dims.height, options.width, options.height);
       options._adjustedVideoDims = {
-        reason: 'i2v-ref-div16',
+        reason: 'i2v-ref-model-divisor',
         referenceType: ref.key,
         requested: { width: beforeW, height: beforeH },
         adjusted: { width: options.width, height: options.height },
@@ -1966,7 +2685,7 @@ if (options.video) {
     }
 
     if ((options._needsRefResize || options._needsRefEndResize) && !options.quiet) {
-      console.error('One or more i2v references require pre-resize to ensure div-16 compatibility.');
+      console.error('One or more i2v references require pre-resize to ensure model-compatible dimensions.');
     }
   }
 }
@@ -2240,6 +2959,54 @@ function resolvePersonaByName(name) {
   return match || null;
 }
 
+function applyPersonaAndVoiceReferences() {
+  if (options.voicePersonaName) {
+    const voicePersona = resolvePersonaByName(options.voicePersonaName);
+    if (!voicePersona) {
+      fatalCliError(`Voice persona "${options.voicePersonaName}" not found. Use --persona-list to see available personas.`, {
+        code: 'PERSONA_NOT_FOUND'
+      });
+    }
+    if (!voicePersona.voiceClipPath || !existsSync(voicePersona.voiceClipPath)) {
+      fatalCliError(`Voice persona "${voicePersona.name}" does not have a saved voice clip.`, {
+        code: 'PERSONA_VOICE_NOT_FOUND'
+      });
+    }
+    if (!options.referenceAudioIdentity) {
+      options.referenceAudioIdentity = voicePersona.voiceClipPath;
+      cliSet.referenceAudioIdentity = true;
+    }
+    options._voicePersonaResolvedName = voicePersona.name;
+  }
+
+  if (options.personaAction !== 'generate' || !options.personaName) return;
+
+  const persona = resolvePersonaByName(options.personaName);
+  if (!persona) {
+    fatalCliError(`Persona "${options.personaName}" not found. Use --persona-list to see available personas.`, {
+      code: 'PERSONA_NOT_FOUND'
+    });
+  }
+
+  options._resolvedPersona = persona;
+
+  if (persona.photoPath && existsSync(persona.photoPath)) {
+    if (options.video) {
+      if (!options.refImage) {
+        options.refImage = persona.photoPath;
+      }
+    } else {
+      options.contextImages.push(persona.photoPath);
+    }
+  }
+
+  if (options.video && persona.voiceClipPath && existsSync(persona.voiceClipPath) && !options.referenceAudioIdentity) {
+    options.referenceAudioIdentity = persona.voiceClipPath;
+    options.voicePersonaName = options.voicePersonaName || persona.name;
+    options._voicePersonaResolvedName = persona.name;
+  }
+}
+
 // Fetch image as buffer
 async function fetchMediaBuffer(pathOrUrl) {
   if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
@@ -2449,9 +3216,10 @@ async function extractLastFrameFromVideo(videoPath, outputImagePath) {
   }
 }
 
-async function buildConcatVideoFromClips(outputPath, clips) {
+async function buildConcatVideoFromClips(outputPath, clips, { audioPath = null, audioStart = null } = {}) {
   sanitizePath(outputPath, '--output path');
   clips.forEach((c, i) => sanitizePath(c, `clip[${i}]`));
+  if (audioPath) sanitizePath(audioPath, '--concat-audio');
   const ffmpegPath = await ensureFfmpegAvailable();
   const tempListPath = outputPath.replace(/\.mp4$/i, '') + '.concat.txt';
   const lines = clips.map((clip) => `file '${clip.replace(/'/g, "'\\''")}'`);
@@ -2462,10 +3230,23 @@ async function buildConcatVideoFromClips(outputPath, clips) {
     '-f', 'concat',
     '-safe', '0',
     '-i', tempListPath,
+  ];
+  if (audioPath) {
+    if (Number.isFinite(audioStart) && audioStart > 0) {
+      args.push('-ss', String(audioStart));
+    }
+    args.push('-i', audioPath, '-map', '0:v:0', '-map', '1:a:0');
+  }
+  args.push(
     '-c:v', 'libx264',
     '-pix_fmt', 'yuv420p',
-    outputPath
-  ];
+    '-c:a', 'aac',
+    '-b:a', '192k',
+    '-movflags', '+faststart'
+  );
+  if (audioPath) args.push('-shortest');
+  args.push(outputPath);
+
   const result = await runCommand(ffmpegPath, args);
   if (result.error || result.status !== 0) {
     if (isNonEmptyFile(outputPath)) {
@@ -2618,7 +3399,7 @@ async function runMultiAngleFlow(client, log) {
       guidance,
       tokenType: options.tokenType || 'spark',
       waitForCompletion: false,
-      disableNSFWFilter: true
+      disableNSFWFilter: options.noFilter === true
     };
     if (options.outputFormat) {
       editConfig.outputFormat = options.outputFormat;
@@ -2702,8 +3483,9 @@ async function runMultiAngleFlow(client, log) {
       throw err;
     }
     const clipDir = mkdtempSync(join(tmpdir(), 'sogni-angles-clips-'));
-    videoModelId = options.videoModel || openclawConfig?.videoModels?.i2v || VIDEO_WORKFLOW_DEFAULT_MODELS.i2v;
+    videoModelId = resolveVideoModelAlias(options.videoModel || openclawConfig?.videoModels?.i2v || VIDEO_WORKFLOW_DEFAULT_MODELS.i2v, 'i2v');
     const videoDefaults = getModelDefaults(videoModelId, openclawConfig);
+    const videoDimensionRules = videoDimensionRulesFromDefaults(videoDefaults);
     const videoSteps = options.steps ?? videoDefaults?.steps;
     const videoGuidance = options.guidance ?? videoDefaults?.guidance;
     const segmentCount = videoFrames.length;
@@ -2731,15 +3513,15 @@ async function runMultiAngleFlow(client, log) {
 
       if (startDims?.width && startDims?.height) {
         const predicted = predictSharpInsideResizeDims(startDims.width, startDims.height, clipWidth, clipHeight);
-        if (predicted && (predicted.width % VIDEO_DIMENSION_MULTIPLE !== 0 || predicted.height % VIDEO_DIMENSION_MULTIPLE !== 0)) {
-          // The resized reference won't be divisible by 16, need to adjust
-          const candidate = pickCompatibleI2vBoundingBox(startDims.width, startDims.height, clipWidth, clipHeight);
+        if (predicted && (predicted.width % videoDimensionRules.dimensionMultiple !== 0 || predicted.height % videoDimensionRules.dimensionMultiple !== 0)) {
+          // The resized reference will miss the model divisor, so adjust.
+          const candidate = pickCompatibleI2vBoundingBox(startDims.width, startDims.height, clipWidth, clipHeight, { rules: videoDimensionRules });
           if (!candidate) {
             // No perfect match - will pre-resize the reference frames
             needsResize = true;
             if (i === 0 && !options.quiet) {
               console.error(
-                `360 video reference frames will be pre-resized to div-16 dimensions ` +
+                `360 video reference frames will be pre-resized to model-compatible dimensions ` +
                 `because no compatible bounding box exists.`
               );
             }
@@ -2751,14 +3533,14 @@ async function runMultiAngleFlow(client, log) {
               if (i === 0 && !options.quiet) {
                 console.error(
                   `Auto-adjusted 360 video clip size from ${options.width}x${options.height} ` +
-                  `to ${clipWidth}x${clipHeight} so resized reference is divisible by 16 ` +
+                  `to ${clipWidth}x${clipHeight} so resized reference is divisible by ${videoDimensionRules.dimensionMultiple} ` +
                   `(would have been ${predicted.width}x${predicted.height}).`
                 );
               }
             } else if (options.strictSize) {
               fatalCliError(
                 `Reference frame ${startDims.width}x${startDims.height} would resize to ${predicted.width}x${predicted.height}, ` +
-                `but both dimensions must be divisible by 16.`,
+                `but both dimensions must be divisible by ${videoDimensionRules.dimensionMultiple}.`,
                 {
                   code: 'INVALID_VIDEO_SIZE',
                   details: {
@@ -2778,7 +3560,7 @@ async function runMultiAngleFlow(client, log) {
                 console.error(
                   `Warning: Adjusted 360 video clip size from ${options.width}x${options.height} ` +
                   `to ${clipWidth}x${clipHeight} because resized reference would be ${predicted.width}x${predicted.height} ` +
-                  `(not divisible by 16). Use --strict-size to fail instead.`
+                  `(not divisible by ${videoDimensionRules.dimensionMultiple}). Use --strict-size to fail instead.`
                 );
               }
             }
@@ -2788,16 +3570,16 @@ async function runMultiAngleFlow(client, log) {
 
       // Pre-resize reference frames if needed
       if (needsResize && startDims?.width && startDims?.height) {
-        startBuffer = await resizeImageBufferToDiv16(startBuffer, startDims.width, startDims.height);
+        startBuffer = await resizeImageBufferForVideo(startBuffer, startDims.width, startDims.height, videoDimensionRules);
         const endDims = getImageDimensionsFromBuffer(endBuffer);
         if (endDims?.width && endDims?.height) {
-          endBuffer = await resizeImageBufferToDiv16(endBuffer, endDims.width, endDims.height);
+          endBuffer = await resizeImageBufferForVideo(endBuffer, endDims.width, endDims.height, videoDimensionRules);
         }
         const resizedDims = getImageDimensionsFromBuffer(startBuffer);
         if (i === 0 && !options.quiet) {
           console.error(
             `Pre-resized 360 video frames from ${startDims.width}x${startDims.height} to ${resizedDims.width}x${resizedDims.height} ` +
-            `(divisible by 16) to ensure i2v compatibility.`
+            `(divisible by ${videoDimensionRules.dimensionMultiple}) to ensure i2v compatibility.`
           );
         }
       }
@@ -2815,7 +3597,7 @@ async function runMultiAngleFlow(client, log) {
         height: clipHeight,
         tokenType: options.tokenType || 'spark',
         waitForCompletion: true,
-        disableNSFWFilter: true
+        disableNSFWFilter: options.noFilter === true
       };
       if (segmentFrames) {
         clipConfig.frames = segmentFrames;
@@ -3101,23 +3883,13 @@ async function main() {
       return;
     }
 
-    // Persona generate mode: resolve persona and inject as context image
-    if (options.personaAction === 'generate' && options.personaName) {
-      const persona = resolvePersonaByName(options.personaName);
-      if (!persona) {
-        fatalCliError(`Persona "${options.personaName}" not found. Use --persona-list to see available personas.`, { code: 'PERSONA_NOT_FOUND' });
-      }
+    if (options._resolvedPersona) {
+      const persona = options._resolvedPersona;
       if (persona.photoPath && existsSync(persona.photoPath)) {
-        options.contextImages.push(persona.photoPath);
-        if (!options.model) {
-          options.model = 'qwen_image_edit_2511_fp8_lightning';
-        }
-        log(`Using persona "${persona.name}" (${persona.relationship}) photo as context`);
+        log(`Using persona "${persona.name}" (${persona.relationship}) ${options.video ? 'photo as reference frame' : 'photo as context'}`);
       }
-      // For video with voice, inject voice clip as ref-audio
-      if (options.video && persona.voiceClipPath && existsSync(persona.voiceClipPath)) {
-        options.refAudio = persona.voiceClipPath;
-        log(`Using persona "${persona.name}" voice clip`);
+      if (options.video && options.referenceAudioIdentity) {
+        log(`Using persona "${options._voicePersonaResolvedName || persona.name}" voice identity`);
       }
     }
 
@@ -3146,6 +3918,7 @@ async function main() {
     if (options.concatVideos) {
       const outputPath = sanitizePath(options.concatVideos, '--concat-videos output');
       const clips = options.concatVideosClips.map((c, i) => sanitizePath(c, `clip[${i}]`));
+      const concatAudio = options.concatAudio ? sanitizePath(options.concatAudio, '--concat-audio') : null;
       for (const clip of clips) {
         if (!existsSync(clip)) {
           const err = new Error(`Clip file not found: ${clip}`);
@@ -3153,17 +3926,27 @@ async function main() {
           throw err;
         }
       }
-      await buildConcatVideoFromClips(outputPath, clips);
+      if (concatAudio && !existsSync(concatAudio)) {
+        const err = new Error(`Audio file not found: ${concatAudio}`);
+        err.code = 'FILE_NOT_FOUND';
+        throw err;
+      }
+      await buildConcatVideoFromClips(outputPath, clips, {
+        audioPath: concatAudio,
+        audioStart: options.concatAudioStart
+      });
       if (options.json || JSON_ERROR_MODE) {
         console.log(JSON.stringify({
           success: true,
           type: 'concat-videos',
           outputPath,
           clipCount: clips.length,
+          audioPath: concatAudio || null,
+          audioStart: options.concatAudioStart ?? null,
           timestamp: new Date().toISOString()
         }));
       } else {
-        console.log(`Concatenated ${clips.length} clips to: ${outputPath}`);
+        console.log(`Concatenated ${clips.length} clips to: ${outputPath}${concatAudio ? ` with audio ${concatAudio}` : ''}`);
       }
       return;
     }
@@ -3394,23 +4177,27 @@ async function main() {
       if (options.refImage) log(`Reference image: ${options.refImage}`);
       if (options.refImageEnd) log(`End frame: ${options.refImageEnd}`);
       if (options.refAudio) log(`Reference audio: ${options.refAudio}`);
+      if (options.referenceAudioIdentity) log(`Voice identity: ${options._voicePersonaResolvedName || options.referenceAudioIdentity}`);
       if (options.refVideo) log(`Reference video: ${options.refVideo}`);
       
       let imageBuffer = options.refImage ? await fetchMediaBuffer(options.refImage) : undefined;
       let endImageBuffer = options.refImageEnd ? await fetchMediaBuffer(options.refImageEnd) : undefined;
       const audioBuffer = options.refAudio ? await fetchMediaBuffer(options.refAudio) : undefined;
       const videoBuffer = options.refVideo ? await fetchMediaBuffer(options.refVideo) : undefined;
+      const audioIdentityBuffer = options.referenceAudioIdentity ? await fetchMediaBuffer(options.referenceAudioIdentity) : undefined;
+      const modelDefaults = getModelDefaults(options.model, openclawConfig);
+      const videoDimensionRules = videoDimensionRulesFromDefaults(modelDefaults);
 
-      // Pre-resize reference images to div-16 dimensions if needed for i2v workflow
+      // Pre-resize reference images to model-compatible dimensions if needed for i2v workflow.
       if (options.videoWorkflow === 'i2v' && imageBuffer && options._needsRefResize) {
         const dims = getImageDimensionsFromBuffer(imageBuffer);
         if (dims?.width && dims?.height) {
-          const resizedBuffer = await resizeImageBufferToDiv16(imageBuffer, dims.width, dims.height);
+          const resizedBuffer = await resizeImageBufferForVideo(imageBuffer, dims.width, dims.height, videoDimensionRules);
           const resizedDims = getImageDimensionsFromBuffer(resizedBuffer);
           if (!options.quiet) {
             console.error(
               `Pre-resized reference image from ${dims.width}x${dims.height} to ${resizedDims.width}x${resizedDims.height} ` +
-              `(divisible by 16) to ensure i2v compatibility.`
+              `(divisible by ${videoDimensionRules.dimensionMultiple}) to ensure i2v compatibility.`
             );
           }
           imageBuffer = resizedBuffer;
@@ -3419,12 +4206,12 @@ async function main() {
       if (options.videoWorkflow === 'i2v' && endImageBuffer && options._needsRefEndResize) {
         const dims = getImageDimensionsFromBuffer(endImageBuffer);
         if (dims?.width && dims?.height) {
-          const resizedBuffer = await resizeImageBufferToDiv16(endImageBuffer, dims.width, dims.height);
+          const resizedBuffer = await resizeImageBufferForVideo(endImageBuffer, dims.width, dims.height, videoDimensionRules);
           const resizedDims = getImageDimensionsFromBuffer(resizedBuffer);
           if (!options.quiet) {
             console.error(
               `Pre-resized end reference image from ${dims.width}x${dims.height} to ${resizedDims.width}x${resizedDims.height} ` +
-              `(divisible by 16) to ensure i2v compatibility.`
+              `(divisible by ${videoDimensionRules.dimensionMultiple}) to ensure i2v compatibility.`
             );
           }
           endImageBuffer = resizedBuffer;
@@ -3433,7 +4220,6 @@ async function main() {
       // Preserve the prepared start-frame buffer so looping (A->B->A) can reuse it later.
       loopingStartImageBuffer = imageBuffer;
 
-      const modelDefaults = getModelDefaults(options.model, openclawConfig);
       const steps = resolveVideoSteps(options.model, modelDefaults, options.steps);
       const guidance = options.guidance ?? modelDefaults?.guidance;
       
@@ -3449,7 +4235,7 @@ async function main() {
         height: options.height,
         tokenType: options.tokenType || 'spark',
         waitForCompletion: false,
-        disableNSFWFilter: true
+        disableNSFWFilter: options.noFilter === true
       };
 
       if (options.outputFormat) {
@@ -3472,8 +4258,20 @@ async function main() {
       if (audioBuffer) {
         projectConfig.referenceAudio = audioBuffer;
       }
+      if (options.audioStart !== null) {
+        projectConfig.audioStart = options.audioStart;
+      }
+      if (options.audioDuration !== null) {
+        projectConfig.audioDuration = options.audioDuration;
+      }
+      if (audioIdentityBuffer) {
+        projectConfig.referenceAudioIdentity = audioIdentityBuffer;
+      }
       if (videoBuffer) {
         projectConfig.referenceVideo = videoBuffer;
+      }
+      if (options.videoStart !== null) {
+        projectConfig.videoStart = options.videoStart;
       }
       if (options.seed !== null && options.seed !== undefined) {
         projectConfig.seed = options.seed;
@@ -3484,11 +4282,26 @@ async function main() {
       if (guidance !== null && guidance !== undefined) {
         projectConfig.guidance = guidance;
       }
-      if (options.videoControlNetName) {
+      if (modelDefaults?.sampler) {
+        projectConfig.sampler = modelDefaults.sampler;
+      }
+      if (modelDefaults?.scheduler) {
+        projectConfig.scheduler = modelDefaults.scheduler;
+      }
+      if (modelDefaults?.shift !== null && modelDefaults?.shift !== undefined) {
+        projectConfig.shift = modelDefaults.shift;
+      }
+      if (options.videoControlNetName && !isSeedanceModel(options.model)) {
+        const controlNetStrength = resolveVideoControlNetStrength(options.videoControlNetName, options.videoControlNetStrength);
         projectConfig.controlNet = {
           name: options.videoControlNetName,
-          ...(options.videoControlNetStrength != null && { strength: options.videoControlNetStrength })
+          strength: controlNetStrength
         };
+        if (options.videoControlNetName !== 'detailer') {
+          projectConfig.detailerStrength = 0.6;
+        }
+      } else if (options.videoControlNetName && isSeedanceModel(options.model) && !options.quiet) {
+        console.error('Warning: --controlnet-name ignored for Seedance V2V models.');
       }
       if (options.sam2Coordinates) {
         projectConfig.sam2Coordinates = options.sam2Coordinates;
@@ -3533,7 +4346,7 @@ async function main() {
         steps,
         guidance,
         tokenType: options.tokenType || 'spark',
-        disableNSFWFilter: true
+        disableNSFWFilter: options.noFilter === true
       };
 
       if (options.outputFormat) {
@@ -3580,7 +4393,7 @@ async function main() {
         height: options.height,
         steps,
         guidance,
-        disableNSFWFilter: true,
+        disableNSFWFilter: options.noFilter === true,
         sampler: options.sampler || 'dpmpp_sde',
         scheduler: options.scheduler || 'karras',
         controlNet: {
@@ -3638,7 +4451,7 @@ async function main() {
           width: options.width,
           height: options.height,
           guidance,
-          disableNSFWFilter: true
+          disableNSFWFilter: options.noFilter === true
         };
         if (options.outputFormat) {
           projectConfig.outputFormat = options.outputFormat;
@@ -3706,17 +4519,31 @@ async function main() {
         renderInfo.fps = options.fps;
         renderInfo.duration = options.frames ? options.frames / options.fps : options.duration;
         if (options.frames) renderInfo.frames = options.frames;
+        if (options.targetResolution) renderInfo.targetResolution = options.targetResolution;
         if (options.autoResizeVideoAssets !== null) {
           renderInfo.autoResizeVideoAssets = options.autoResizeVideoAssets;
         }
         renderInfo.refImage = options.refImage;
         renderInfo.refImageEnd = options.refImageEnd;
-        if (options.refAudio) renderInfo.refAudio = options.refAudio;
-        if (options.refVideo) renderInfo.refVideo = options.refVideo;
-        if (options.videoControlNetName) {
+        if (options.refAudio) {
+          renderInfo.refAudio = options.refAudio;
+          if (options.audioStart !== null) renderInfo.audioStart = options.audioStart;
+          if (options.audioDuration !== null) renderInfo.audioDuration = options.audioDuration;
+        }
+        if (options.referenceAudioIdentity) {
+          renderInfo.referenceAudioIdentity = options.referenceAudioIdentity;
+          if (options._voicePersonaResolvedName || options.voicePersonaName) {
+            renderInfo.voicePersonaName = options._voicePersonaResolvedName || options.voicePersonaName;
+          }
+        }
+        if (options.refVideo) {
+          renderInfo.refVideo = options.refVideo;
+          if (options.videoStart !== null) renderInfo.videoStart = options.videoStart;
+        }
+        if (options.videoControlNetName && !isSeedanceModel(options.model)) {
           renderInfo.controlNet = {
             name: options.videoControlNetName,
-            strength: options.videoControlNetStrength
+            strength: resolveVideoControlNetStrength(options.videoControlNetName, options.videoControlNetStrength)
           };
         }
         if (options.sam2Coordinates) renderInfo.sam2Coordinates = options.sam2Coordinates;
@@ -3776,7 +4603,7 @@ async function main() {
             height: options.height,
             tokenType: options.tokenType || 'spark',
             waitForCompletion: false,
-            disableNSFWFilter: true
+            disableNSFWFilter: options.noFilter === true
           };
 
           if (options.frames) projectConfig2.frames = options.frames;
@@ -3899,18 +4726,32 @@ async function main() {
           output.fps = options.fps;
           output.duration = options.frames ? options.frames / options.fps : options.duration;
           if (options.frames) output.frames = options.frames;
+          if (options.targetResolution) output.targetResolution = options.targetResolution;
           output.strictSize = options.strictSize || false;
           if (options.autoResizeVideoAssets !== null) {
             output.autoResizeVideoAssets = options.autoResizeVideoAssets;
           }
           if (options.refImage) output.refImage = options.refImage;
           if (options.refImageEnd) output.refImageEnd = options.refImageEnd;
-          if (options.refAudio) output.refAudio = options.refAudio;
-          if (options.refVideo) output.refVideo = options.refVideo;
-          if (options.videoControlNetName) {
+          if (options.refAudio) {
+            output.refAudio = options.refAudio;
+            if (options.audioStart !== null) output.audioStart = options.audioStart;
+            if (options.audioDuration !== null) output.audioDuration = options.audioDuration;
+          }
+          if (options.referenceAudioIdentity) {
+            output.referenceAudioIdentity = options.referenceAudioIdentity;
+            if (options._voicePersonaResolvedName || options.voicePersonaName) {
+              output.voicePersonaName = options._voicePersonaResolvedName || options.voicePersonaName;
+            }
+          }
+          if (options.refVideo) {
+            output.refVideo = options.refVideo;
+            if (options.videoStart !== null) output.videoStart = options.videoStart;
+          }
+          if (options.videoControlNetName && !isSeedanceModel(options.model)) {
             output.controlNet = {
               name: options.videoControlNetName,
-              strength: options.videoControlNetStrength
+              strength: resolveVideoControlNetStrength(options.videoControlNetName, options.videoControlNetStrength)
             };
           }
           if (options.sam2Coordinates) output.sam2Coordinates = options.sam2Coordinates;
@@ -3993,6 +4834,7 @@ async function main() {
         refImage: options.video ? (options.refImage ?? null) : null,
         refImageEnd: options.video ? (options.refImageEnd ?? null) : null,
         refAudio: options.video ? (options.refAudio ?? null) : null,
+        referenceAudioIdentity: options.video ? (options.referenceAudioIdentity ?? null) : null,
         refVideo: options.video ? (options.refVideo ?? null) : null,
         effectiveWidth: options.video ? (options._effectiveVideoDims?.width ?? null) : null,
         effectiveHeight: options.video ? (options._effectiveVideoDims?.height ?? null) : null,

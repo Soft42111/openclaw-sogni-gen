@@ -304,14 +304,27 @@ const IMAGE_MODEL_TABLE = `Image Models:
   qwen_image_edit_2511_fp8   — Medium (~30s), image editing with context
   qwen_image_edit_2511_fp8_lightning — Fast (~8s), quick image editing`;
 
-const VIDEO_MODEL_TABLE = `WAN 2.2 Video Models (auto-selected per workflow):
+const VIDEO_MODEL_TABLE = `Recommended Video Models:
+  ltx23-22b-fp8_t2v_distilled             — LTX 2.3 text-to-video with native dialogue/audio (~2-3min)
+  ltx23-22b-fp8_i2v_distilled             — LTX 2.3 image-to-video with native dialogue/audio (~2-3min)
+  ltx23-22b-fp8_ia2v_distilled            — LTX 2.3 image+audio-to-video (~2-3min)
+  ltx23-22b-fp8_a2v_distilled             — LTX 2.3 audio-to-video (~2-3min)
+  ltx23-22b-fp8_v2v_distilled             — LTX 2.3 video-to-video with ControlNet (~3min)
+
+Seedance 2.0 Aliases:
+  seedance2                                — Text-to-video, 4-15s, native audio
+  seedance2-fast                           — Fast 720p-capped text-to-video
+  seedance2-ia2v                           — Image+audio-to-video
+  seedance2-v2v                            — Video-to-video without ControlNet
+
+WAN 2.2 Video Models:
   wan_v2.2-14b-fp8_t2v_lightx2v             — Text-to-video (~5min)
   wan_v2.2-14b-fp8_i2v_lightx2v             — Image-to-video (~3-5min)
-  wan_v2.2-14b-fp8_s2v_lightx2v             — Sound-to-video (~5min)
+  wan_v2.2-14b-fp8_s2v_lightx2v             — Lip-sync with face image + uploaded audio (~5min)
   wan_v2.2-14b-fp8_animate-move_lightx2v    — Animate-move (~5min)
   wan_v2.2-14b-fp8_animate-replace_lightx2v — Animate-replace (~5min)
 
-LTX-2 / LTX-2.3 Video Models:
+Legacy LTX-2 Video Models:
   ltx2-19b-fp8_t2v_distilled              — Text-to-video, fast 8-step (~2-3min)
   ltx2-19b-fp8_t2v                        — Text-to-video, quality 20-step (~5min)
   ltx2-19b-fp8_i2v_distilled              — Image-to-video, fast 8-step (~2-3min)
@@ -319,8 +332,7 @@ LTX-2 / LTX-2.3 Video Models:
   ltx2-19b-fp8_ia2v_distilled             — Image+audio-to-video, fast 8-step (~2-3min)
   ltx2-19b-fp8_a2v_distilled              — Audio-to-video, fast 8-step (~2-3min)
   ltx2-19b-fp8_v2v_distilled              — Video-to-video with ControlNet (~3min)
-  ltx2-19b-fp8_v2v                        — Video-to-video with ControlNet, quality (~5min)
-  ltx23-22b-fp8_t2v_distilled             — Text-to-video, LTX-2.3 fast distilled (~2-3min)`;
+  ltx2-19b-fp8_v2v                        — Video-to-video with ControlNet, quality (~5min)`;
 
 const TOOLS = [
   {
@@ -398,18 +410,23 @@ Cost: Uses Spark tokens. 512x512 is most cost-efficient. Claim 50 free daily Spa
     description: `Generate a video using Sogni AI's decentralized GPU network.
 
 Workflows:
-  t2v             — Text-to-video (default). Just provide a prompt.
-  i2v             — Image-to-video. Provide ref (reference image). Supports looping.
-  s2v             — Sound-to-video. Provide ref (face image) + ref_audio.
-  ia2v            — Image+audio-to-video (LTX). Provide ref + ref_audio.
-  a2v             — Audio-to-video (LTX). Provide ref_audio only.
-  v2v             — Video-to-video (LTX). Provide ref_video + controlnet_name.
+  t2v             — Text-to-video. LTX 2.3 default, supports native dialogue/audio from the prompt.
+  i2v             — Image-to-video. Provide ref. Use LTX 2.3 for dialogue/audio/story prompts.
+  s2v             — WAN lip-sync. Provide face ref + ref_audio only when explicitly syncing lips.
+  ia2v            — LTX 2.3 image+audio-to-video. Provide ref + uploaded/generated ref_audio.
+  a2v             — LTX 2.3 audio-to-video. Provide ref_audio only.
+  v2v             — LTX 2.3 video-to-video. Provide ref_video + controlnet_name.
   animate-move    — Transfer motion from ref_video to ref image.
   animate-replace — Replace subject in ref_video with ref image.
 
+Routing rules:
+  - If the user asks for a story, narration, dialogue, sound effects, ambient audio, or music generated from the prompt, use LTX 2.3 and put exact spoken words in double quotes.
+  - If the user provides an uploaded/generated audio file and a reference image, omit workflow and the CLI will auto-select ia2v; use workflow=s2v only for explicit face lip-sync.
+  - For persona voice cloning, set voice_persona or reference_audio_identity. Do not pass that clip as ref_audio.
+
 ${VIDEO_MODEL_TABLE}
 
-WAN video dimensions: divisible by 16, min 480px, max 1536px. LTX family: divisible by 64, 768-1920px.
+WAN dimensions: divisible by 16, min 480px, max 1536px. LTX 2.3 dimensions: divisible by 64, min 640px, max 3840px.
 Generation takes 3-5 minutes. Cost: Uses Spark tokens. Claim 50 free daily Spark at https://app.sogni.ai/`,
     inputSchema: {
       type: 'object',
@@ -423,17 +440,22 @@ Generation takes 3-5 minutes. Cost: Uses Spark tokens. Claim 50 free daily Spark
           enum: ['t2v', 'i2v', 's2v', 'ia2v', 'a2v', 'v2v', 'animate-move', 'animate-replace'],
           description: 'Video workflow (default: t2v, auto-inferred from provided refs)',
         },
+        quality: {
+          type: 'string',
+          enum: ['fast', 'hq', 'pro'],
+          description: 'Video quality preset. hq/pro prefer LTX for i2v and adjust steps/resolution unless explicit values are provided.',
+        },
         model: {
           type: 'string',
-          description: 'Model ID (auto-selected per workflow by default)',
+          description: 'Model ID or alias (ltx23, ltx23-i2v, ltx23-ia2v, ltx23-a2v, ltx23-v2v, wan22-s2v). Overrides quality/default routing.',
         },
         width: {
           type: 'number',
-          description: 'Video width in pixels (default: 512, must be divisible by 16)',
+          description: 'Video width in pixels. Defaults and divisibility are model-specific.',
         },
         height: {
           type: 'number',
-          description: 'Video height in pixels (default: 512, must be divisible by 16)',
+          description: 'Video height in pixels. Defaults and divisibility are model-specific.',
         },
         fps: {
           type: 'number',
@@ -447,6 +469,10 @@ Generation takes 3-5 minutes. Cost: Uses Spark tokens. Claim 50 free daily Spark
           type: 'number',
           description: 'Override total frame count (alternative to duration)',
         },
+        target_resolution: {
+          type: 'number',
+          description: 'Short-side video resolution target in pixels; preserves aspect ratio when width/height are not set.',
+        },
         ref: {
           type: 'string',
           description: 'Reference image path or URL (for i2v, s2v, animate workflows)',
@@ -457,11 +483,31 @@ Generation takes 3-5 minutes. Cost: Uses Spark tokens. Claim 50 free daily Spark
         },
         ref_audio: {
           type: 'string',
-          description: 'Reference audio file path (for s2v workflow)',
+          description: 'Uploaded/generated audio file path. With ref it auto-routes to LTX ia2v unless workflow=s2v is explicitly set for lip-sync.',
+        },
+        audio_start: {
+          type: 'number',
+          description: 'Optional start offset in seconds into ref_audio for audio-driven video.',
+        },
+        audio_duration: {
+          type: 'number',
+          description: 'Optional audio slice duration in seconds for audio-driven video.',
+        },
+        reference_audio_identity: {
+          type: 'string',
+          description: 'Voice identity clip for LTX native audio/persona voice cloning. Do not use for uploaded songs or soundtracks.',
+        },
+        voice_persona: {
+          type: 'string',
+          description: 'Saved persona name whose voice clip should be used as LTX referenceAudioIdentity.',
         },
         ref_video: {
           type: 'string',
           description: 'Reference video file path (for animate and v2v workflows)',
+        },
+        video_start: {
+          type: 'number',
+          description: 'Optional start offset in seconds into ref_video for segmented V2V/animate workflows.',
         },
         controlnet_name: {
           type: 'string',
@@ -502,6 +548,84 @@ Generation takes 3-5 minutes. Cost: Uses Spark tokens. Claim 50 free daily Spark
         },
       },
       required: ['prompt'],
+    },
+  },
+  {
+    name: 'animate_photo',
+    description: `Animate a reference image into video. Use this instead of generate_video when an image/photo already exists.
+
+Use LTX 2.3 for most animation, dialogue, story, and native audio requests. If the user provides an uploaded audio file, use sound_to_video instead. For dialogue, include exact spoken words in double quotes.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: 'Motion, camera, dialogue, and audio prompt. Spoken lines must be in double quotes.' },
+        ref: { type: 'string', description: 'Reference image path or URL to animate.' },
+        ref_end: { type: 'string', description: 'Optional end-frame image for a first/last-frame transition.' },
+        quality: { type: 'string', enum: ['fast', 'hq', 'pro'], description: 'Quality preset.' },
+        model: { type: 'string', description: 'Optional model override, e.g. ltx23-i2v or wan22-i2v.' },
+        width: { type: 'number', description: 'Video width.' },
+        height: { type: 'number', description: 'Video height.' },
+        duration: { type: 'number', description: 'Duration in seconds.' },
+        fps: { type: 'number', description: 'Frames per second.' },
+        target_resolution: { type: 'number', description: 'Short-side resolution target.' },
+        reference_audio_identity: { type: 'string', description: 'Voice identity clip for persona voice cloning with LTX native audio.' },
+        voice_persona: { type: 'string', description: 'Saved persona name whose voice clip should be used for LTX voice identity.' },
+        seed: { type: 'number', description: 'Seed for reproducibility.' },
+        output: { type: 'string', description: 'Save video to this file path.' },
+        looping: { type: 'boolean', description: 'Generate seamless loop.' },
+      },
+      required: ['prompt', 'ref'],
+    },
+  },
+  {
+    name: 'sound_to_video',
+    description: `Generate video synchronized to an uploaded or generated audio file.
+
+With ref image, defaults to LTX 2.3 ia2v. Without ref image, defaults to LTX 2.3 a2v. Set workflow=s2v only for explicit face lip-sync with a face image.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: 'Video description.' },
+        ref_audio: { type: 'string', description: 'Audio file path to drive/synchronize the video.' },
+        ref: { type: 'string', description: 'Optional reference image path or URL.' },
+        workflow: { type: 'string', enum: ['ia2v', 'a2v', 's2v'], description: 'Optional override. Omit for automatic LTX routing.' },
+        quality: { type: 'string', enum: ['fast', 'hq', 'pro'], description: 'Quality preset.' },
+        model: { type: 'string', description: 'Optional model override.' },
+        width: { type: 'number', description: 'Video width.' },
+        height: { type: 'number', description: 'Video height.' },
+        duration: { type: 'number', description: 'Duration in seconds.' },
+        fps: { type: 'number', description: 'Frames per second.' },
+        target_resolution: { type: 'number', description: 'Short-side resolution target.' },
+        audio_start: { type: 'number', description: 'Optional start offset in seconds into ref_audio.' },
+        audio_duration: { type: 'number', description: 'Optional duration slice in seconds from ref_audio.' },
+        seed: { type: 'number', description: 'Seed for reproducibility.' },
+        output: { type: 'string', description: 'Save video to this file path.' },
+      },
+      required: ['prompt', 'ref_audio'],
+    },
+  },
+  {
+    name: 'video_to_video',
+    description: 'Transform an existing video with LTX 2.3 V2V ControlNet, or model=seedance2-v2v for a no-ControlNet Seedance V2V transform. Use canny for edges, pose for motion/body structure, depth for spatial layout, or detailer for detail-preserving LTX transforms.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: 'Transformation prompt.' },
+        ref_video: { type: 'string', description: 'Source video path.' },
+        controlnet_name: { type: 'string', enum: ['canny', 'pose', 'depth', 'detailer'], description: 'ControlNet type.' },
+        controlnet_strength: { type: 'number', description: 'ControlNet strength, 0.0-1.0.' },
+        quality: { type: 'string', enum: ['fast', 'hq', 'pro'], description: 'Quality preset.' },
+        model: { type: 'string', description: 'Optional model override.' },
+        width: { type: 'number', description: 'Video width.' },
+        height: { type: 'number', description: 'Video height.' },
+        duration: { type: 'number', description: 'Duration in seconds.' },
+        fps: { type: 'number', description: 'Frames per second.' },
+        target_resolution: { type: 'number', description: 'Short-side resolution target.' },
+        video_start: { type: 'number', description: 'Optional start offset in seconds into ref_video for segmented transformations.' },
+        seed: { type: 'number', description: 'Seed for reproducibility.' },
+        output: { type: 'string', description: 'Save video to this file path.' },
+      },
+      required: ['prompt', 'ref_video'],
     },
   },
   {
@@ -665,6 +789,42 @@ The face likeness is preserved while applying the style from the prompt.`,
           items: { type: 'string' },
           description: 'Array of video clip file paths to concatenate (minimum 2)',
           minItems: 2,
+        },
+        audio_path: {
+          type: 'string',
+          description: 'Optional audio file to mux over the stitched video.',
+        },
+        audio_start: {
+          type: 'number',
+          description: 'Optional start offset in seconds into audio_path.',
+        },
+      },
+      required: ['output_path', 'clips'],
+    },
+  },
+  {
+    name: 'stitch_video',
+    description: 'Stitch multiple completed video clips into one video. Alias of concat_videos using the safe ffmpeg wrapper.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        output_path: {
+          type: 'string',
+          description: 'Path for the stitched output video',
+        },
+        clips: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Video clip file paths in final order (minimum 2)',
+          minItems: 2,
+        },
+        audio_path: {
+          type: 'string',
+          description: 'Optional audio file to mux over the stitched video.',
+        },
+        audio_start: {
+          type: 'number',
+          description: 'Optional start offset in seconds into audio_path.',
         },
       },
       required: ['output_path', 'clips'],
@@ -1013,16 +1173,23 @@ async function handleGenerateVideo(params) {
   sanitizeString(params.prompt, 'prompt');
   const args = ['--video'];
   if (params.workflow) args.push('--workflow', validateEnum(params.workflow, ['t2v', 'i2v', 's2v', 'ia2v', 'a2v', 'v2v', 'animate-move', 'animate-replace'], 'workflow'));
+  if (params.quality) args.push('--quality', validateEnum(params.quality, ['fast', 'hq', 'pro'], 'quality'));
   if (params.model) args.push('-m', sanitizeString(params.model, 'model'));
   if (params.width) args.push('-w', String(params.width));
   if (params.height) args.push('-h', String(params.height));
   if (params.fps) args.push('--fps', String(params.fps));
   if (params.duration) args.push('--duration', String(params.duration));
   if (params.frames) args.push('--frames', String(params.frames));
+  if (params.target_resolution) args.push('--target-resolution', String(params.target_resolution));
   if (params.ref) args.push('--ref', sanitizeString(params.ref, 'ref'));
   if (params.ref_end) args.push('--ref-end', sanitizeString(params.ref_end, 'ref_end'));
   if (params.ref_audio) args.push('--ref-audio', sanitizeString(params.ref_audio, 'ref_audio'));
+  if (params.audio_start != null) args.push('--audio-start', String(params.audio_start));
+  if (params.audio_duration != null) args.push('--audio-duration', String(params.audio_duration));
+  if (params.reference_audio_identity) args.push('--reference-audio-identity', sanitizeString(params.reference_audio_identity, 'reference_audio_identity'));
+  if (params.voice_persona) args.push('--voice-persona', sanitizeString(params.voice_persona, 'voice_persona'));
   if (params.ref_video) args.push('--ref-video', sanitizeString(params.ref_video, 'ref_video'));
+  if (params.video_start != null) args.push('--video-start', String(params.video_start));
   if (params.controlnet_name) args.push('--controlnet-name', validateEnum(params.controlnet_name, ['canny', 'pose', 'depth', 'detailer'], 'controlnet_name'));
   if (params.controlnet_strength != null) args.push('--controlnet-strength', String(params.controlnet_strength));
   if (params.sam2_coordinates) args.push('--sam2-coordinates', sanitizeString(params.sam2_coordinates, 'sam2_coordinates'));
@@ -1035,6 +1202,40 @@ async function handleGenerateVideo(params) {
   args.push('--', params.prompt);
 
   return runAndFormat(args, { timeoutMs: 600_000 });
+}
+
+async function handleAnimatePhoto(params) {
+  if (!params.ref) {
+    return { content: [{ type: 'text', text: 'Error: animate_photo requires "ref" (reference image).' }], isError: true };
+  }
+  return handleGenerateVideo({
+    ...params,
+    workflow: 'i2v',
+  });
+}
+
+async function handleSoundToVideo(params) {
+  if (!params.ref_audio) {
+    return { content: [{ type: 'text', text: 'Error: sound_to_video requires "ref_audio".' }], isError: true };
+  }
+  return handleGenerateVideo({
+    ...params,
+    workflow: params.workflow || undefined,
+  });
+}
+
+async function handleVideoToVideo(params) {
+  if (!params.ref_video) {
+    return { content: [{ type: 'text', text: 'Error: video_to_video requires "ref_video".' }], isError: true };
+  }
+  const seedanceV2v = typeof params.model === 'string' && params.model.toLowerCase().includes('seedance');
+  if (!params.controlnet_name && !seedanceV2v) {
+    return { content: [{ type: 'text', text: 'Error: video_to_video requires "controlnet_name".' }], isError: true };
+  }
+  return handleGenerateVideo({
+    ...params,
+    workflow: 'v2v',
+  });
 }
 
 async function handleEditImage(params) {
@@ -1114,9 +1315,12 @@ async function handleConcatVideos(params) {
     return { content: [{ type: 'text', text: 'Error: At least 2 clips are required.' }], isError: true };
   }
   const clips = params.clips.map((c, i) => sanitizeString(c, `clips[${i}]`));
-  const result = await runSogniAgent(['--concat-videos', outputPath, ...clips], { timeoutMs: 60_000 });
+  const args = ['--concat-videos', outputPath, ...clips];
+  if (params.audio_path) args.push('--concat-audio', sanitizeString(params.audio_path, 'audio_path'));
+  if (params.audio_start != null) args.push('--concat-audio-start', String(params.audio_start));
+  const result = await runSogniAgent(args, { timeoutMs: 60_000 });
   if (result.success === false) return formatError(result);
-  return { content: [{ type: 'text', text: `Concatenated ${result.clipCount || clips.length} clips to: ${result.outputPath || outputPath}` }] };
+  return { content: [{ type: 'text', text: `Concatenated ${result.clipCount || clips.length} clips to: ${result.outputPath || outputPath}${result.audioPath ? ` with audio ${result.audioPath}` : ''}` }] };
 }
 
 async function handleListMedia(params) {
@@ -1170,10 +1374,35 @@ async function handleRefineResult(params) {
     if (params.seed != null) args.push('-s', String(params.seed));
     else if (lastRender.seed != null) args.push('-s', String(lastRender.seed));
     if (lastRender.fps) args.push('--fps', String(lastRender.fps));
-    if (lastRender.duration) args.push('--duration', String(lastRender.duration));
+    if (lastRender.frames) args.push('--frames', String(lastRender.frames));
+    else if (lastRender.duration) args.push('--duration', String(lastRender.duration));
+    if (lastRender.targetResolution) args.push('--target-resolution', String(lastRender.targetResolution));
     if (lastRender.refImage) args.push('--ref', lastRender.refImage);
-    if (lastRender.refAudio) args.push('--ref-audio', lastRender.refAudio);
-    if (lastRender.refVideo) args.push('--ref-video', lastRender.refVideo);
+    if (lastRender.refImageEnd) args.push('--ref-end', lastRender.refImageEnd);
+    if (lastRender.refAudio) {
+      args.push('--ref-audio', lastRender.refAudio);
+      if (lastRender.audioStart != null) args.push('--audio-start', String(lastRender.audioStart));
+      if (lastRender.audioDuration != null) args.push('--audio-duration', String(lastRender.audioDuration));
+    }
+    if (lastRender.referenceAudioIdentity) args.push('--reference-audio-identity', lastRender.referenceAudioIdentity);
+    if (lastRender.voicePersonaName) args.push('--voice-persona', lastRender.voicePersonaName);
+    if (lastRender.refVideo) {
+      args.push('--ref-video', lastRender.refVideo);
+      if (lastRender.videoStart != null) args.push('--video-start', String(lastRender.videoStart));
+    }
+    if (lastRender.autoResizeVideoAssets === true) args.push('--auto-resize-assets');
+    else if (lastRender.autoResizeVideoAssets === false) args.push('--no-auto-resize-assets');
+    if (lastRender.controlNet?.name) args.push('--controlnet-name', lastRender.controlNet.name);
+    if (lastRender.controlNet?.strength != null) args.push('--controlnet-strength', String(lastRender.controlNet.strength));
+    if (lastRender.sam2Coordinates) {
+      const coords = Array.isArray(lastRender.sam2Coordinates)
+        ? lastRender.sam2Coordinates.map((p) => `${p.x},${p.y}`).join(';')
+        : String(lastRender.sam2Coordinates);
+      args.push('--sam2-coordinates', coords);
+    }
+    if (lastRender.trimEndFrame) args.push('--trim-end-frame');
+    if (lastRender.firstFrameStrength != null) args.push('--first-frame-strength', String(lastRender.firstFrameStrength));
+    if (lastRender.lastFrameStrength != null) args.push('--last-frame-strength', String(lastRender.lastFrameStrength));
     args.push('--', prompt);
     return runAndFormat(args, { timeoutMs: 600_000 });
   } else {
@@ -1376,6 +1605,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleGenerateImage(params);
       case 'generate_video':
         return await handleGenerateVideo(params);
+      case 'animate_photo':
+        return await handleAnimatePhoto(params);
+      case 'sound_to_video':
+        return await handleSoundToVideo(params);
+      case 'video_to_video':
+        return await handleVideoToVideo(params);
       case 'edit_image':
         return await handleEditImage(params);
       case 'photobooth':
@@ -1389,6 +1624,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'extract_last_frame':
         return await handleExtractLastFrame(params);
       case 'concat_videos':
+        return await handleConcatVideos(params);
+      case 'stitch_video':
         return await handleConcatVideos(params);
       case 'list_media':
         return await handleListMedia(params);
