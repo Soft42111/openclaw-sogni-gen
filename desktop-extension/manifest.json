@@ -3,7 +3,7 @@
   "name": "sogni-agent",
   "version": "2.0.0",
   "display_name": "Sogni Agent — Image & Video Generation",
-  "description": "Image, video, and creative-media tools for any AI agent, powered by Sogni AI's decentralized GPU network",
+  "description": "Creative AI superpowers for all AI agent runtimes, powered by Sogni AI's decentralized GPU network",
   "long_description": "Sogni Agent gives any AI agent (Claude Code/Desktop, OpenClaw, Hermes Agent, Manus AI, and more) image generation, image editing, video generation, photobooth face transfer, persona memory, and other creative-media tools. Uses Spark tokens — claim 50 free daily at https://app.sogni.ai/",
   "author": {
     "name": "Sogni AI",

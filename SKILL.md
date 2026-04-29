@@ -1,7 +1,7 @@
 ---
 name: sogni-agent
 version: "2.0.0"
-description: Sogni Agent — image, video, and creative-media tools for any AI agent runtime. Generates images, videos, and music using Sogni AI's decentralized GPU network. Supports personas (named people with saved reference photos and voice clips), persistent memories (user preferences across sessions), custom personality, style transfer, angle synthesis, and multi-step creative workflows. Ask the agent to "draw", "generate", "create an image", "make a video/animate", "apply a style", or "generate me as a superhero".
+description: Sogni Agent: Creative AI superpowers for all AI agent runtimes. Generates images, videos, and music using Sogni AI's decentralized GPU network. Supports personas (named people with saved reference photos and voice clips), persistent memories (user preferences across sessions), custom personality, style transfer, angle synthesis, and multi-step creative workflows. Ask the agent to "draw", "generate", "create an image", "make a video/animate", "apply a style", or "generate me as a superhero".
 homepage: https://sogni.ai
 metadata:
   clawdbot:

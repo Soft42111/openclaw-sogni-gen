@@ -1,7 +1,7 @@
 {
   "name": "@sogni-ai/sogni-agent",
   "version": "2.0.0",
-  "description": "Sogni Agent — image, video, and creative-media tools for any AI agent runtime (Claude Code, Claude Desktop, OpenClaw, Hermes Agent, Manus AI, and more). Powered by Sogni AI's decentralized GPU network.",
+  "description": "Sogni Agent: Creative AI superpowers for all AI agent runtimes (Claude Code, Claude Desktop, OpenClaw, Hermes Agent, Manus AI, and more). Powered by Sogni AI's decentralized GPU network.",
   "type": "module",
   "main": "sogni-agent.mjs",
   "bin": {

@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/Sogni-AI/sogni-agent/main/docs/screenshot.jpg" alt="Telegram image render workflow" width="320" />
 </p>
 
-# Sogni Agent — Image, Video & Creative Media for Any AI Agent
+# Sogni Agent: Creative AI Superpowers for All AI Agent Runtimes
 
 **Sogni Agent** gives any AI agent runtime — Claude Code, Claude Desktop,
 [OpenClaw](https://github.com/OpenClaw/OpenClaw),

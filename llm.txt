@@ -1,8 +1,8 @@
 # sogni-agent
 
-Image, video, and creative-media tools for any AI agent runtime — Claude Code,
-Claude Desktop, OpenClaw, Hermes Agent, Manus AI, and more. Powered by Sogni AI's
-decentralized GPU network.
+Creative AI superpowers for all AI agent runtimes — Claude Code, Claude Desktop,
+OpenClaw, Hermes Agent, Manus AI, and more. Powered by Sogni AI's decentralized
+GPU network.
 
 ## Install (pick the integration that matches your environment)
 
