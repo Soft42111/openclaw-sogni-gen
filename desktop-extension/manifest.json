@@ -1,22 +1,22 @@
 {
   "manifest_version": "0.3",
-  "name": "sogni-gen",
-  "version": "1.5.16",
-  "display_name": "Sogni AI Image & Video Generation",
-  "description": "Generate images and videos using Sogni AI's decentralized GPU network",
-  "long_description": "Generate images, edit photos, create videos, and transfer faces using Sogni AI. Supports multiple models with different speed/quality tradeoffs. Uses Spark tokens — claim 50 free daily at https://app.sogni.ai/",
+  "name": "sogni-agent",
+  "version": "2.0.0",
+  "display_name": "Sogni Agent — Image & Video Generation",
+  "description": "Image, video, and creative-media tools for any AI agent, powered by Sogni AI's decentralized GPU network",
+  "long_description": "Sogni Agent gives any AI agent (Claude Code/Desktop, OpenClaw, Hermes Agent, Manus AI, and more) image generation, image editing, video generation, photobooth face transfer, persona memory, and other creative-media tools. Uses Spark tokens — claim 50 free daily at https://app.sogni.ai/",
   "author": {
     "name": "Sogni AI",
     "url": "https://sogni.ai"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Sogni-AI/openclaw-sogni-gen.git"
+    "url": "https://github.com/Sogni-AI/sogni-agent.git"
   },
   "homepage": "https://sogni.ai",
-  "support": "https://github.com/Sogni-AI/openclaw-sogni-gen/issues",
+  "support": "https://github.com/Sogni-AI/sogni-agent/issues",
   "license": "MIT",
-  "keywords": ["image-generation", "video-generation", "ai", "sogni"],
+  "keywords": ["image-generation", "video-generation", "ai", "sogni", "agent", "mcp"],
   "server": {
     "type": "node",
     "entry_point": "server/mcp-server.mjs",

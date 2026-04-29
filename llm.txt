@@ -1,12 +1,29 @@
-# sogni-gen OpenClaw Plugin
+# sogni-agent
 
-Install this plugin in OpenClaw:
+Image, video, and creative-media tools for any AI agent runtime — Claude Code,
+Claude Desktop, OpenClaw, Hermes Agent, Manus AI, and more. Powered by Sogni AI's
+decentralized GPU network.
+
+## Install (pick the integration that matches your environment)
 
 ```bash
-openclaw plugins install sogni-gen
+# MCP server (Claude Code)
+claude mcp add sogni -- npx -y -p sogni-agent sogni-agent-mcp
+
+# OpenClaw plugin
+openclaw plugins install sogni-agent
+
+# Hermes Agent / Manus / other agent frameworks
+# Point the agent at https://github.com/Sogni-AI/sogni-agent — use SKILL.md as
+# the behavior source and invoke the CLI/MCP server.
+
+# Standalone Node CLI
+npm install -g sogni-agent
 ```
 
-After install, configure Sogni credentials:
+## Configure Sogni credentials
+
+Once-only setup, used by every integration above:
 
 ```bash
 mkdir -p ~/.config/sogni
@@ -19,16 +36,17 @@ EOF
 chmod 600 ~/.config/sogni/credentials
 ```
 
-Sign up at https://app.sogni.ai/ if needed.
+You can also export `SOGNI_API_KEY`, or `SOGNI_USERNAME` + `SOGNI_PASSWORD`,
+instead of writing the file. Sign up at https://app.sogni.ai/ if you do not
+have an account.
 
-This package ships its OpenClaw behavior through the plugin skill declared in `openclaw.plugin.json`, so the installed plugin uses `SKILL.md` as the main instruction source.
+## Repo
 
-Repo:
+https://github.com/Sogni-AI/sogni-agent
 
-https://github.com/Sogni-AI/openclaw-sogni-gen
+## Key files
 
-Key files:
-
-- `SKILL.md` — agent behavior and usage rules
-- `openclaw.plugin.json` — plugin manifest and config schema
-- `sogni-gen.mjs` — CLI used by the skill
+- `SKILL.md` — agent behavior and usage rules (load this into your agent)
+- `openclaw.plugin.json` — OpenClaw plugin manifest and config schema
+- `sogni-agent.mjs` — CLI used by the skill / MCP server
+- `mcp-server.mjs` — MCP server entry point

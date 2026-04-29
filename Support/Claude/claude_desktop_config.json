@@ -2,7 +2,7 @@
   "mcpServers": {
     "sogni": {
       "command": "npx",
-      "args": ["-y", "-p", "sogni-gen", "sogni-gen-mcp"]
+      "args": ["-y", "-p", "sogni-agent", "sogni-agent-mcp"]
     }
   }
 }

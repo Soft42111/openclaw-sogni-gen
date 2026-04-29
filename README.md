@@ -1,18 +1,23 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Sogni-AI/openclaw-sogni-gen/main/docs/screenshot.jpg" alt="Telegram image render workflow" width="320" />
+  <img src="https://raw.githubusercontent.com/Sogni-AI/sogni-agent/main/docs/screenshot.jpg" alt="Telegram image render workflow" width="320" />
 </p>
 
-# Sogni Gen - AI Image & Video Generation
+# Sogni Agent — Image, Video & Creative Media for Any AI Agent
 
-Sogni Gen gives AI agents image and video generation tools powered by [Sogni AI](https://sogni.ai)'s decentralized GPU network.
+**Sogni Agent** gives any AI agent runtime — Claude Code, Claude Desktop,
+[OpenClaw](https://github.com/OpenClaw/OpenClaw),
+[Hermes Agent](https://hermes-agent.nousresearch.com/),
+[Manus AI](https://manus.im), and more — image generation, video generation, and
+creative-media tools powered by [Sogni AI](https://sogni.ai)'s decentralized GPU
+network.
 
-Use it in the setup you already have:
+Drop it into the setup you already have:
 - as an [MCP server](https://modelcontextprotocol.io/) for **Claude Code**, **Claude Desktop**, and any MCP-compatible agent
 - as an [OpenClaw](https://github.com/OpenClaw/OpenClaw) plugin
-- as a skill source for [Hermes Agent](https://hermes-agent.nousresearch.com/), [Manus AI](https://manus.im), and other agent frameworks
+- as a skill source for **Hermes Agent**, **Manus AI**, and other agent frameworks
 - as a standalone Node.js CLI
 
-With Sogni Gen, an agent can:
+With Sogni Agent, an agent can:
 - generate images from prompts
 - edit and restyle existing images
 - create videos from text, images, audio, or reference video
@@ -26,16 +31,16 @@ With Sogni Gen, an agent can:
 
 ```bash
 # MCP (Claude Code - one command)
-claude mcp add sogni -- npx -y -p sogni-gen sogni-gen-mcp
+claude mcp add sogni -- npx -y -p sogni-agent sogni-agent-mcp
 
 # OpenClaw
-openclaw plugins install sogni-gen
+openclaw plugins install sogni-agent
 
 # Hermes Agent / Manus / other frameworks
-# https://github.com/Sogni-AI/openclaw-sogni-gen
+# https://github.com/Sogni-AI/sogni-agent
 
 # Standalone CLI
-npm install -g sogni-gen
+npm install -g sogni-agent
 ```
 
 Then ask your agent to do something simple, for example:
@@ -50,32 +55,32 @@ Then ask your agent to do something simple, for example:
 ### OpenClaw Plugin
 
 ```bash
-openclaw plugins install sogni-gen
+openclaw plugins install sogni-agent
 ```
 
 The installed plugin loads its behavior from [`SKILL.md`](./SKILL.md) via [`openclaw.plugin.json`](./openclaw.plugin.json).
 
 ### Hermes Agent / Manus / Other Frameworks
 
-Point the agent to this repository's [`SKILL.md`](./SKILL.md) for behavior guidance and [`llm.txt`](https://raw.githubusercontent.com/Sogni-AI/openclaw-sogni-gen/main/llm.txt) for install/setup help. The agent can then invoke `sogni-gen` via the CLI or MCP server.
+Point the agent to this repository's [`SKILL.md`](./SKILL.md) for behavior guidance and [`llm.txt`](https://raw.githubusercontent.com/Sogni-AI/sogni-agent/main/llm.txt) for install/setup help. The agent can then invoke `sogni-agent` via the CLI or MCP server.
 
 ### Manual Installation
 
 ```bash
-git clone git@github.com:Sogni-AI/openclaw-sogni-gen.git
-cd openclaw-sogni-gen
+git clone git@github.com:Sogni-AI/sogni-agent.git
+cd sogni-agent
 npm install
 ```
 
 ### OpenClaw Config Defaults
 
-If OpenClaw loads this plugin, `sogni-gen` reads defaults from your OpenClaw config:
+If OpenClaw loads this plugin, `sogni-agent` reads defaults from your OpenClaw config:
 
 ```json
 {
   "plugins": {
     "entries": {
-      "sogni-gen": {
+      "sogni-agent": {
         "enabled": true,
         "config": {
           "defaultImageModel": "z_image_turbo_bf16",
@@ -161,7 +166,7 @@ Override with environment variables:
 ### Claude Code (one command)
 
 ```bash
-claude mcp add sogni -- npx -y -p sogni-gen sogni-gen-mcp
+claude mcp add sogni -- npx -y -p sogni-agent sogni-agent-mcp
 ```
 
 ### Claude Desktop
@@ -173,7 +178,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "sogni": {
       "command": "npx",
-      "args": ["-y", "-p", "sogni-gen", "sogni-gen-mcp"]
+      "args": ["-y", "-p", "sogni-agent", "sogni-agent-mcp"]
     }
   }
 }
@@ -184,15 +189,15 @@ Restart Claude Desktop after saving.
 ### Global npm Install (CLI + MCP)
 
 ```bash
-npm install -g sogni-gen
-sogni-gen --version
+npm install -g sogni-agent
+sogni-agent --version
 ```
 
-If `sogni-gen-mcp` is on your `PATH`, you can register it directly:
+If `sogni-agent-mcp` is on your `PATH`, you can register it directly:
 
 ```bash
 # Claude Code using globally installed binary
-claude mcp add sogni -- sogni-gen-mcp
+claude mcp add sogni -- sogni-agent-mcp
 ```
 
 Claude Desktop config using global binary:
@@ -201,7 +206,7 @@ Claude Desktop config using global binary:
 {
   "mcpServers": {
     "sogni": {
-      "command": "sogni-gen-mcp",
+      "command": "sogni-agent-mcp",
       "args": []
     }
   }
@@ -230,95 +235,95 @@ The MCP server exposes these tools to Claude Code and Claude Desktop:
 | `extract_last_frame` | Extract the last frame from a video as an image |
 | `concat_videos` | Concatenate multiple video clips into one |
 | `list_media` | List recent inbound media files |
-| `get_version` | Show running sogni-gen version |
+| `get_version` | Show running sogni-agent version |
 
 ## Usage
 
 ```bash
 # Generate image, get URL
-node sogni-gen.mjs "a dragon eating tacos"
+node sogni-agent.mjs "a dragon eating tacos"
 
 # Quality presets (recommended — no need to remember model IDs)
-node sogni-gen.mjs -Q fast "a dragon eating tacos"          # z_image_turbo, 8 steps, 512x512
-node sogni-gen.mjs -Q hq "a dragon eating tacos"            # z_image_turbo, default steps, 768x768
-node sogni-gen.mjs -Q pro "a dragon eating tacos"            # flux2_dev, 40 steps, 1024x1024
+node sogni-agent.mjs -Q fast "a dragon eating tacos"          # z_image_turbo, 8 steps, 512x512
+node sogni-agent.mjs -Q hq "a dragon eating tacos"            # z_image_turbo, default steps, 768x768
+node sogni-agent.mjs -Q pro "a dragon eating tacos"            # flux2_dev, 40 steps, 1024x1024
 
 # Save to file
-node sogni-gen.mjs -o dragon.png "a dragon eating tacos"
+node sogni-agent.mjs -o dragon.png "a dragon eating tacos"
 
 # JSON output
-node sogni-gen.mjs --json "a dragon eating tacos"
+node sogni-agent.mjs --json "a dragon eating tacos"
 
 # Dynamic prompt variations — generate diverse images in one call
-node sogni-gen.mjs -n 3 "a {red|blue|green} sports car on a highway"
-node sogni-gen.mjs -n 4 "a cat {sleeping|playing|eating|running} in a {garden|kitchen|bedroom|park}"
+node sogni-agent.mjs -n 3 "a {red|blue|green} sports car on a highway"
+node sogni-agent.mjs -n 4 "a cat {sleeping|playing|eating|running} in a {garden|kitchen|bedroom|park}"
 
 # Token auto-fallback (tries SPARK first, falls back to SOGNI)
-node sogni-gen.mjs --token-type auto "a dragon eating tacos"
+node sogni-agent.mjs --token-type auto "a dragon eating tacos"
 
 # Check token balances (no prompt required)
-node sogni-gen.mjs --balance
+node sogni-agent.mjs --balance
 
 # Check token balances with JSON output
-node sogni-gen.mjs --json --balance
+node sogni-agent.mjs --json --balance
 
 # Different model (overrides --quality if both set)
-node sogni-gen.mjs -m flux1-schnell-fp8 "a dragon eating tacos"
+node sogni-agent.mjs -m flux1-schnell-fp8 "a dragon eating tacos"
 
 # JPG output
-node sogni-gen.mjs --output-format jpg -o dragon.jpg "a dragon eating tacos"
+node sogni-agent.mjs --output-format jpg -o dragon.jpg "a dragon eating tacos"
 
 # Photobooth (face transfer)
-node sogni-gen.mjs --photobooth --ref face.jpg "80s fashion portrait"
-node sogni-gen.mjs --photobooth --ref face.jpg -n 4 "LinkedIn professional headshot"
+node sogni-agent.mjs --photobooth --ref face.jpg "80s fashion portrait"
+node sogni-agent.mjs --photobooth --ref face.jpg -n 4 "LinkedIn professional headshot"
 
 # Image edit with LoRA
-node sogni-gen.mjs -c subject.jpg --lora sogni_lora_v1 --lora-strength 0.7 \
+node sogni-agent.mjs -c subject.jpg --lora sogni_lora_v1 --lora-strength 0.7 \
   "add a neon cyberpunk glow"
 
 # Multiple angles (Qwen + Multiple Angles LoRA)
-node sogni-gen.mjs --multi-angle -c subject.jpg \
+node sogni-agent.mjs --multi-angle -c subject.jpg \
   --azimuth front-right --elevation eye-level --distance medium \
   --angle-strength 0.9 \
   "studio portrait, same person"
 
 # 360 turntable (8 azimuths)
-node sogni-gen.mjs --angles-360 -c subject.jpg --distance medium --elevation eye-level \
+node sogni-agent.mjs --angles-360 -c subject.jpg --distance medium --elevation eye-level \
   "studio portrait, same person"
 
 # 360 turntable video (looping mp4, uses i2v between angles; requires ffmpeg)
-node sogni-gen.mjs --angles-360 --angles-360-video /tmp/turntable.mp4 \
+node sogni-agent.mjs --angles-360 --angles-360-video /tmp/turntable.mp4 \
   -c subject.jpg --distance medium --elevation eye-level \
   "studio portrait, same person"
 
 # Text-to-video (t2v)
-node sogni-gen.mjs --video "ocean waves at sunset"
+node sogni-agent.mjs --video "ocean waves at sunset"
 
 # Image-to-video (i2v)
-node sogni-gen.mjs --video --ref cat.jpg "gentle camera pan"
+node sogni-agent.mjs --video --ref cat.jpg "gentle camera pan"
 
 # Sound-to-video (s2v)
-node sogni-gen.mjs --video --ref face.jpg --ref-audio speech.m4a \
+node sogni-agent.mjs --video --ref face.jpg --ref-audio speech.m4a \
   -m wan_v2.2-14b-fp8_s2v_lightx2v "lip sync talking head"
 
 # Image+audio-to-video (ia2v, LTX)
-node sogni-gen.mjs --video --workflow ia2v --ref cover.jpg --ref-audio song.mp3 \
+node sogni-agent.mjs --video --workflow ia2v --ref cover.jpg --ref-audio song.mp3 \
   "music video with synchronized motion"
 
 # Audio-to-video (a2v, LTX)
-node sogni-gen.mjs --video --workflow a2v --ref-audio song.mp3 \
+node sogni-agent.mjs --video --workflow a2v --ref-audio song.mp3 \
   "abstract audio-reactive visualizer"
 
 # LTX-2.3 text-to-video
-node sogni-gen.mjs --video -m ltx23-22b-fp8_t2v_distilled --duration 20 \
+node sogni-agent.mjs --video -m ltx23-22b-fp8_t2v_distilled --duration 20 \
   "A wide cinematic aerial shot opens over steep tropical cliffs at golden hour, warm sunlight grazing the rock faces while sea mist drifts above the water below. Palm trees bend gently along the ridge as waves roll against the shoreline, leaving bright bands of foam across the dark stone. The camera glides forward in one continuous pass, revealing more of the coastline as sunlight flickers across wet surfaces and distant birds wheel through the haze. The scene holds a calm, upscale travel-film mood with smooth stabilized motion and crisp environmental detail."
 
 # Animate (motion transfer)
-node sogni-gen.mjs --video --ref subject.jpg --ref-video motion.mp4 \
+node sogni-agent.mjs --video --ref subject.jpg --ref-video motion.mp4 \
   --workflow animate-move "transfer motion"
 
 # Estimate video cost (requires --steps)
-node sogni-gen.mjs --video --estimate-video-cost --steps 20 \
+node sogni-agent.mjs --video --estimate-video-cost --steps 20 \
   -m wan_v2.2-14b-fp8_t2v_lightx2v "ocean waves at sunset"
 ```
 
@@ -349,16 +354,16 @@ Generate stylized portraits from a face photo using InstantID ControlNet:
 
 ```bash
 # Basic photobooth
-node sogni-gen.mjs --photobooth --ref face.jpg "80s fashion portrait"
+node sogni-agent.mjs --photobooth --ref face.jpg "80s fashion portrait"
 
 # Multiple outputs
-node sogni-gen.mjs --photobooth --ref face.jpg -n 4 "LinkedIn professional headshot"
+node sogni-agent.mjs --photobooth --ref face.jpg -n 4 "LinkedIn professional headshot"
 
 # Custom ControlNet tuning
-node sogni-gen.mjs --photobooth --ref face.jpg --cn-strength 0.6 --cn-guidance-end 0.5 "oil painting"
+node sogni-agent.mjs --photobooth --ref face.jpg --cn-strength 0.6 --cn-guidance-end 0.5 "oil painting"
 
 # Custom model
-node sogni-gen.mjs --photobooth --ref face.jpg -m coreml-dreamshaperXL_v21TurboDPMSDE "anime style"
+node sogni-agent.mjs --photobooth --ref face.jpg -m coreml-dreamshaperXL_v21TurboDPMSDE "anime style"
 ```
 
 Uses SDXL Turbo (`coreml-sogniXLturbo_alpha1_ad`) at 1024x1024 by default. The face image is passed via `--ref` and styled according to the prompt. Cannot be combined with `--video` or `-c/--context`.
@@ -373,7 +378,7 @@ Multi-angle mode auto-builds the `<sks>` prompt and applies the `multiple_angles
 - LTX family models (`ltx2-*`, `ltx23-*`) use dimensions divisible by 64. A practical default range is 768px to 1920px.
 - The script auto-normalizes video sizes to satisfy those constraints.
 - For i2v (and any workflow using `--ref` / `--ref-end`), the client wrapper resizes the reference image with a strict aspect-fit (`fit: inside`) and then uses the *resized reference dimensions* as the final video size. Because that resize uses rounding, a “valid” requested size can still produce an invalid final size (example: `1024x1536` requested, but ref becomes `1024x1535`).
-- `sogni-gen` detects this for local refs and will auto-adjust the requested size to a nearby safe size so the resized reference is divisible by 16.
+- `sogni-agent` detects this for local refs and will auto-adjust the requested size to a nearby safe size so the resized reference is divisible by 16.
 - If you want the script to fail instead of auto-adjusting, pass `--strict-size` and it will print a suggested size.
 
 ## Error Reporting
@@ -417,7 +422,7 @@ Multi-angle mode auto-builds the `<sks>` prompt and applies the `multiple_angles
 --lora-strengths <n>  Comma-separated LoRA strengths
 --token-type <type>   spark|sogni|auto (auto retries with alternate token on insufficient balance)
 --balance, --balances Show SPARK/SOGNI balances and exit
---version, -V         Show sogni-gen version and exit
+--version, -V         Show sogni-agent version and exit
 --video, -v           Generate video instead of image
 --workflow <type>     t2v|i2v|s2v|ia2v|a2v|v2v|animate-move|animate-replace
 --fps <num>           Frames per second (video)
@@ -473,10 +478,10 @@ Generate diverse images in a single call using `{option1|option2|option3}` synta
 
 ```bash
 # Generates 3 images: "a red car", "a blue car", "a green car"
-node sogni-gen.mjs -n 3 "a {red|blue|green} car"
+node sogni-agent.mjs -n 3 "a {red|blue|green} car"
 
 # Multiple variation groups cycle independently
-node sogni-gen.mjs -n 4 "a {cat|dog} in a {garden|kitchen}"
+node sogni-agent.mjs -n 4 "a {cat|dog} in a {garden|kitchen}"
 # → "a cat in a garden", "a dog in a kitchen", "a cat in a garden", "a dog in a kitchen"
 ```
 
@@ -487,7 +492,7 @@ Options cycle sequentially per image. Without `{...}` syntax, `-n` generates mul
 Use `--token-type auto` to automatically retry with SOGNI tokens if SPARK balance is insufficient:
 
 ```bash
-node sogni-gen.mjs --token-type auto "a dragon eating tacos"
+node sogni-agent.mjs --token-type auto "a dragon eating tacos"
 ```
 
 This tries SPARK first (free daily tokens), then falls back to SOGNI if the balance is too low.
@@ -498,17 +503,17 @@ Named people with saved reference photos and optional voice clips for identity-p
 
 ```bash
 # Add a persona
-node sogni-gen.mjs --persona-add "Mark" --ref face.jpg --relationship self --description "30s male, brown hair"
+node sogni-agent.mjs --persona-add "Mark" --ref face.jpg --relationship self --description "30s male, brown hair"
 
 # Add with voice clip for video voice cloning
-node sogni-gen.mjs --persona-add "Sarah" --ref sarah.jpg --relationship partner --voice-clip voice.webm
+node sogni-agent.mjs --persona-add "Sarah" --ref sarah.jpg --relationship partner --voice-clip voice.webm
 
 # Generate using a persona (auto-injects photo as context)
-node sogni-gen.mjs --persona "Mark" -o hero.png "superhero in dramatic lighting"
+node sogni-agent.mjs --persona "Mark" -o hero.png "superhero in dramatic lighting"
 
 # List / remove
-node sogni-gen.mjs --persona-list
-node sogni-gen.mjs --persona-remove "Mark"
+node sogni-agent.mjs --persona-list
+node sogni-agent.mjs --persona-remove "Mark"
 ```
 
 Personas are stored at `~/.config/sogni/personas/`. Pronouns like "me"/"myself" auto-resolve to the `self` persona. "my wife" resolves to `partner`, etc.
@@ -518,10 +523,10 @@ Personas are stored at `~/.config/sogni/personas/`. Pronouns like "me"/"myself" 
 Save preferences that agents respect across sessions:
 
 ```bash
-node sogni-gen.mjs --memory-set preferred_style "watercolor and soft lighting"
-node sogni-gen.mjs --memory-set aspect_ratio "16:9"
-node sogni-gen.mjs --memory-list
-node sogni-gen.mjs --memory-remove preferred_style
+node sogni-agent.mjs --memory-set preferred_style "watercolor and soft lighting"
+node sogni-agent.mjs --memory-set aspect_ratio "16:9"
+node sogni-agent.mjs --memory-list
+node sogni-agent.mjs --memory-remove preferred_style
 ```
 
 Stored at `~/.config/sogni/memories.json`.
@@ -531,9 +536,9 @@ Stored at `~/.config/sogni/memories.json`.
 Set how the agent should behave:
 
 ```bash
-node sogni-gen.mjs --personality-set "Be concise, always use cinematic lighting"
-node sogni-gen.mjs --personality-get
-node sogni-gen.mjs --personality-clear
+node sogni-agent.mjs --personality-set "Be concise, always use cinematic lighting"
+node sogni-agent.mjs --personality-get
+node sogni-agent.mjs --personality-clear
 ```
 
 Stored at `~/.config/sogni/personality.txt`.

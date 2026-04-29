@@ -8,14 +8,14 @@ const ClientEvent = {
 };
 
 function getState() {
-  if (!globalThis.__SOGNI_GEN_TEST_STATE__) {
-    globalThis.__SOGNI_GEN_TEST_STATE__ = { instances: [] };
+  if (!globalThis.__SOGNI_AGENT_TEST_STATE__) {
+    globalThis.__SOGNI_AGENT_TEST_STATE__ = { instances: [] };
   }
-  return globalThis.__SOGNI_GEN_TEST_STATE__;
+  return globalThis.__SOGNI_AGENT_TEST_STATE__;
 }
 
 function persistState() {
-  const statePath = process.env.SOGNI_GEN_TEST_STATE_PATH;
+  const statePath = process.env.SOGNI_AGENT_TEST_STATE_PATH;
   if (!statePath) return;
   const state = getState();
   try {

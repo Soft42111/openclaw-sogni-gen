@@ -62,7 +62,7 @@ function loadOpenClawPluginConfig() {
   try {
     const raw = readFileSync(openclawConfigPath, 'utf8');
     const parsed = JSON5.parse(raw);
-    return parsed?.plugins?.entries?.['sogni-gen']?.config || null;
+    return parsed?.plugins?.entries?.['sogni-agent']?.config || null;
   } catch (err) {
     return null;
   }
@@ -331,7 +331,7 @@ async function checkVideoBudget({ workflow, label, width, height, fps, duration,
 
 function runCli(args, label) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [join(process.cwd(), 'sogni-gen.mjs'), ...args], {
+    const child = spawn(process.execPath, [join(process.cwd(), 'sogni-agent.mjs'), ...args], {
       env: process.env,
       stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -424,7 +424,7 @@ if (!shouldRun) {
 
     await logAccountInfo();
 
-    const workDir = mkdtempSync(join(tmpdir(), 'sogni-gen-int-'));
+    const workDir = mkdtempSync(join(tmpdir(), 'sogni-agent-int-'));
     const imagePath = join(workDir, 't2i-512.png');
     const total = TESTS.length;
 

@@ -25,10 +25,10 @@ const PACKAGE_VERSION = JSON.parse(readFileSync(join(process.cwd(), 'package.jso
 const SCREENSHOT_FIXTURE = join(process.cwd(), 'docs', 'screenshot.jpg');
 
 function runCli(args, envOverrides = {}) {
-  const tempHome = mkdtempSync(join(tmpdir(), 'sogni-gen-test-'));
+  const tempHome = mkdtempSync(join(tmpdir(), 'sogni-agent-test-'));
   const statePath = join(tempHome, 'state.json');
   const loaderPath = join(process.cwd(), 'test', 'loader.mjs');
-  const cliPath = join(process.cwd(), 'sogni-gen.mjs');
+  const cliPath = join(process.cwd(), 'sogni-agent.mjs');
 
   const env = {
     ...process.env,
@@ -38,7 +38,7 @@ function runCli(args, envOverrides = {}) {
     OPENCLAW_PLUGIN_CONFIG: '',
     SOGNI_USERNAME: 'test-user',
     SOGNI_PASSWORD: 'test-pass',
-    SOGNI_GEN_TEST_STATE_PATH: statePath,
+    SOGNI_AGENT_TEST_STATE_PATH: statePath,
     NODE_NO_WARNINGS: '1'
   };
 
@@ -214,7 +214,7 @@ test('--version with --json returns structured version information', () => {
   const payload = JSON.parse(stdout.trim());
   assert.equal(payload.success, true);
   assert.equal(payload.type, 'version');
-  assert.equal(payload.name, 'sogni-gen');
+  assert.equal(payload.name, 'sogni-agent');
   assert.equal(payload.version, PACKAGE_VERSION);
   assert.ok(payload.timestamp);
 });
@@ -357,7 +357,7 @@ test('json error: i2v validates --ref-end sizing with strict-size', () => {
 
 test('i2v auto-adjust handles near-matching aspects that still round to a non-16 dimension', async () => {
   const { default: sharp } = await import('sharp');
-  const tmp = mkdtempSync(join(tmpdir(), 'sogni-gen-ref-'));
+  const tmp = mkdtempSync(join(tmpdir(), 'sogni-agent-ref-'));
   const refPath = join(tmp, 'ref-587x880.png');
   await sharp({
     create: { width: 587, height: 880, channels: 3, background: { r: 0, g: 0, b: 0 } }
@@ -417,7 +417,7 @@ test('--balance does not require a prompt', () => {
 
 test('json error: i2v explicit size that rounds to non-16 suggests a compatible bbox', async () => {
   const { default: sharp } = await import('sharp');
-  const tmp = mkdtempSync(join(tmpdir(), 'sogni-gen-ref-'));
+  const tmp = mkdtempSync(join(tmpdir(), 'sogni-agent-ref-'));
   const refPath = join(tmp, 'ref-587x880.png');
   await sharp({
     create: { width: 587, height: 880, channels: 3, background: { r: 0, g: 0, b: 0 } }

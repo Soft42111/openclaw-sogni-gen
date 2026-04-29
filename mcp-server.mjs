@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 /**
- * sogni-gen MCP Server
+ * sogni-agent MCP Server
  *
- * Exposes Sogni AI image/video generation as MCP tools for Claude Code
- * and Claude Desktop.  Wraps the sogni-gen CLI using its --json mode.
+ * Exposes Sogni AI image/video generation as MCP tools for any MCP-compatible
+ * agent (Claude Code, Claude Desktop, OpenClaw, Hermes Agent, Manus AI, etc.).
+ * Wraps the sogni-agent CLI using its --json mode.
  *
  * Install (Claude Code):
- *   claude mcp add sogni -- npx -y -p sogni-gen sogni-gen-mcp
+ *   claude mcp add sogni -- npx -y -p sogni-agent sogni-agent-mcp
  *
  * Install (Claude Desktop – add to claude_desktop_config.json):
- *   { "mcpServers": { "sogni": { "command": "npx", "args": ["-y", "-p", "sogni-gen", "sogni-gen-mcp"] } } }
+ *   { "mcpServers": { "sogni": { "command": "npx", "args": ["-y", "-p", "sogni-agent", "sogni-agent-mcp"] } } }
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -29,7 +30,7 @@ import { PACKAGE_VERSION } from './version.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const SOGNI_GEN = join(__dirname, 'sogni-gen.mjs');
+const SOGNI_AGENT = join(__dirname, 'sogni-agent.mjs');
 const DEFAULT_CREDENTIALS_PATH = join(homedir(), '.config', 'sogni', 'credentials');
 const DEFAULT_DOWNLOADS_DIR = join(homedir(), 'Downloads', 'sogni');
 const CREDENTIALS_PATH = getEnv('SOGNI_CREDENTIALS_PATH', { trim: true }) || DEFAULT_CREDENTIALS_PATH;
@@ -95,12 +96,12 @@ function validateEnum(value, allowed, label) {
 // ---------------------------------------------------------------------------
 
 /**
- * Spawn `node sogni-gen.mjs --json ...args`, collect stdout, parse JSON.
+ * Spawn `node sogni-agent.mjs --json ...args`, collect stdout, parse JSON.
  * Returns the parsed object on success or throws on failure.
  */
-function runSogniGen(args, { timeoutMs = 30_000 } = {}) {
+function runSogniAgent(args, { timeoutMs = 30_000 } = {}) {
   return new Promise((resolve, reject) => {
-    execaNode(SOGNI_GEN, ['--json', '--quiet', ...args], {
+    execaNode(SOGNI_AGENT, ['--json', '--quiet', ...args], {
       timeout: timeoutMs,
       reject: false,
     }).then(({ stdout, stderr, exitCode, timedOut }) => {
@@ -109,10 +110,10 @@ function runSogniGen(args, { timeoutMs = 30_000 } = {}) {
 
       if (!trimmedStdout) {
         if (timedOut) {
-          reject(new Error(`sogni-gen timed out after ${timeoutMs}ms`));
+          reject(new Error(`sogni-agent timed out after ${timeoutMs}ms`));
           return;
         }
-        reject(new Error(trimmedStderr || `sogni-gen exited with code ${exitCode} and no output`));
+        reject(new Error(trimmedStderr || `sogni-agent exited with code ${exitCode} and no output`));
         return;
       }
 
@@ -120,10 +121,10 @@ function runSogniGen(args, { timeoutMs = 30_000 } = {}) {
         const result = JSON.parse(trimmedStdout);
         resolve(result);
       } catch {
-        reject(new Error(`Failed to parse sogni-gen output: ${trimmedStdout.slice(0, 500)}`));
+        reject(new Error(`Failed to parse sogni-agent output: ${trimmedStdout.slice(0, 500)}`));
       }
     }).catch((err) => {
-      reject(new Error(`Failed to execute sogni-gen: ${err.message}`));
+      reject(new Error(`Failed to execute sogni-agent: ${err.message}`));
     });
   });
 }
@@ -287,7 +288,7 @@ async function runAndFormat(args, { timeoutMs = 30_000, requireCredentials = tru
     const credErr = checkCredentials();
     if (credErr) return credErr;
   }
-  const result = await runSogniGen(args, { timeoutMs });
+  const result = await runSogniAgent(args, { timeoutMs });
   return formatResult(result);
 }
 
@@ -625,7 +626,7 @@ The face likeness is preserved while applying the style from the prompt.`,
   },
   {
     name: 'get_version',
-    description: 'Show the running sogni-gen version for this MCP server instance.',
+    description: 'Show the running sogni-agent version for this MCP server instance.',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -1072,12 +1073,12 @@ async function handleCheckBalance() {
 }
 
 async function handleGetVersion() {
-  const result = await runSogniGen(['--version'], { timeoutMs: 5_000 });
+  const result = await runSogniAgent(['--version'], { timeoutMs: 5_000 });
   if (result.success === false) return formatError(result);
   return {
     content: [{
       type: 'text',
-      text: `mcp-server version: ${SERVER_VERSION}\nsogni-gen version: ${result.version || 'unknown'}`,
+      text: `mcp-server version: ${SERVER_VERSION}\nsogni-agent version: ${result.version || 'unknown'}`,
     }],
   };
 }
@@ -1102,7 +1103,7 @@ Defaults:
 async function handleExtractLastFrame(params) {
   const videoPath = sanitizeString(params.video_path, 'video_path');
   const outputPath = sanitizeString(params.output_path, 'output_path');
-  const result = await runSogniGen(['--extract-last-frame', videoPath, outputPath], { timeoutMs: 30_000 });
+  const result = await runSogniAgent(['--extract-last-frame', videoPath, outputPath], { timeoutMs: 30_000 });
   if (result.success === false) return formatError(result);
   return { content: [{ type: 'text', text: `Extracted last frame to: ${result.outputPath || outputPath}` }] };
 }
@@ -1113,7 +1114,7 @@ async function handleConcatVideos(params) {
     return { content: [{ type: 'text', text: 'Error: At least 2 clips are required.' }], isError: true };
   }
   const clips = params.clips.map((c, i) => sanitizeString(c, `clips[${i}]`));
-  const result = await runSogniGen(['--concat-videos', outputPath, ...clips], { timeoutMs: 60_000 });
+  const result = await runSogniAgent(['--concat-videos', outputPath, ...clips], { timeoutMs: 60_000 });
   if (result.success === false) return formatError(result);
   return { content: [{ type: 'text', text: `Concatenated ${result.clipCount || clips.length} clips to: ${result.outputPath || outputPath}` }] };
 }
@@ -1123,7 +1124,7 @@ async function handleListMedia(params) {
   if (params.type) {
     args.push(validateEnum(params.type, ['images', 'audio', 'all'], 'type'));
   }
-  const result = await runSogniGen(args, { timeoutMs: 10_000 });
+  const result = await runSogniAgent(args, { timeoutMs: 10_000 });
   if (result.success === false) return formatError(result);
   const files = result.files || [];
   if (files.length === 0) {
@@ -1226,7 +1227,7 @@ async function handleEstimateCost(params) {
     return runAndFormat(args, { timeoutMs: 30_000 });
   } else {
     // Image cost: check balance and provide guidance
-    const balanceResult = await runSogniGen(['--balance'], { timeoutMs: 30_000 });
+    const balanceResult = await runSogniAgent(['--balance'], { timeoutMs: 30_000 });
     if (balanceResult.success === false) return formatError(balanceResult);
 
     const model = params.model || 'z_image_turbo_bf16';

@@ -1,26 +1,29 @@
 {
-  "name": "sogni-gen",
-  "version": "1.6.1",
-  "description": "Sogni AI image & video generation — OpenClaw plugin and MCP server for Claude Code / Claude Desktop",
+  "name": "sogni-agent",
+  "version": "2.0.0",
+  "description": "Sogni Agent — image, video, and creative-media tools for any AI agent runtime (Claude Code, Claude Desktop, OpenClaw, Hermes Agent, Manus AI, and more). Powered by Sogni AI's decentralized GPU network.",
   "type": "module",
-  "main": "sogni-gen.mjs",
+  "main": "sogni-agent.mjs",
   "bin": {
-    "sogni-gen": "sogni-gen.mjs",
-    "sogni-gen-mcp": "mcp-server.mjs"
+    "sogni-agent": "sogni-agent.mjs",
+    "sogni-agent-mcp": "mcp-server.mjs"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs test/*.integration.mjs",
     "test:integration": "node --test test/*.integration.mjs",
-    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=sogni-gen.mjs --test-coverage-lines=50 --test-coverage-branches=35 --test-coverage-functions=50 test/sogni-gen.test.mjs",
-    "test:coverage:full": "node --test --experimental-test-coverage --test-coverage-include=sogni-gen.mjs --test-coverage-lines=50 --test-coverage-branches=35 --test-coverage-functions=50 test/*.test.mjs test/*.integration.mjs"
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=sogni-agent.mjs --test-coverage-lines=50 --test-coverage-branches=35 --test-coverage-functions=50 test/sogni-agent.test.mjs",
+    "test:coverage:full": "node --test --experimental-test-coverage --test-coverage-include=sogni-agent.mjs --test-coverage-lines=50 --test-coverage-branches=35 --test-coverage-functions=50 test/*.test.mjs test/*.integration.mjs"
   },
   "keywords": [
     "sogni",
     "ai",
+    "agent",
     "image-generation",
-    "openclaw",
-    "plugin",
+    "video-generation",
     "mcp",
+    "openclaw",
+    "hermes-agent",
+    "manus",
     "claude",
     "claude-code",
     "claude-desktop"
@@ -41,11 +44,11 @@
     "openclaw.plugin.json",
     "env.mjs",
     "mcp-server.mjs",
-    "sogni-gen.mjs",
+    "sogni-agent.mjs",
     "Support/Claude/claude_desktop_config.json",
     "desktop-extension/manifest.json",
     "desktop-extension/server/mcp-server.mjs",
-    "desktop-extension/server/sogni-gen.mjs",
+    "desktop-extension/server/sogni-agent.mjs",
     "desktop-extension/server/package.json"
   ],
   "dependencies": {

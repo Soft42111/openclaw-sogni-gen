@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * sogni-gen - Generate images and videos using Sogni AI
- * Usage: sogni-gen [options] "prompt"
+ * sogni-agent - Generate images and videos using Sogni AI
+ * Usage: sogni-agent [options] "prompt"
  */
 
 import { SogniClientWrapper, ClientEvent, getMaxContextImages } from '@sogni-ai/sogni-client-wrapper';
@@ -710,7 +710,7 @@ function loadOpenClawPluginConfig() {
   try {
     const raw = readFileSync(OPENCLAW_CONFIG_PATH, 'utf8');
     const parsed = JSON5.parse(raw);
-    return parsed?.plugins?.entries?.['sogni-gen']?.config || null;
+    return parsed?.plugins?.entries?.['sogni-agent']?.config || null;
   } catch (e) {
     return null;
   }
@@ -1236,9 +1236,9 @@ for (let i = 0; i < args.length; i++) {
     options.showVersion = true;
   } else if (arg === '--help') {
     console.log(`
-sogni-gen - Generate images and videos using Sogni AI
+sogni-agent - Generate images and videos using Sogni AI
 
-Usage: sogni-gen [options] "prompt"
+Usage: sogni-agent [options] "prompt"
 
 Image Options:
   -o, --output <path>   Save to file (otherwise prints URL)
@@ -1303,7 +1303,7 @@ General:
   --guidance <num>      Override guidance (model-dependent)
   --token-type <type>   Token type: spark|sogni|auto (default: spark, auto retries with alternate)
   --balance, --balances Show SPARK/SOGNI balances and exit
-  --version, -V         Show sogni-gen version and exit
+  --version, -V         Show sogni-agent version and exit
   --extract-last-frame <video> <image>  Extract last frame from a video (safe ffmpeg wrapper)
   --concat-videos <out> <clips...>      Concatenate video clips (safe ffmpeg wrapper, min 2 clips)
   --list-media [type]   List recent inbound media files (images|audio|all, default: images)
@@ -1365,24 +1365,24 @@ LTX-2 / LTX-2.3 Video Models:
   ltx23-22b-fp8_t2v_distilled     Text-to-video, LTX-2.3 fast distilled
 
 Examples:
-  sogni-gen "a cat wearing a hat"
-  sogni-gen -o cat.jpg "a cat" 
-  sogni-gen --multi-angle -c subject.jpg --azimuth front-right --elevation eye-level --distance medium "studio portrait"
-  sogni-gen --angles-360 -c subject.jpg "studio portrait"
-  sogni-gen --video --ref cat.jpg -o cat.mp4 "cat walks around"
-  sogni-gen --video "ocean waves at sunset"
-  sogni-gen --video --ref cat.jpg --ref-audio speech.m4a -m wan_v2.2-14b-fp8_s2v_lightx2v "lip sync"
-  sogni-gen --video --workflow ia2v --ref cover.jpg --ref-audio song.mp3 "music video"
-  sogni-gen --video --workflow a2v --ref-audio song.mp3 "abstract music visualizer"
-  sogni-gen --video -m ltx23-22b-fp8_t2v_distilled --duration 20 "A wide cinematic aerial shot opens over steep tropical cliffs at golden hour, warm sunlight grazing the rock faces while sea mist drifts above the water below. Palm trees bend gently along the ridge as waves roll against the shoreline, leaving bright bands of foam across the dark stone. The camera glides forward in one continuous pass, revealing more of the coastline as sunlight flickers across wet surfaces and distant birds wheel through the haze. The scene holds a calm, upscale travel-film mood with smooth stabilized motion and crisp environmental detail."
-  sogni-gen --video --ref subject.jpg --ref-video motion.mp4 --workflow animate-move "transfer motion"
-  sogni-gen --video --last-image "gentle camera pan"
-  sogni-gen -c photo.jpg "make the background a beach" -m qwen_image_edit_2511_fp8
-  sogni-gen -c subject.jpg -c style.jpg "apply the style to the subject"
-  sogni-gen --photobooth --ref face.jpg "80s fashion portrait"
-  sogni-gen --photobooth --ref face.jpg -n 4 "LinkedIn professional headshot"
-  sogni-gen -Q pro "a beautiful mountain landscape at sunset"
-  sogni-gen -n 3 "a {red|blue|green} sports car on a highway"
+  sogni-agent "a cat wearing a hat"
+  sogni-agent -o cat.jpg "a cat" 
+  sogni-agent --multi-angle -c subject.jpg --azimuth front-right --elevation eye-level --distance medium "studio portrait"
+  sogni-agent --angles-360 -c subject.jpg "studio portrait"
+  sogni-agent --video --ref cat.jpg -o cat.mp4 "cat walks around"
+  sogni-agent --video "ocean waves at sunset"
+  sogni-agent --video --ref cat.jpg --ref-audio speech.m4a -m wan_v2.2-14b-fp8_s2v_lightx2v "lip sync"
+  sogni-agent --video --workflow ia2v --ref cover.jpg --ref-audio song.mp3 "music video"
+  sogni-agent --video --workflow a2v --ref-audio song.mp3 "abstract music visualizer"
+  sogni-agent --video -m ltx23-22b-fp8_t2v_distilled --duration 20 "A wide cinematic aerial shot opens over steep tropical cliffs at golden hour, warm sunlight grazing the rock faces while sea mist drifts above the water below. Palm trees bend gently along the ridge as waves roll against the shoreline, leaving bright bands of foam across the dark stone. The camera glides forward in one continuous pass, revealing more of the coastline as sunlight flickers across wet surfaces and distant birds wheel through the haze. The scene holds a calm, upscale travel-film mood with smooth stabilized motion and crisp environmental detail."
+  sogni-agent --video --ref subject.jpg --ref-video motion.mp4 --workflow animate-move "transfer motion"
+  sogni-agent --video --last-image "gentle camera pan"
+  sogni-agent -c photo.jpg "make the background a beach" -m qwen_image_edit_2511_fp8
+  sogni-agent -c subject.jpg -c style.jpg "apply the style to the subject"
+  sogni-agent --photobooth --ref face.jpg "80s fashion portrait"
+  sogni-agent --photobooth --ref face.jpg -n 4 "LinkedIn professional headshot"
+  sogni-agent -Q pro "a beautiful mountain landscape at sunset"
+  sogni-agent -n 3 "a {red|blue|green} sports car on a highway"
 `);
     process.exit(0);
   } else if (arg === '--') {
@@ -2965,7 +2965,7 @@ async function main() {
         console.log(JSON.stringify({
           success: true,
           type: 'version',
-          name: 'sogni-gen',
+          name: 'sogni-agent',
           version: PACKAGE_VERSION,
           timestamp: new Date().toISOString()
         }));
