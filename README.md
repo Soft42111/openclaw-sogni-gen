@@ -29,22 +29,14 @@ With Sogni Agent, an agent can:
 ## Quick Start
 
 1. Create Sogni credentials once. See [Setup](#setup).
-2. Install the command-line tool and skill by default:
+2. Install the command-line tool:
 
 ```bash
-# Command-line tool
 npm install -g @sogni-ai/sogni-agent
-
-# Skill source for agent runtimes
-# Point the agent at this repository's SKILL.md:
-# https://github.com/Sogni-AI/sogni-agent
-
-# OpenClaw
-openclaw plugins install sogni-agent
-
-# Hermes Agent / Manus / other frameworks
-# https://github.com/Sogni-AI/sogni-agent
+sogni-agent --version
 ```
+
+3. Point your agent/runtime at this repository's [`SKILL.md`](./SKILL.md).
 
 Then ask your agent to do something simple, for example:
 - "Generate an image of a sunset over mountains"
@@ -84,56 +76,11 @@ cd sogni-agent
 npm install
 ```
 
-### OpenClaw Config Defaults
+### Advanced OpenClaw Config
 
-If OpenClaw loads this plugin, `sogni-agent` reads defaults from your OpenClaw config:
+When loaded through OpenClaw, Sogni Agent reads plugin defaults from OpenClaw config. CLI flags always override those defaults.
 
-```json
-{
-  "plugins": {
-    "entries": {
-      "sogni-agent": {
-        "enabled": true,
-        "config": {
-          "defaultImageModel": "z_image_turbo_bf16",
-          "defaultEditModel": "qwen_image_edit_2511_fp8_lightning",
-          "defaultPhotoboothModel": "coreml-sogniXLturbo_alpha1_ad",
-          "videoModels": {
-            "t2v": "ltx23-22b-fp8_t2v_distilled",
-            "i2v": "wan_v2.2-14b-fp8_i2v_lightx2v",
-            "s2v": "wan_v2.2-14b-fp8_s2v_lightx2v",
-            "ia2v": "ltx23-22b-fp8_ia2v_distilled",
-            "a2v": "ltx23-22b-fp8_a2v_distilled",
-            "v2v": "ltx23-22b-fp8_v2v_distilled",
-            "animate-move": "wan_v2.2-14b-fp8_animate-move_lightx2v",
-            "animate-replace": "wan_v2.2-14b-fp8_animate-replace_lightx2v"
-          },
-          "defaultVideoWorkflow": "t2v",
-          "defaultNetwork": "fast",
-          "defaultTokenType": "spark",
-          "seedStrategy": "prompt-hash",
-          "modelDefaults": {
-            "flux1-schnell-fp8": { "steps": 4, "guidance": 3.5 },
-            "flux2_dev_fp8": { "steps": 20, "guidance": 7.5 }
-          },
-          "defaultWidth": 768,
-          "defaultHeight": 768,
-          "defaultCount": 1,
-          "defaultFps": 16,
-          "defaultDurationSec": 5,
-          "defaultImageTimeoutSec": 30,
-          "defaultVideoTimeoutSec": 300,
-          "credentialsPath": "~/.config/sogni/credentials",
-          "lastRenderPath": "~/.config/sogni/last-render.json",
-          "mediaInboundDir": "~/.clawdbot/media/inbound"
-        }
-      }
-    }
-  }
-}
-```
-
-CLI flags always override these defaults. If your OpenClaw config lives elsewhere, set `OPENCLAW_CONFIG_PATH`. Seed strategies: `prompt-hash` (deterministic) or `random`.
+The supported config shape is defined in [`openclaw.plugin.json`](./openclaw.plugin.json). Common overrides include default models, video workflow models, token type, seed strategy, timeouts, and media paths. If your OpenClaw config lives elsewhere, set `OPENCLAW_CONFIG_PATH`.
 
 ## Setup
 
@@ -155,23 +102,7 @@ You can also skip the file and set `SOGNI_API_KEY`, or `SOGNI_USERNAME` + `SOGNI
 
 ### Filesystem Paths and Overrides
 
-By default, the runtime reads/writes:
-
-- Credentials file: `~/.config/sogni/credentials` (read)
-- Last render metadata: `~/.config/sogni/last-render.json` (read/write)
-- OpenClaw config: `~/.openclaw/openclaw.json` (read)
-- Inbound media listing (`--list-media`): `~/.clawdbot/media/inbound` (read)
-- MCP local result copies: `~/Downloads/sogni` (write)
-
-Override with environment variables:
-
-- `SOGNI_CREDENTIALS_PATH`
-- `SOGNI_LAST_RENDER_PATH`
-- `SOGNI_MEDIA_INBOUND_DIR`
-- `OPENCLAW_CONFIG_PATH`
-- `SOGNI_DOWNLOADS_DIR` (MCP)
-- `SOGNI_MCP_SAVE_DOWNLOADS=0` (disable MCP local file writes)
-- `SOGNI_ALLOWED_DOWNLOAD_HOSTS` (comma-separated HTTPS host suffixes the MCP server may auto-download locally)
+Defaults live under `~/.config/sogni/` for credentials, last-render metadata, personas, memories, and personality. Advanced path overrides are available through `SOGNI_CREDENTIALS_PATH`, `SOGNI_LAST_RENDER_PATH`, `SOGNI_MEDIA_INBOUND_DIR`, `OPENCLAW_CONFIG_PATH`, and MCP-specific download settings.
 
 ## Claude Code and Claude Desktop MCP (Optional)
 
@@ -200,168 +131,52 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 Restart Claude Desktop after saving.
 
-### Global npm Install (CLI + MCP)
-
-```bash
-npm install -g @sogni-ai/sogni-agent
-sogni-agent --version
-```
-
-If `sogni-agent-mcp` is on your `PATH`, you can register it directly:
-
-```bash
-# Claude Code using globally installed binary
-claude mcp add sogni -- sogni-agent-mcp
-```
-
-Claude Desktop config using global binary:
-
-```json
-{
-  "mcpServers": {
-    "sogni": {
-      "command": "sogni-agent-mcp",
-      "args": []
-    }
-  }
-}
-```
-
-### MCP Tools
-
-The MCP server exposes these tools to Claude Code and Claude Desktop:
-
-| Tool | Description |
-|------|-------------|
-| `generate_image` | Generate images with quality presets, prompt variations, and full model control |
-| `generate_video` | Multi-workflow video generation (t2v, i2v, s2v, ia2v, a2v, v2v, animate) |
-| `animate_photo` | Animate an existing image/photo with LTX 2.3 native dialogue/audio support |
-| `sound_to_video` | Generate video synchronized to uploaded/generated audio, auto-routing to LTX ia2v/a2v |
-| `video_to_video` | Transform existing video with LTX 2.3 V2V ControlNet or Seedance V2V |
-| `edit_image` | Edit images using 1-3 context images and a prompt |
-| `photobooth` | Face transfer portraits with InstantID |
-| `refine_result` | Re-run the last generation with tweaked parameters (quality, model, seed, etc.) |
-| `estimate_cost` | Estimate generation cost before running (precise for video, heuristic for images) |
-| `check_balance` | Show current SPARK/SOGNI token balances |
-| `list_models` | List all available models with speed estimates |
-| `manage_memory` | Save/read/delete persistent user preferences across sessions |
-| `manage_personality` | Get/set/clear custom agent personality instructions |
-| `manage_personas` | CRUD for named people with reference photos and voice clips |
-| `apply_style` | Apply artistic styles to images (Warhol, Ghibli, Banksy, etc.) |
-| `change_angle` | Generate a photo from a different camera angle |
-| `extract_last_frame` | Extract the last frame from a video as an image |
-| `concat_videos` | Concatenate multiple video clips into one, optionally muxing an external audio track |
-| `stitch_video` | Stitch multiple completed video clips into one, optionally muxing an external audio track |
-| `list_media` | List recent inbound media files |
-| `get_version` | Show running sogni-agent version |
+The MCP server exposes the same core image/video/edit/persona/balance workflows as the CLI, plus local helpers such as last-frame extraction and video stitching.
 
 ## Usage
 
 ```bash
-# Generate image, get URL
-node sogni-agent.mjs "a dragon eating tacos"
+# Image generation
+sogni-agent -Q hq -o dragon.png "a dragon eating tacos"
 
-# Quality presets (recommended — no need to remember model IDs)
-node sogni-agent.mjs -Q fast "a dragon eating tacos"          # z_image_turbo, 8 steps, 512x512
-node sogni-agent.mjs -Q hq "a dragon eating tacos"            # z_image_turbo, default steps, 768x768
-node sogni-agent.mjs -Q pro "a dragon eating tacos"            # flux2_dev, 40 steps, 1024x1024
+# Edit an image
+sogni-agent -c subject.jpg "add a neon cyberpunk glow"
 
-# Save to file
-node sogni-agent.mjs -o dragon.png "a dragon eating tacos"
-
-# JSON output
-node sogni-agent.mjs --json "a dragon eating tacos"
-
-# Dynamic prompt variations — generate diverse images in one call
-node sogni-agent.mjs -n 3 "a {red|blue|green} sports car on a highway"
-node sogni-agent.mjs -n 4 "a cat {sleeping|playing|eating|running} in a {garden|kitchen|bedroom|park}"
-
-# Token auto-fallback (tries SPARK first, falls back to SOGNI)
-node sogni-agent.mjs --token-type auto "a dragon eating tacos"
-
-# Check token balances (no prompt required)
-node sogni-agent.mjs --balance
-
-# Check token balances with JSON output
-node sogni-agent.mjs --json --balance
-
-# Different model (overrides --quality if both set)
-node sogni-agent.mjs -m flux1-schnell-fp8 "a dragon eating tacos"
-
-# JPG output
-node sogni-agent.mjs --output-format jpg -o dragon.jpg "a dragon eating tacos"
-
-# Photobooth (face transfer)
-node sogni-agent.mjs --photobooth --ref face.jpg "80s fashion portrait"
-node sogni-agent.mjs --photobooth --ref face.jpg -n 4 "LinkedIn professional headshot"
-
-# Image edit with LoRA
-node sogni-agent.mjs -c subject.jpg --lora sogni_lora_v1 --lora-strength 0.7 \
-  "add a neon cyberpunk glow"
-
-# Multiple angles (Qwen + Multiple Angles LoRA)
-node sogni-agent.mjs --multi-angle -c subject.jpg \
-  --azimuth front-right --elevation eye-level --distance medium \
-  --angle-strength 0.9 \
-  "studio portrait, same person"
-
-# 360 turntable (8 azimuths)
-node sogni-agent.mjs --angles-360 -c subject.jpg --distance medium --elevation eye-level \
-  "studio portrait, same person"
-
-# 360 turntable video (looping mp4, uses i2v between angles; requires ffmpeg)
-node sogni-agent.mjs --angles-360 --angles-360-video /tmp/turntable.mp4 \
-  -c subject.jpg --distance medium --elevation eye-level \
-  "studio portrait, same person"
+# Photobooth face transfer
+sogni-agent --photobooth --ref face.jpg "80s fashion portrait"
 
 # Text-to-video (t2v)
-node sogni-agent.mjs --video "A narrator says \"welcome to the story\" as ocean waves crash"
+sogni-agent --video "A narrator says \"welcome to the story\" as ocean waves crash"
 
 # Short-side targeting preserves the current shape without forcing landscape
-node sogni-agent.mjs --video --target-resolution 768 \
+sogni-agent --video --target-resolution 768 \
   "A calm cinematic shot of lanterns drifting across a night lake"
 
 # Seedance 2.0 explicit aliases (4-15s vendor video path)
-node sogni-agent.mjs --video -m seedance2 --duration 8 \
+sogni-agent --video -m seedance2 --duration 8 \
   "A polished product reveal with native ambient sound"
 
 # Image-to-video (i2v)
-node sogni-agent.mjs --video --ref cat.jpg "gentle camera pan"
-
-# Sound-to-video (s2v)
-node sogni-agent.mjs --video --ref face.jpg --ref-audio speech.m4a \
-  -m wan_v2.2-14b-fp8_s2v_lightx2v "lip sync talking head"
+sogni-agent --video --ref cat.jpg "gentle camera pan"
 
 # Image+audio-to-video (auto-routes to LTX 2.3 ia2v)
-node sogni-agent.mjs --video --ref cover.jpg --ref-audio song.mp3 \
+sogni-agent --video --ref cover.jpg --ref-audio song.mp3 \
   "music video with synchronized motion"
 
-# Audio-to-video (auto-routes to LTX 2.3 a2v)
-node sogni-agent.mjs --video --ref-audio song.mp3 \
-  "abstract audio-reactive visualizer"
-
 # Persona or voice identity with LTX native audio
-node sogni-agent.mjs --video --reference-audio-identity voice.webm \
+sogni-agent --video --reference-audio-identity voice.webm \
   "NARRATOR: \"This is my voice.\""
 
-# LTX-2.3 text-to-video
-node sogni-agent.mjs --video -m ltx23-22b-fp8_t2v_distilled --duration 20 \
-  "A wide cinematic aerial shot opens over steep tropical cliffs at golden hour, warm sunlight grazing the rock faces while sea mist drifts above the water below. Palm trees bend gently along the ridge as waves roll against the shoreline, leaving bright bands of foam across the dark stone. The camera glides forward in one continuous pass, revealing more of the coastline as sunlight flickers across wet surfaces and distant birds wheel through the haze. The scene holds a calm, upscale travel-film mood with smooth stabilized motion and crisp environmental detail."
-
-# Animate (motion transfer)
-node sogni-agent.mjs --video --ref subject.jpg --ref-video motion.mp4 \
-  --workflow animate-move "transfer motion"
-
 # Segment a source video, then stitch clips locally with an external soundtrack
-node sogni-agent.mjs --video --workflow v2v --ref-video dance.mp4 \
+sogni-agent --video --workflow v2v --ref-video dance.mp4 \
   --video-start 10 --duration 8 --controlnet-name pose -o /tmp/clip-2.mp4 \
   "robot dancing"
-node sogni-agent.mjs --concat-videos /tmp/final.mp4 /tmp/clip-1.mp4 /tmp/clip-2.mp4 \
+sogni-agent --concat-videos /tmp/final.mp4 /tmp/clip-1.mp4 /tmp/clip-2.mp4 \
   --concat-audio song.mp3 --concat-audio-start 0
 
-# Estimate video cost (requires --steps)
-node sogni-agent.mjs --video --estimate-video-cost --steps 20 \
-  -m wan_v2.2-14b-fp8_t2v_lightx2v "ocean waves at sunset"
+# Balances and help
+sogni-agent --balance
+sogni-agent --help
 ```
 
 For local multi-clip workflows, prefer the built-in FFmpeg wrappers over raw shell commands. `--video-start`, `--audio-start`, and `--audio-duration` let you generate focused segments, while `--concat-videos` can stitch them and optionally mux a single soundtrack with `--concat-audio`.
@@ -394,17 +209,8 @@ LTX-2.3 prompt: "A medium cinematic shot frames a woman in her 30s standing in a
 Generate stylized portraits from a face photo using InstantID ControlNet:
 
 ```bash
-# Basic photobooth
-node sogni-agent.mjs --photobooth --ref face.jpg "80s fashion portrait"
-
-# Multiple outputs
-node sogni-agent.mjs --photobooth --ref face.jpg -n 4 "LinkedIn professional headshot"
-
-# Custom ControlNet tuning
-node sogni-agent.mjs --photobooth --ref face.jpg --cn-strength 0.6 --cn-guidance-end 0.5 "oil painting"
-
-# Custom model
-node sogni-agent.mjs --photobooth --ref face.jpg -m coreml-dreamshaperXL_v21TurboDPMSDE "anime style"
+sogni-agent --photobooth --ref face.jpg "80s fashion portrait"
+sogni-agent --photobooth --ref face.jpg -n 4 "LinkedIn professional headshot"
 ```
 
 Uses SDXL Turbo (`coreml-sogniXLturbo_alpha1_ad`) at 1024x1024 by default. The face image is passed via `--ref` and styled according to the prompt. Cannot be combined with `--video` or `-c/--context`.
@@ -425,90 +231,24 @@ Multi-angle mode auto-builds the `<sks>` prompt and applies the `multiple_angles
 
 ## Error Reporting
 
-- Exit code is non-zero on failure.
-- Default output is human-readable errors on stderr.
-- With `--json`, the script prints a single JSON object to stdout for both success and failure.
-  - For `--balance`, success output looks like: `{"success": true, "type": "balance", "spark": <number|null>, "sogni": <number|null>, ...}`
-  - On failure: `{"success": false, "error": "...", "errorCode": "...?", "errorDetails": {...}?, "hint": "...?", "context": {...}?}`
-- When invoked by OpenClaw, errors are always returned as JSON (and also logged to stderr for humans).
+Failures use a non-zero exit code and human-readable stderr. Add `--json` when an agent needs structured success/error output.
 
 ## Options
 
-```
--Q, --quality <tier>  Quality preset: fast|hq|pro (auto-selects model/steps/size)
--o, --output <path>   Save image to file
--m, --model <id>      Model (default: z_image_turbo_bf16, overrides --quality)
--w, --width <px>      Width (default: 512)
--h, --height <px>     Height (default: 512)
--n, --count <num>     Number of images (default: 1)
--t, --timeout <sec>   Timeout (default: 30)
--s, --seed <num>      Specific seed
---last-seed           Reuse last seed
---seed-strategy <s>   random|prompt-hash
---multi-angle         Multiple angles LoRA mode (Qwen Image Edit)
---angles-360          Generate 8 azimuths (front -> front-left)
---angles-360-video    Assemble a looping 360 mp4 using i2v between angles (requires ffmpeg)
---azimuth <key>       front|front-right|right|back-right|back|back-left|left|front-left
---elevation <key>     low-angle|eye-level|elevated|high-angle
---distance <key>      close-up|medium|wide
---angle-strength <n>  LoRA strength for multiple_angles (default: 0.9)
---angle-description <text>  Optional subject description
---output-format <f>   Image output format: png|jpg
---steps <num>         Override steps (model-dependent)
---guidance <num>      Override guidance (model-dependent)
---sampler <name>      Sampler (model-dependent)
---scheduler <name>    Scheduler (model-dependent)
---lora <id>           LoRA id (repeatable, edit only)
---loras <ids>         Comma-separated LoRA ids
---lora-strength <n>   LoRA strength (repeatable)
---lora-strengths <n>  Comma-separated LoRA strengths
---token-type <type>   spark|sogni|auto (auto retries with alternate token on insufficient balance)
---balance, --balances Show SPARK/SOGNI balances and exit
---version, -V         Show sogni-agent version and exit
---video, -v           Generate video instead of image
---workflow <type>     t2v|i2v|s2v|ia2v|a2v|v2v|animate-move|animate-replace
---fps <num>           Frames per second (video)
---duration <sec>      Video duration in seconds
---frames <num>        Override total frames (video)
---target-resolution <px> Short-side video target that preserves aspect ratio
---auto-resize-assets  Auto-resize video reference assets
---no-auto-resize-assets  Disable auto-resize for video assets
---estimate-video-cost Estimate video cost and exit (requires --steps)
---photobooth          Face transfer mode (InstantID + SDXL Turbo)
---cn-strength <n>     ControlNet strength (default: 0.8)
---cn-guidance-end <n> ControlNet guidance end point (default: 0.3)
---ref <path|url>      Reference image for i2v/s2v/animate/photobooth
---ref-end <path|url>  End frame for i2v interpolation
---ref-audio <path>    Uploaded/generated audio for ia2v/a2v, or s2v lip-sync
---audio-start <sec>   Start offset into --ref-audio
---audio-duration <sec> Duration slice from --ref-audio
---reference-audio-identity <path> Voice identity clip for LTX native audio
---voice-persona <name> Use saved persona voice clip as LTX voice identity
---ref-video <path>    Reference video for animate workflows
---video-start <sec>   Start offset into --ref-video for segmented v2v/animate
--c, --context <path>  Context image(s) for editing (repeatable)
---last-image          Use last image as context/ref
---json                JSON output
---strict-size         Do not auto-adjust i2v video size for reference resizing constraints
--q, --quiet           Suppress progress
---no-filter           Disable NSFW content filter
---concat-audio <path> Optional audio track to mux over --concat-videos output
---concat-audio-start <sec> Start offset into --concat-audio
---memory-set <k> <v>  Save a user preference
---memory-get <key>    Get a specific memory
---memory-list         List all saved memories
---memory-remove <key> Delete a memory
---personality-set <t> Set custom personality instructions
---personality-get     Show current personality
---personality-clear   Reset personality to default
---persona-add <name>  Add persona (with --ref, --relationship, --description, --voice-clip)
---persona-list        List all personas
---persona-remove <n>  Remove a persona
---persona-resolve <n> Look up a persona
---persona <name>      Generate using persona's reference photo
---relationship <type> self|partner|child|friend|pet
---voice-clip <path>   Voice clip for LTX-2.3 voice cloning
-```
+Run `sogni-agent --help` for the complete CLI. These are the options most agents should reach for first:
+
+| Option | Use |
+|--------|-----|
+| `-Q fast|hq|pro` | Pick image quality without memorizing model IDs |
+| `-o <path>` | Save output locally |
+| `-c <path>` | Provide image context for edits |
+| `--video` | Generate video instead of image |
+| `--ref`, `--ref-audio`, `--ref-video` | Provide image/audio/video references |
+| `--target-resolution <px>` | Target the short side while preserving aspect ratio |
+| `--workflow <type>` | Force `t2v`, `i2v`, `s2v`, `ia2v`, `a2v`, `v2v`, or animate workflows |
+| `--persona <name>` | Use a saved persona reference |
+| `--concat-videos <out> <clips...>` | Stitch clips locally with FFmpeg |
+| `--json` | Return structured output for agents |
 
 ### Quality Presets
 
@@ -528,10 +268,10 @@ Generate diverse images in a single call using `{option1|option2|option3}` synta
 
 ```bash
 # Generates 3 images: "a red car", "a blue car", "a green car"
-node sogni-agent.mjs -n 3 "a {red|blue|green} car"
+sogni-agent -n 3 "a {red|blue|green} car"
 
 # Multiple variation groups cycle independently
-node sogni-agent.mjs -n 4 "a {cat|dog} in a {garden|kitchen}"
+sogni-agent -n 4 "a {cat|dog} in a {garden|kitchen}"
 # → "a cat in a garden", "a dog in a kitchen", "a cat in a garden", "a dog in a kitchen"
 ```
 
@@ -542,7 +282,7 @@ Options cycle sequentially per image. Without `{...}` syntax, `-n` generates mul
 Use `--token-type auto` to automatically retry with SOGNI tokens if SPARK balance is insufficient:
 
 ```bash
-node sogni-agent.mjs --token-type auto "a dragon eating tacos"
+sogni-agent --token-type auto "a dragon eating tacos"
 ```
 
 This tries SPARK first (free daily tokens), then falls back to SOGNI if the balance is too low.
@@ -553,20 +293,20 @@ Named people with saved reference photos and optional voice clips for identity-p
 
 ```bash
 # Add a persona
-node sogni-agent.mjs --persona-add "Mark" --ref face.jpg --relationship self --description "30s male, brown hair"
+sogni-agent --persona-add "Mark" --ref face.jpg --relationship self --description "30s male, brown hair"
 
 # Add with voice clip for video voice cloning
-node sogni-agent.mjs --persona-add "Sarah" --ref sarah.jpg --relationship partner --voice-clip voice.webm
+sogni-agent --persona-add "Sarah" --ref sarah.jpg --relationship partner --voice-clip voice.webm
 
 # Generate an image using a persona (auto-injects photo as context)
-node sogni-agent.mjs --persona "Mark" -o hero.png "superhero in dramatic lighting"
+sogni-agent --persona "Mark" -o hero.png "superhero in dramatic lighting"
 
 # Generate video using a persona photo plus saved voice identity
-node sogni-agent.mjs --video --persona "Sarah" "SARAH: \"This is my voice.\""
+sogni-agent --video --persona "Sarah" "SARAH: \"This is my voice.\""
 
 # List / remove
-node sogni-agent.mjs --persona-list
-node sogni-agent.mjs --persona-remove "Mark"
+sogni-agent --persona-list
+sogni-agent --persona-remove "Mark"
 ```
 
 Personas are stored at `~/.config/sogni/personas/`. Pronouns like "me"/"myself" auto-resolve to the `self` persona. "my wife" resolves to `partner`, etc.
@@ -576,10 +316,10 @@ Personas are stored at `~/.config/sogni/personas/`. Pronouns like "me"/"myself" 
 Save preferences that agents respect across sessions:
 
 ```bash
-node sogni-agent.mjs --memory-set preferred_style "watercolor and soft lighting"
-node sogni-agent.mjs --memory-set aspect_ratio "16:9"
-node sogni-agent.mjs --memory-list
-node sogni-agent.mjs --memory-remove preferred_style
+sogni-agent --memory-set preferred_style "watercolor and soft lighting"
+sogni-agent --memory-set aspect_ratio "16:9"
+sogni-agent --memory-list
+sogni-agent --memory-remove preferred_style
 ```
 
 Stored at `~/.config/sogni/memories.json`.
@@ -589,42 +329,30 @@ Stored at `~/.config/sogni/memories.json`.
 Set how the agent should behave:
 
 ```bash
-node sogni-agent.mjs --personality-set "Be concise, always use cinematic lighting"
-node sogni-agent.mjs --personality-get
-node sogni-agent.mjs --personality-clear
+sogni-agent --personality-set "Be concise, always use cinematic lighting"
+sogni-agent --personality-get
+sogni-agent --personality-clear
 ```
 
 Stored at `~/.config/sogni/personality.txt`.
 
 ## Models
 
-| Model | Speed | Notes |
-|-------|-------|-------|
-| `z_image_turbo_bf16` | ~5-10s | Default, general purpose |
-| `flux1-schnell-fp8` | ~3-5s | Fast iterations |
-| `flux2_dev_fp8` | ~2min | High quality |
-| `chroma-v.46-flash_fp8` | ~30s | Balanced |
-| `qwen_image_edit_2511_fp8` | ~30s | Image editing with context |
-| `qwen_image_edit_2511_fp8_lightning` | ~8s | Fast image editing |
-| `coreml-sogniXLturbo_alpha1_ad` | Fast | Photobooth face transfer (SDXL Turbo) |
-| `ltx23-22b-fp8_t2v_distilled` | ~2-3min | LTX-2.3 text-to-video with native dialogue/audio |
-| `ltx23-22b-fp8_i2v_distilled` | ~2-3min | LTX-2.3 image-to-video with native dialogue/audio |
-| `ltx23-22b-fp8_ia2v_distilled` | ~2-3min | LTX-2.3 image+audio-to-video |
-| `ltx23-22b-fp8_a2v_distilled` | ~2-3min | LTX-2.3 audio-to-video |
-| `ltx23-22b-fp8_v2v_distilled` | ~3min | LTX-2.3 video-to-video with ControlNet |
-| `seedance2` / `seedance2-fast` | variable | Seedance 2.0 text-to-video aliases |
-| `seedance2-ia2v` | variable | Seedance 2.0 image+audio-to-video alias |
-| `seedance2-v2v` | variable | Seedance 2.0 video-to-video alias, no ControlNet |
-| `wan_v2.2-14b-fp8_t2v_lightx2v` | ~5min | Text-to-video |
-| `wan_v2.2-14b-fp8_i2v_lightx2v` | ~3-5min | Image-to-video |
-| `wan_v2.2-14b-fp8_s2v_lightx2v` | ~5min | Face lip-sync with uploaded audio |
-| `wan_v2.2-14b-fp8_animate-move_lightx2v` | ~5min | Animate-move |
-| `wan_v2.2-14b-fp8_animate-replace_lightx2v` | ~5min | Animate-replace |
-| `ltx2-19b-fp8_t2v_distilled` | ~2-3min | LTX-2 text-to-video |
-| `ltx2-19b-fp8_i2v_distilled` | ~2-3min | LTX-2 image-to-video |
-| `ltx2-19b-fp8_ia2v_distilled` | ~2-3min | LTX-2 image+audio-to-video |
-| `ltx2-19b-fp8_a2v_distilled` | ~2-3min | LTX-2 audio-to-video |
-| `ltx2-19b-fp8_v2v_distilled` | ~3min | LTX-2 video-to-video with ControlNet |
+Prefer `-Q fast|hq|pro` for images and automatic workflow routing for video. Only pass `-m` when you need a specific model family.
+
+| Need | Recommended model or alias |
+|------|----------------------------|
+| Default images | `z_image_turbo_bf16` |
+| Highest quality images | `flux2_dev_fp8` or `-Q pro` |
+| Image editing | `qwen_image_edit_2511_fp8_lightning` |
+| Photobooth face transfer | `coreml-sogniXLturbo_alpha1_ad` |
+| Text-to-video with native dialogue/audio | `ltx23-22b-fp8_t2v_distilled` |
+| Image+audio-to-video | `ltx23-22b-fp8_ia2v_distilled` |
+| Audio-to-video | `ltx23-22b-fp8_a2v_distilled` |
+| Video-to-video with ControlNet | `ltx23-22b-fp8_v2v_distilled` |
+| Seedance text-to-video | `seedance2` or `seedance2-fast` |
+| Seedance video-to-video without ControlNet | `seedance2-v2v` |
+| Face lip-sync with uploaded audio | `wan_v2.2-14b-fp8_s2v_lightx2v` |
 
 ## License
 
