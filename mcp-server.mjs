@@ -7,10 +7,10 @@
  * Wraps the sogni-agent CLI using its --json mode.
  *
  * Install (Claude Code):
- *   claude mcp add sogni -- npx -y -p sogni-agent sogni-agent-mcp
+ *   claude mcp add sogni -- npx -y -p @sogni-ai/sogni-agent sogni-agent-mcp
  *
  * Install (Claude Desktop – add to claude_desktop_config.json):
- *   { "mcpServers": { "sogni": { "command": "npx", "args": ["-y", "-p", "sogni-agent", "sogni-agent-mcp"] } } }
+ *   { "mcpServers": { "sogni": { "command": "npx", "args": ["-y", "-p", "@sogni-ai/sogni-agent", "sogni-agent-mcp"] } } }
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';

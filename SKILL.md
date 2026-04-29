@@ -72,8 +72,8 @@ npm i
 ```bash
 mkdir -p ~/.clawdbot/skills
 cd ~/.clawdbot/skills
-npm i sogni-agent
-ln -sfn node_modules/sogni-agent sogni-agent
+npm i @sogni-ai/sogni-agent
+ln -sfn node_modules/@sogni-ai/sogni-agent sogni-agent
 ```
 
 When this skill is distributed via ClawHub, it bootstraps its local runtime dependencies from `skill-package.json` during install. That avoids relying on a root `package.json` being present in the published skill artifact.

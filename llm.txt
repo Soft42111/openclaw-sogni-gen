@@ -8,7 +8,7 @@ decentralized GPU network.
 
 ```bash
 # MCP server (Claude Code)
-claude mcp add sogni -- npx -y -p sogni-agent sogni-agent-mcp
+claude mcp add sogni -- npx -y -p @sogni-ai/sogni-agent sogni-agent-mcp
 
 # OpenClaw plugin
 openclaw plugins install sogni-agent
@@ -18,7 +18,7 @@ openclaw plugins install sogni-agent
 # the behavior source and invoke the CLI/MCP server.
 
 # Standalone Node CLI
-npm install -g sogni-agent
+npm install -g @sogni-ai/sogni-agent
 ```
 
 ## Configure Sogni credentials

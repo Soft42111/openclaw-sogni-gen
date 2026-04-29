@@ -31,7 +31,7 @@ With Sogni Agent, an agent can:
 
 ```bash
 # MCP (Claude Code - one command)
-claude mcp add sogni -- npx -y -p sogni-agent sogni-agent-mcp
+claude mcp add sogni -- npx -y -p @sogni-ai/sogni-agent sogni-agent-mcp
 
 # OpenClaw
 openclaw plugins install sogni-agent
@@ -40,7 +40,7 @@ openclaw plugins install sogni-agent
 # https://github.com/Sogni-AI/sogni-agent
 
 # Standalone CLI
-npm install -g sogni-agent
+npm install -g @sogni-ai/sogni-agent
 ```
 
 Then ask your agent to do something simple, for example:
@@ -166,7 +166,7 @@ Override with environment variables:
 ### Claude Code (one command)
 
 ```bash
-claude mcp add sogni -- npx -y -p sogni-agent sogni-agent-mcp
+claude mcp add sogni -- npx -y -p @sogni-ai/sogni-agent sogni-agent-mcp
 ```
 
 ### Claude Desktop
@@ -178,7 +178,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "sogni": {
       "command": "npx",
-      "args": ["-y", "-p", "sogni-agent", "sogni-agent-mcp"]
+      "args": ["-y", "-p", "@sogni-ai/sogni-agent", "sogni-agent-mcp"]
     }
   }
 }
@@ -189,7 +189,7 @@ Restart Claude Desktop after saving.
 ### Global npm Install (CLI + MCP)
 
 ```bash
-npm install -g sogni-agent
+npm install -g @sogni-ai/sogni-agent
 sogni-agent --version
 ```
 
