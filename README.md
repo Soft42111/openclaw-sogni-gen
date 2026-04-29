@@ -77,6 +77,17 @@ openclaw plugins install -l "$PWD/.openclaw-link"
 openclaw gateway restart
 ```
 
+To update that linked install later:
+
+```bash
+cd /path/to/sogni-agent
+git pull --ff-only
+npm install
+npm link
+npm run openclaw:sync
+openclaw gateway restart
+```
+
 Do not run `openclaw plugins install -l "$PWD"` from the repository root. The root contains development tests that use `child_process`, and OpenClaw correctly blocks those during plugin safety scanning. The generated `.openclaw-link/` directory is only for OpenClaw; Hermes, Manus, and other skill-based agents should continue using the root [`SKILL.md`](./SKILL.md).
 
 ### Hermes Agent / Manus / Other Frameworks

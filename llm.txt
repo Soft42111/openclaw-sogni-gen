@@ -21,6 +21,14 @@ npm run openclaw:sync
 openclaw plugins install -l "$PWD/.openclaw-link"
 openclaw gateway restart
 
+# Update OpenClaw local linked checkout
+cd /path/to/sogni-agent
+git pull --ff-only
+npm install
+npm link
+npm run openclaw:sync
+openclaw gateway restart
+
 # Hermes Agent / Manus / other agent frameworks
 # Point the agent at https://github.com/Sogni-AI/sogni-agent — use SKILL.md as
 # the behavior source and invoke the CLI/MCP server.
