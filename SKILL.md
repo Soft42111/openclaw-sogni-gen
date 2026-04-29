@@ -1,7 +1,7 @@
 ---
-name: sogni-gen
-version: "1.6.1"
-description: Creative AI studio — generate images, videos, and music using Sogni AI's decentralized network. Supports personas (named people with saved reference photos and voice clips), persistent memories (user preferences across sessions), custom personality, style transfer, angle synthesis, and multi-step creative workflows. Ask the agent to "draw", "generate", "create an image", "make a video/animate", "apply a style", or "generate me as a superhero".
+name: sogni-agent
+version: "2.0.0"
+description: Sogni Agent: Creative AI superpowers for all AI agent runtimes. Generates images, videos, and music using Sogni AI's decentralized GPU network. Supports personas (named people with saved reference photos and voice clips), persistent memories (user preferences across sessions), custom personality, style transfer, angle synthesis, and multi-step creative workflows. Ask the agent to "draw", "generate", "create an image", "make a video/animate", "apply a style", or "generate me as a superhero".
 homepage: https://sogni.ai
 metadata:
   clawdbot:
@@ -43,7 +43,7 @@ Generate **images and videos** using Sogni AI's decentralized GPU network.
 
 ## MCP vs CLI Routing
 
-If sogni MCP tools are available in your session (e.g., `generate_image`, `manage_personas`), **prefer MCP tools over direct CLI invocation**. MCP tools handle input validation, credential checking, file downloads, and result formatting automatically. Only fall back to the CLI (`node sogni-gen.mjs ...`) if MCP tools are not registered in your environment.
+If sogni MCP tools are available in your session (e.g., `generate_image`, `manage_personas`), **prefer MCP tools over direct CLI invocation**. MCP tools handle input validation, credential checking, file downloads, and result formatting automatically. Only fall back to the CLI (`node sogni-agent.mjs ...`) if MCP tools are not registered in your environment.
 
 ## Setup
 
@@ -64,7 +64,7 @@ You can also export `SOGNI_API_KEY`, or `SOGNI_USERNAME` + `SOGNI_PASSWORD`, ins
 
 3. **Install dependencies (if cloned):**
 ```bash
-cd /path/to/sogni-gen
+cd /path/to/sogni-agent
 npm i
 ```
 
@@ -72,8 +72,8 @@ npm i
 ```bash
 mkdir -p ~/.clawdbot/skills
 cd ~/.clawdbot/skills
-npm i sogni-gen
-ln -sfn node_modules/sogni-gen sogni-gen
+npm i @sogni-ai/sogni-agent
+ln -sfn node_modules/@sogni-ai/sogni-agent sogni-agent
 ```
 
 When this skill is distributed via ClawHub, it bootstraps its local runtime dependencies from `skill-package.json` during install. That avoids relying on a root `package.json` being present in the published skill artifact.
@@ -102,34 +102,34 @@ Path override environment variables:
 
 ```bash
 # Generate and get URL
-node sogni-gen.mjs "a cat wearing a hat"
+node sogni-agent.mjs "a cat wearing a hat"
 
 # Quality presets (recommended — auto-selects model, steps, and size)
-node sogni-gen.mjs -Q fast "a cat wearing a hat"    # z_image_turbo, 8 steps, 512x512 (~5-10s)
-node sogni-gen.mjs -Q hq "a cat wearing a hat"      # z_image_turbo, default steps, 768x768 (~10-15s)
-node sogni-gen.mjs -Q pro "a cat wearing a hat"      # flux2_dev, 40 steps, 1024x1024 (~2min)
+node sogni-agent.mjs -Q fast "a cat wearing a hat"    # z_image_turbo, 8 steps, 512x512 (~5-10s)
+node sogni-agent.mjs -Q hq "a cat wearing a hat"      # z_image_turbo, default steps, 768x768 (~10-15s)
+node sogni-agent.mjs -Q pro "a cat wearing a hat"      # flux2_dev, 40 steps, 1024x1024 (~2min)
 
 # Dynamic prompt variations — diverse images in one call
-node sogni-gen.mjs -n 3 "a {red|blue|green} sports car"
+node sogni-agent.mjs -n 3 "a {red|blue|green} sports car"
 # → generates "a red sports car", "a blue sports car", "a green sports car"
 
 # Token auto-fallback (tries SPARK, falls back to SOGNI)
-node sogni-gen.mjs --token-type auto "a cat wearing a hat"
+node sogni-agent.mjs --token-type auto "a cat wearing a hat"
 
 # Save to file
-node sogni-gen.mjs -o /tmp/cat.png "a cat wearing a hat"
+node sogni-agent.mjs -o /tmp/cat.png "a cat wearing a hat"
 
 # JSON output (for scripting)
-node sogni-gen.mjs --json "a cat wearing a hat"
+node sogni-agent.mjs --json "a cat wearing a hat"
 
 # Check token balances (no prompt required)
-node sogni-gen.mjs --balance
+node sogni-agent.mjs --balance
 
 # Check token balances in JSON
-node sogni-gen.mjs --json --balance
+node sogni-agent.mjs --json --balance
 
 # Quiet mode (suppress progress)
-node sogni-gen.mjs -q -o /tmp/cat.png "a cat wearing a hat"
+node sogni-agent.mjs -q -o /tmp/cat.png "a cat wearing a hat"
 ```
 
 ## Options
@@ -213,7 +213,7 @@ node sogni-gen.mjs -q -o /tmp/cat.png "a cat wearing a hat"
 
 ## OpenClaw Config Defaults
 
-When installed as an OpenClaw plugin, `sogni-gen` will read defaults from:
+When installed as an OpenClaw plugin, `sogni-agent` will read defaults from:
 
 `~/.openclaw/openclaw.json`
 
@@ -221,7 +221,7 @@ When installed as an OpenClaw plugin, `sogni-gen` will read defaults from:
 {
   "plugins": {
     "entries": {
-      "sogni-gen": {
+      "sogni-agent": {
         "enabled": true,
         "config": {
           "defaultImageModel": "z_image_turbo_bf16",
@@ -311,13 +311,13 @@ Edit images using reference images (Qwen models support up to 3):
 
 ```bash
 # Single context image
-node sogni-gen.mjs -c photo.jpg "make the background a beach"
+node sogni-agent.mjs -c photo.jpg "make the background a beach"
 
 # Multiple context images (subject + style)
-node sogni-gen.mjs -c subject.jpg -c style.jpg "apply the style to the subject"
+node sogni-agent.mjs -c subject.jpg -c style.jpg "apply the style to the subject"
 
 # Use last generated image as context
-node sogni-gen.mjs --last-image "make it more vibrant"
+node sogni-agent.mjs --last-image "make it more vibrant"
 ```
 
 When context images are provided without `-m`, defaults to `qwen_image_edit_2511_fp8_lightning`.
@@ -328,13 +328,13 @@ Generate stylized portraits from a face photo using InstantID ControlNet. When a
 
 ```bash
 # Basic photobooth
-node sogni-gen.mjs --photobooth --ref face.jpg "80s fashion portrait"
+node sogni-agent.mjs --photobooth --ref face.jpg "80s fashion portrait"
 
 # Multiple outputs
-node sogni-gen.mjs --photobooth --ref face.jpg -n 4 "LinkedIn professional headshot"
+node sogni-agent.mjs --photobooth --ref face.jpg -n 4 "LinkedIn professional headshot"
 
 # Custom ControlNet tuning
-node sogni-gen.mjs --photobooth --ref face.jpg --cn-strength 0.6 --cn-guidance-end 0.5 "oil painting"
+node sogni-agent.mjs --photobooth --ref face.jpg --cn-strength 0.6 --cn-guidance-end 0.5 "oil painting"
 ```
 
 Uses SDXL Turbo (`coreml-sogniXLturbo_alpha1_ad`) at 1024x1024 by default. The face image is passed via `--ref` and styled according to the prompt. Cannot be combined with `--video` or `-c/--context`.
@@ -342,10 +342,10 @@ Uses SDXL Turbo (`coreml-sogniXLturbo_alpha1_ad`) at 1024x1024 by default. The f
 **Agent usage:**
 ```bash
 # Photobooth: stylize a face photo
-node {{skillDir}}/sogni-gen.mjs -q --photobooth --ref /path/to/face.jpg -o /tmp/stylized.png "80s fashion portrait"
+node {{skillDir}}/sogni-agent.mjs -q --photobooth --ref /path/to/face.jpg -o /tmp/stylized.png "80s fashion portrait"
 
 # Multiple photobooth outputs
-node {{skillDir}}/sogni-gen.mjs -q --photobooth --ref /path/to/face.jpg -n 4 -o /tmp/stylized.png "LinkedIn professional headshot"
+node {{skillDir}}/sogni-agent.mjs -q --photobooth --ref /path/to/face.jpg -n 4 -o /tmp/stylized.png "LinkedIn professional headshot"
 ```
 
 ## Multiple Angles (Turnaround)
@@ -354,17 +354,17 @@ Generate specific camera angles from a single reference image using the Multiple
 
 ```bash
 # Single angle
-node sogni-gen.mjs --multi-angle -c subject.jpg \
+node sogni-agent.mjs --multi-angle -c subject.jpg \
   --azimuth front-right --elevation eye-level --distance medium \
   --angle-strength 0.9 \
   "studio portrait, same person"
 
 # 360 sweep (8 azimuths)
-node sogni-gen.mjs --angles-360 -c subject.jpg --distance medium --elevation eye-level \
+node sogni-agent.mjs --angles-360 -c subject.jpg --distance medium --elevation eye-level \
   "studio portrait, same person"
 
 # 360 sweep video (looping mp4, uses i2v between angles; requires ffmpeg)
-node sogni-gen.mjs --angles-360 --angles-360-video /tmp/turntable.mp4 \
+node sogni-agent.mjs --angles-360 --angles-360-video /tmp/turntable.mp4 \
   -c subject.jpg --distance medium --elevation eye-level \
   "studio portrait, same person"
 ```
@@ -394,7 +394,7 @@ When a user requests a "360 video", follow this workflow:
 
 4. **Example command**:
    ```bash
-   node sogni-gen.mjs --angles-360 --angles-360-video /tmp/output.mp4 \
+   node sogni-agent.mjs --angles-360 --angles-360-video /tmp/output.mp4 \
      -c /path/to/image.png --elevation eye-level --distance medium \
      "description of subject"
    ```
@@ -417,35 +417,35 @@ Generate videos from a reference image:
 
 ```bash
 # Text-to-video (t2v)
-node sogni-gen.mjs --video "ocean waves at sunset"
+node sogni-agent.mjs --video "ocean waves at sunset"
 
 # Basic video from image
-node sogni-gen.mjs --video --ref cat.jpg -o cat.mp4 "cat walks around"
+node sogni-agent.mjs --video --ref cat.jpg -o cat.mp4 "cat walks around"
 
 # Use last generated image as reference
-node sogni-gen.mjs --last-image --video "gentle camera pan"
+node sogni-agent.mjs --last-image --video "gentle camera pan"
 
 # Custom duration and FPS
-node sogni-gen.mjs --video --ref scene.png --duration 10 --fps 24 "zoom out slowly"
+node sogni-agent.mjs --video --ref scene.png --duration 10 --fps 24 "zoom out slowly"
 
 # Sound-to-video (s2v)
-node sogni-gen.mjs --video --ref face.jpg --ref-audio speech.m4a \
+node sogni-agent.mjs --video --ref face.jpg --ref-audio speech.m4a \
   -m wan_v2.2-14b-fp8_s2v_lightx2v "lip sync talking head"
 
 # Image+audio-to-video (ia2v, LTX)
-node sogni-gen.mjs --video --workflow ia2v --ref cover.jpg --ref-audio song.mp3 \
+node sogni-agent.mjs --video --workflow ia2v --ref cover.jpg --ref-audio song.mp3 \
   "music video with synchronized motion"
 
 # Audio-to-video (a2v, LTX)
-node sogni-gen.mjs --video --workflow a2v --ref-audio song.mp3 \
+node sogni-agent.mjs --video --workflow a2v --ref-audio song.mp3 \
   "abstract audio-reactive visualizer"
 
 # LTX-2.3 text-to-video
-node sogni-gen.mjs --video -m ltx23-22b-fp8_t2v_distilled --duration 20 \
+node sogni-agent.mjs --video -m ltx23-22b-fp8_t2v_distilled --duration 20 \
   "A wide cinematic aerial shot opens over steep tropical cliffs at golden hour, warm sunlight grazing the rock faces while sea mist drifts above the water below. Palm trees bend gently along the ridge as waves roll against the shoreline, leaving bright bands of foam across the dark stone. The camera glides forward in one continuous pass, revealing more of the coastline as sunlight flickers across wet surfaces and distant birds wheel through the haze. The scene holds a calm, upscale travel-film mood with smooth stabilized motion and crisp environmental detail."
 
 # Animate (motion transfer)
-node sogni-gen.mjs --video --ref subject.jpg --ref-video motion.mp4 \
+node sogni-agent.mjs --video --ref subject.jpg --ref-video motion.mp4 \
   --workflow animate-move "transfer motion"
 ```
 
@@ -455,15 +455,15 @@ Transform an existing video using LTX-2 models with ControlNet guidance:
 
 ```bash
 # Basic v2v with canny edge detection
-node sogni-gen.mjs --video --workflow v2v --ref-video input.mp4 \
+node sogni-agent.mjs --video --workflow v2v --ref-video input.mp4 \
   --controlnet-name canny "stylized anime version"
 
 # V2V with pose detection and custom strength
-node sogni-gen.mjs --video --workflow v2v --ref-video dance.mp4 \
+node sogni-agent.mjs --video --workflow v2v --ref-video dance.mp4 \
   --controlnet-name pose --controlnet-strength 0.7 "robot dancing"
 
 # V2V with depth map
-node sogni-gen.mjs --video --workflow v2v --ref-video scene.mp4 \
+node sogni-agent.mjs --video --workflow v2v --ref-video scene.mp4 \
   --controlnet-name depth "watercolor painting style"
 ```
 
@@ -475,11 +475,11 @@ Restore damaged vintage photos using Qwen image editing:
 
 ```bash
 # Basic restoration
-sogni-gen -c damaged_photo.jpg -o restored.png \
+sogni-agent -c damaged_photo.jpg -o restored.png \
   "professionally restore this vintage photograph, remove damage and scratches"
 
 # Detailed restoration with preservation hints
-sogni-gen -c old_photo.jpg -o restored.png -w 1024 -h 1280 \
+sogni-agent -c old_photo.jpg -o restored.png -w 1024 -h 1280 \
   "restore this vintage photo, remove peeling, tears and wear marks, \
   preserve natural features and expression, maintain warm nostalgic color tones"
 ```
@@ -491,7 +491,7 @@ sogni-gen -c old_photo.jpg -o restored.png -w 1024 -h 1280 \
 
 **Finding received images (Telegram/etc):**
 ```bash
-node {{skillDir}}/sogni-gen.mjs --json --list-media images
+node {{skillDir}}/sogni-agent.mjs --json --list-media images
 ```
 
 **Do NOT use `ls`, `cp`, or other shell commands to browse user files.** Always use `--list-media` to find inbound media.
@@ -503,7 +503,7 @@ node {{skillDir}}/sogni-gen.mjs --json --list-media images
 
 ## LTX-2.3 Prompt Rule
 
-Whenever the chosen video model is `ltx23-22b-fp8_t2v_distilled`, do not pass the user's short request through unchanged. Rewrite it into an LTX-2.3-safe prompt before calling `sogni-gen`.
+Whenever the chosen video model is `ltx23-22b-fp8_t2v_distilled`, do not pass the user's short request through unchanged. Rewrite it into an LTX-2.3-safe prompt before calling `sogni-agent`.
 
 - Output one single paragraph only. No line breaks, bullet points, section labels, tag lists, or screenplay formatting.
 - Use 4-8 flowing present-tense sentences describing one continuous shot. No cuts, montage, or unrelated scene jumps.
@@ -559,38 +559,38 @@ When user asks to generate/draw/create an image:
 
 ```bash
 # Generate and save locally (use -Q for quality presets instead of memorizing model IDs)
-node {{skillDir}}/sogni-gen.mjs -q -Q fast -o /tmp/generated.png "user's prompt"
-node {{skillDir}}/sogni-gen.mjs -q -Q pro -o /tmp/generated.png "user's prompt"
+node {{skillDir}}/sogni-agent.mjs -q -Q fast -o /tmp/generated.png "user's prompt"
+node {{skillDir}}/sogni-agent.mjs -q -Q pro -o /tmp/generated.png "user's prompt"
 
 # Generate with prompt variations (diverse images in one call)
-node {{skillDir}}/sogni-gen.mjs -q -n 3 -o /tmp/cars.png "a {red|blue|green} sports car"
+node {{skillDir}}/sogni-agent.mjs -q -n 3 -o /tmp/cars.png "a {red|blue|green} sports car"
 
 # Edit an existing image
-node {{skillDir}}/sogni-gen.mjs -q -c /path/to/input.jpg -o /tmp/edited.png "make it pop art style"
+node {{skillDir}}/sogni-agent.mjs -q -c /path/to/input.jpg -o /tmp/edited.png "make it pop art style"
 
 # Generate video from image
-node {{skillDir}}/sogni-gen.mjs -q --video --ref /path/to/image.png -o /tmp/video.mp4 "A medium shot holds on the subject in soft late-afternoon light as fabric edges and background details remain clear and stable. The camera performs a slow push-in while the subject shifts weight subtly and turns slightly toward the lens, keeping the motion gentle and continuous. Leaves rustle softly in the background and the scene maintains smooth cinematic movement with no abrupt action changes."
+node {{skillDir}}/sogni-agent.mjs -q --video --ref /path/to/image.png -o /tmp/video.mp4 "A medium shot holds on the subject in soft late-afternoon light as fabric edges and background details remain clear and stable. The camera performs a slow push-in while the subject shifts weight subtly and turns slightly toward the lens, keeping the motion gentle and continuous. Leaves rustle softly in the background and the scene maintains smooth cinematic movement with no abrupt action changes."
 
 # Generate text-to-video
-node {{skillDir}}/sogni-gen.mjs -q --video -o /tmp/video.mp4 "A wide cinematic shot opens on ocean waves rolling toward a rocky shoreline at sunset, golden light spreading across the water while sea mist drifts through the air. Foam patterns form and recede over the dark sand as the horizon glows orange and pink in the distance. The camera glides forward in one continuous movement, holding smooth stabilized motion and calm environmental detail throughout the scene."
+node {{skillDir}}/sogni-agent.mjs -q --video -o /tmp/video.mp4 "A wide cinematic shot opens on ocean waves rolling toward a rocky shoreline at sunset, golden light spreading across the water while sea mist drifts through the air. Foam patterns form and recede over the dark sand as the horizon glows orange and pink in the distance. The camera glides forward in one continuous movement, holding smooth stabilized motion and calm environmental detail throughout the scene."
 
 # HD / "4K" text-to-video: prefer LTX-2.3
-node {{skillDir}}/sogni-gen.mjs -q --video -m ltx23-22b-fp8_t2v_distilled -w 1920 -h 1088 -o /tmp/video.mp4 "A wide cinematic aerial shot opens over a rugged ocean coastline at golden hour, warm sunlight catching the cliff faces while white surf breaks against dark rock below. Low sea mist hangs over the water and bands of foam trace the shoreline as gulls wheel through the distance. The camera glides forward in one continuous pass, revealing the curve of the coast while wet stone flashes with reflected light and the scene keeps smooth stabilized motion from start to finish. The overall mood feels expansive and polished, with crisp environmental detail and steady travel-film energy."
+node {{skillDir}}/sogni-agent.mjs -q --video -m ltx23-22b-fp8_t2v_distilled -w 1920 -h 1088 -o /tmp/video.mp4 "A wide cinematic aerial shot opens over a rugged ocean coastline at golden hour, warm sunlight catching the cliff faces while white surf breaks against dark rock below. Low sea mist hangs over the water and bands of foam trace the shoreline as gulls wheel through the distance. The camera glides forward in one continuous pass, revealing the curve of the coast while wet stone flashes with reflected light and the scene keeps smooth stabilized motion from start to finish. The overall mood feels expansive and polished, with crisp environmental detail and steady travel-film energy."
 
 # HD / "4K" image-to-video: prefer LTX i2v
-node {{skillDir}}/sogni-gen.mjs -q --video --ref /path/to/image.png -m ltx2-19b-fp8_i2v_distilled -w 1920 -h 1088 -o /tmp/video.mp4 "A medium cinematic shot holds on the scene with clean subject separation and stable environmental detail as directional light shapes the surfaces and background depth. The camera performs a slow push-in while the main subject makes one subtle continuous movement, keeping posture and identity consistent from start to finish. Ambient motion in the background stays gentle and the overall clip remains smooth, stabilized, and visually coherent."
+node {{skillDir}}/sogni-agent.mjs -q --video --ref /path/to/image.png -m ltx2-19b-fp8_i2v_distilled -w 1920 -h 1088 -o /tmp/video.mp4 "A medium cinematic shot holds on the scene with clean subject separation and stable environmental detail as directional light shapes the surfaces and background depth. The camera performs a slow push-in while the main subject makes one subtle continuous movement, keeping posture and identity consistent from start to finish. Ambient motion in the background stays gentle and the overall clip remains smooth, stabilized, and visually coherent."
 
 # Photobooth: stylize a face photo
-node {{skillDir}}/sogni-gen.mjs -q --photobooth --ref /path/to/face.jpg -o /tmp/stylized.png "80s fashion portrait"
+node {{skillDir}}/sogni-agent.mjs -q --photobooth --ref /path/to/face.jpg -o /tmp/stylized.png "80s fashion portrait"
 
 # Token auto-fallback (tries SPARK first, retries with SOGNI on insufficient balance)
-node {{skillDir}}/sogni-gen.mjs -q --token-type auto -o /tmp/generated.png "user's prompt"
+node {{skillDir}}/sogni-agent.mjs -q --token-type auto -o /tmp/generated.png "user's prompt"
 
 # Check current SPARK/SOGNI balances (no prompt required)
-node {{skillDir}}/sogni-gen.mjs --json --balance
+node {{skillDir}}/sogni-agent.mjs --json --balance
 
 # Find user-sent images/audio
-node {{skillDir}}/sogni-gen.mjs --json --list-media images
+node {{skillDir}}/sogni-agent.mjs --json --list-media images
 
 # Then send via message tool with filePath
 ```
@@ -613,10 +613,10 @@ When the user wants multiple variations (different colors, styles, subjects), us
 
 ```bash
 # 3 color variations
-node {{skillDir}}/sogni-gen.mjs -q -n 3 "a {red|blue|green} sports car"
+node {{skillDir}}/sogni-agent.mjs -q -n 3 "a {red|blue|green} sports car"
 
 # 4 style variations
-node {{skillDir}}/sogni-gen.mjs -q -n 4 "a portrait in {oil painting|watercolor|pencil sketch|pop art} style"
+node {{skillDir}}/sogni-agent.mjs -q -n 4 "a portrait in {oil painting|watercolor|pencil sketch|pop art} style"
 ```
 
 Options cycle sequentially per image. Without `{...}` syntax, `-n` generates multiple images with the same prompt.
@@ -644,7 +644,7 @@ When a user asks to **animate between two images**, use `--ref` (first frame) an
 
 ```bash
 # Animate from image A to image B
-node {{skillDir}}/sogni-gen.mjs -q --video --ref /tmp/imageA.png --ref-end /tmp/imageB.png -o /tmp/transition.mp4 "descriptive prompt of the transition"
+node {{skillDir}}/sogni-agent.mjs -q --video --ref /tmp/imageA.png --ref-end /tmp/imageB.png -o /tmp/transition.mp4 "descriptive prompt of the transition"
 ```
 
 ### Animate a Video to an Image (Scene Continuation)
@@ -653,15 +653,15 @@ When a user asks to **animate from a video to an image** (or "continue" a video 
 
 1. **Extract the last frame** of the existing video using the built-in safe wrapper:
    ```bash
-   node {{skillDir}}/sogni-gen.mjs --extract-last-frame /tmp/existing.mp4 /tmp/lastframe.png
+   node {{skillDir}}/sogni-agent.mjs --extract-last-frame /tmp/existing.mp4 /tmp/lastframe.png
    ```
 2. **Generate a new video** using the last frame as `--ref` and the target image as `--ref-end`:
    ```bash
-   node {{skillDir}}/sogni-gen.mjs -q --video --ref /tmp/lastframe.png --ref-end /tmp/target.png -o /tmp/continuation.mp4 "scene transition prompt"
+   node {{skillDir}}/sogni-agent.mjs -q --video --ref /tmp/lastframe.png --ref-end /tmp/target.png -o /tmp/continuation.mp4 "scene transition prompt"
    ```
 3. **Concatenate the videos** using the built-in safe wrapper:
    ```bash
-   node {{skillDir}}/sogni-gen.mjs --concat-videos /tmp/full_sequence.mp4 /tmp/existing.mp4 /tmp/continuation.mp4
+   node {{skillDir}}/sogni-agent.mjs --concat-videos /tmp/full_sequence.mp4 /tmp/existing.mp4 /tmp/continuation.mp4
    ```
 
 This ensures visual continuity — the new clip picks up exactly where the previous one ended.
@@ -721,22 +721,22 @@ Personas are named people with saved reference photos and optional voice clips. 
 
 ```bash
 # Add a persona with a reference photo
-node {{skillDir}}/sogni-gen.mjs --persona-add "Mark" --ref face.jpg --relationship self --description "30s male, brown hair, brown eyes"
+node {{skillDir}}/sogni-agent.mjs --persona-add "Mark" --ref face.jpg --relationship self --description "30s male, brown hair, brown eyes"
 
 # Add with voice clip for video voice cloning
-node {{skillDir}}/sogni-gen.mjs --persona-add "Sarah" --ref sarah.jpg --relationship partner --voice-clip sarah-voice.webm --voice "warm alto with British accent"
+node {{skillDir}}/sogni-agent.mjs --persona-add "Sarah" --ref sarah.jpg --relationship partner --voice-clip sarah-voice.webm --voice "warm alto with British accent"
 
 # List all personas
-node {{skillDir}}/sogni-gen.mjs --persona-list --json
+node {{skillDir}}/sogni-agent.mjs --persona-list --json
 
 # Resolve a persona by name, tag, or pronoun
-node {{skillDir}}/sogni-gen.mjs --persona-resolve "me" --json
+node {{skillDir}}/sogni-agent.mjs --persona-resolve "me" --json
 
 # Generate using a persona (auto-injects photo as context)
-node {{skillDir}}/sogni-gen.mjs --persona "Mark" -o /tmp/hero.png "superhero in dramatic lighting"
+node {{skillDir}}/sogni-agent.mjs --persona "Mark" -o /tmp/hero.png "superhero in dramatic lighting"
 
 # Remove a persona
-node {{skillDir}}/sogni-gen.mjs --persona-remove "Mark"
+node {{skillDir}}/sogni-agent.mjs --persona-remove "Mark"
 ```
 
 ### Persona Pipeline Rules
@@ -761,18 +761,18 @@ Memories are persistent key-value preferences stored locally at `~/.config/sogni
 
 ```bash
 # Save a preference
-node {{skillDir}}/sogni-gen.mjs --memory-set preferred_style "watercolor and soft lighting"
-node {{skillDir}}/sogni-gen.mjs --memory-set aspect_ratio "16:9"
-node {{skillDir}}/sogni-gen.mjs --memory-set favorite_artist "Studio Ghibli"
+node {{skillDir}}/sogni-agent.mjs --memory-set preferred_style "watercolor and soft lighting"
+node {{skillDir}}/sogni-agent.mjs --memory-set aspect_ratio "16:9"
+node {{skillDir}}/sogni-agent.mjs --memory-set favorite_artist "Studio Ghibli"
 
 # Read all memories
-node {{skillDir}}/sogni-gen.mjs --memory-list --json
+node {{skillDir}}/sogni-agent.mjs --memory-list --json
 
 # Get one memory
-node {{skillDir}}/sogni-gen.mjs --memory-get preferred_style --json
+node {{skillDir}}/sogni-agent.mjs --memory-get preferred_style --json
 
 # Delete a memory
-node {{skillDir}}/sogni-gen.mjs --memory-remove preferred_style
+node {{skillDir}}/sogni-agent.mjs --memory-remove preferred_style
 ```
 
 **Agent behavior:** Before generating, check memories with `--memory-list` and respect saved preferences. If the user says "I always want watercolor style", save it with `--memory-set`. Categories: `preference` (default), `fact`, `context`.
@@ -783,13 +783,13 @@ Users can set custom instructions that shape agent behavior, stored at `~/.confi
 
 ```bash
 # Set personality
-node {{skillDir}}/sogni-gen.mjs --personality-set "Be concise, always use cinematic lighting, suggest bold creative ideas"
+node {{skillDir}}/sogni-agent.mjs --personality-set "Be concise, always use cinematic lighting, suggest bold creative ideas"
 
 # Read current personality
-node {{skillDir}}/sogni-gen.mjs --personality-get --json
+node {{skillDir}}/sogni-agent.mjs --personality-get --json
 
 # Clear (reset to default)
-node {{skillDir}}/sogni-gen.mjs --personality-clear
+node {{skillDir}}/sogni-agent.mjs --personality-clear
 ```
 
 **Agent behavior:** Check personality on startup and adopt those instructions. Personality overrides default style but not hard constraints (safety, tool usage rules).
@@ -800,13 +800,13 @@ Apply artistic styles to existing images:
 
 ```bash
 # Apply a named artist style
-node {{skillDir}}/sogni-gen.mjs -c photo.jpg -o /tmp/styled.png "Apply style: Andy Warhol pop art with bold primary colors"
+node {{skillDir}}/sogni-agent.mjs -c photo.jpg -o /tmp/styled.png "Apply style: Andy Warhol pop art with bold primary colors"
 
 # Studio Ghibli transformation
-node {{skillDir}}/sogni-gen.mjs -c photo.jpg -o /tmp/ghibli.png "Apply style: Studio Ghibli watercolor with soft pastel sky and lush greenery"
+node {{skillDir}}/sogni-agent.mjs -c photo.jpg -o /tmp/ghibli.png "Apply style: Studio Ghibli watercolor with soft pastel sky and lush greenery"
 
 # For photos with people, always preserve identity
-node {{skillDir}}/sogni-gen.mjs -c portrait.jpg -o /tmp/styled.png "Apply style: oil painting in the style of Vermeer. Preserve all facial features, expressions, and identity."
+node {{skillDir}}/sogni-agent.mjs -c portrait.jpg -o /tmp/styled.png "Apply style: oil painting in the style of Vermeer. Preserve all facial features, expressions, and identity."
 ```
 
 **Tips:** Reference artists and styles BY NAME for best results. Use positive phrasing. For photos with people, always append identity preservation instructions.
@@ -817,13 +817,13 @@ Generate a photo from a different camera angle:
 
 ```bash
 # 3/4 view
-node {{skillDir}}/sogni-gen.mjs --multi-angle -c subject.jpg --azimuth front-right "same subject"
+node {{skillDir}}/sogni-agent.mjs --multi-angle -c subject.jpg --azimuth front-right "same subject"
 
 # Side view
-node {{skillDir}}/sogni-gen.mjs --multi-angle -c subject.jpg --azimuth left --elevation eye-level --distance medium "same subject"
+node {{skillDir}}/sogni-agent.mjs --multi-angle -c subject.jpg --azimuth left --elevation eye-level --distance medium "same subject"
 
 # Full 360 turntable
-node {{skillDir}}/sogni-gen.mjs --angles-360 -c subject.jpg "same subject"
+node {{skillDir}}/sogni-agent.mjs --angles-360 -c subject.jpg "same subject"
 ```
 
 **User term mapping:**
