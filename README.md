@@ -58,11 +58,26 @@ Then point the agent/runtime at this repository's [`SKILL.md`](./SKILL.md). MCP 
 
 ### OpenClaw Plugin
 
+For the published plugin:
+
 ```bash
 openclaw plugins install sogni-agent
 ```
 
 The installed plugin loads its behavior from [`SKILL.md`](./SKILL.md) via [`openclaw.plugin.json`](./openclaw.plugin.json).
+
+For a local checkout that you want to update continuously, link the minimal OpenClaw surface instead of the repository root:
+
+```bash
+cd /path/to/sogni-agent
+npm install
+npm link
+npm run openclaw:sync
+openclaw plugins install -l "$PWD/.openclaw-link"
+openclaw gateway restart
+```
+
+Do not run `openclaw plugins install -l "$PWD"` from the repository root. The root contains development tests that use `child_process`, and OpenClaw correctly blocks those during plugin safety scanning. The generated `.openclaw-link/` directory is only for OpenClaw; Hermes, Manus, and other skill-based agents should continue using the root [`SKILL.md`](./SKILL.md).
 
 ### Hermes Agent / Manus / Other Frameworks
 

@@ -13,6 +13,14 @@ claude mcp add sogni -- npx -y -p @sogni-ai/sogni-agent sogni-agent-mcp
 # OpenClaw plugin
 openclaw plugins install sogni-agent
 
+# OpenClaw local linked checkout (for continuous updates)
+cd /path/to/sogni-agent
+npm install
+npm link
+npm run openclaw:sync
+openclaw plugins install -l "$PWD/.openclaw-link"
+openclaw gateway restart
+
 # Hermes Agent / Manus / other agent frameworks
 # Point the agent at https://github.com/Sogni-AI/sogni-agent — use SKILL.md as
 # the behavior source and invoke the CLI/MCP server.
@@ -48,5 +56,6 @@ https://github.com/Sogni-AI/sogni-agent
 
 - `SKILL.md` — agent behavior and usage rules (load this into your agent)
 - `openclaw.plugin.json` — OpenClaw plugin manifest and config schema
+- `.openclaw-link/` — generated OpenClaw link target for local development only
 - `sogni-agent.mjs` — CLI used by the skill / MCP server
 - `mcp-server.mjs` — MCP server entry point

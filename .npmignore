@@ -1,4 +1,5 @@
 .claude/
+.openclaw-link/
 .DS_Store
 
 # Dev/test-only
