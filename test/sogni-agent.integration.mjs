@@ -62,7 +62,7 @@ function loadOpenClawPluginConfig() {
   try {
     const raw = readFileSync(openclawConfigPath, 'utf8');
     const parsed = JSON5.parse(raw);
-    return parsed?.plugins?.entries?.['sogni-agent']?.config || null;
+    return parsed?.plugins?.entries?.['sogni-creative-agent-skill']?.config || null;
   } catch (err) {
     return null;
   }

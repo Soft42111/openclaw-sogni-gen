@@ -1,7 +1,7 @@
 ---
-name: sogni-agent
-version: "2.0.0"
-description: Sogni Agent: Creative AI superpowers for all AI agent runtimes. Generates images and videos using Sogni AI's decentralized GPU network. Supports personas (named people with saved reference photos and voice clips), persistent memories (user preferences across sessions), custom personality, style transfer, angle synthesis, and multi-step creative workflows. Ask the agent to "draw", "generate", "create an image", "make a video/animate", "apply a style", or "generate me as a superhero".
+name: sogni-creative-agent-skill
+version: "2.1.0"
+description: Sogni Creative Agent Skill: agent skill and CLI for image and video generation using Sogni AI's decentralized GPU network. Supports personas (named people with saved reference photos and voice clips), persistent memories (user preferences across sessions), custom personality, style transfer, angle synthesis, and multi-step creative workflows. Ask the agent to "draw", "generate", "create an image", "make a video/animate", "apply a style", or "generate me as a superhero".
 homepage: https://sogni.ai
 metadata:
   clawdbot:
@@ -21,9 +21,6 @@ metadata:
         - "OPENCLAW_CONFIG_PATH"
         - "OPENCLAW_PLUGIN_CONFIG"
         - "FFMPEG_PATH"
-        - "SOGNI_DOWNLOADS_DIR"
-        - "SOGNI_MCP_SAVE_DOWNLOADS"
-        - "SOGNI_ALLOWED_DOWNLOAD_HOSTS"
       config:
         - "~/.config/sogni/credentials"
         - "~/.openclaw/openclaw.json"
@@ -43,20 +40,16 @@ Generate **images and videos** using Sogni AI's decentralized GPU network.
 
 ## Install Request Policy
 
-When a user asks to install this plugin, skill, or Sogni Agent without specifically asking for MCP, install it as the command-line tool plus this skill by default. Do not add Claude MCP, Claude Desktop MCP, or an MCP server registration unless the user explicitly asks for MCP.
+When a user asks to install this plugin, skill, or Sogni Creative Agent Skill, install it as the command-line tool plus this skill.
 
 Default install path:
 
 ```bash
-npm install -g @sogni-ai/sogni-agent
+npm install -g @sogni-ai/sogni-creative-agent-skill
 sogni-agent --version
 ```
 
 Then configure the agent/runtime to use this `SKILL.md` and invoke the `sogni-agent` CLI.
-
-## Runtime Routing
-
-If sogni MCP tools are already available in your session (e.g., `generate_image`, `manage_personas`), **prefer MCP tools over direct CLI invocation**. MCP tools handle input validation, credential checking, file downloads, and result formatting automatically. Only fall back to the CLI (`node sogni-agent.mjs ...`) if MCP tools are not registered in your environment. This runtime preference does not change the install default above.
 
 ## Setup
 
@@ -77,15 +70,15 @@ You can also export `SOGNI_API_KEY`, or `SOGNI_USERNAME` + `SOGNI_PASSWORD`, ins
 
 3. **Install the CLI and skill by default:**
 ```bash
-npm install -g @sogni-ai/sogni-agent
+npm install -g @sogni-ai/sogni-creative-agent-skill
 sogni-agent --version
 ```
 
-Configure the agent/runtime to use this `SKILL.md`. Do not configure MCP unless the user specifically asks for MCP.
+Configure the agent/runtime to use this `SKILL.md`.
 
 4. **Install dependencies if working from a clone:**
 ```bash
-cd /path/to/sogni-agent
+cd /path/to/sogni-creative-agent-skill
 npm i
 ```
 
@@ -93,8 +86,8 @@ npm i
 ```bash
 mkdir -p ~/.clawdbot/skills
 cd ~/.clawdbot/skills
-npm i @sogni-ai/sogni-agent
-ln -sfn node_modules/@sogni-ai/sogni-agent sogni-agent
+npm i @sogni-ai/sogni-creative-agent-skill
+ln -sfn node_modules/@sogni-ai/sogni-creative-agent-skill sogni-creative-agent-skill
 ```
 
 When this skill is distributed via ClawHub, it bootstraps its local runtime dependencies from `skill-package.json` during install. That avoids relying on a root `package.json` being present in the published skill artifact.
@@ -107,7 +100,6 @@ Default file paths used by this skill:
 - Last render metadata (read/write): `~/.config/sogni/last-render.json`
 - OpenClaw config (read): `~/.openclaw/openclaw.json`
 - Media listing for `--list-media` (read): `~/.clawdbot/media/inbound`
-- MCP local result copies (write): `~/Downloads/sogni`
 
 Path override environment variables:
 
@@ -115,9 +107,6 @@ Path override environment variables:
 - `SOGNI_LAST_RENDER_PATH`
 - `SOGNI_MEDIA_INBOUND_DIR`
 - `OPENCLAW_CONFIG_PATH`
-- `SOGNI_DOWNLOADS_DIR` (MCP)
-- `SOGNI_MCP_SAVE_DOWNLOADS=0` to disable MCP local file writes
-- `SOGNI_ALLOWED_DOWNLOAD_HOSTS` to override which HTTPS hosts the MCP server may auto-download and save locally
 
 ## Usage (Images & Video)
 
@@ -242,7 +231,7 @@ node sogni-agent.mjs -q -o /tmp/cat.png "a cat wearing a hat"
 
 ## OpenClaw Config Defaults
 
-When installed as an OpenClaw plugin, `sogni-agent` will read defaults from:
+When installed as an OpenClaw plugin, Sogni Creative Agent Skill will read defaults from:
 
 `~/.openclaw/openclaw.json`
 
@@ -250,7 +239,7 @@ When installed as an OpenClaw plugin, `sogni-agent` will read defaults from:
 {
   "plugins": {
     "entries": {
-      "sogni-agent": {
+      "sogni-creative-agent-skill": {
         "enabled": true,
         "config": {
           "defaultImageModel": "z_image_turbo_bf16",
@@ -905,7 +894,7 @@ node {{skillDir}}/sogni-agent.mjs --angles-360 -c subject.jpg "same subject"
 - "Apply a different style" → `-c <result> "Apply style: ..."`
 - "Change the angle" → `--multi-angle -c <result>`
 - "Generate variations" → `-n 3 "{style1|style2|style3}"`
-- "Refine at higher quality" → use `refine_result` MCP tool or `-Q pro`
+- "Refine at higher quality" → use `-Q pro`
 
 ### After Video Generation — Suggest Next Steps:
 - "Try different motion" → re-generate with adjusted prompt

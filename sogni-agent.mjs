@@ -1271,7 +1271,7 @@ function loadOpenClawPluginConfig() {
   try {
     const raw = readFileSync(OPENCLAW_CONFIG_PATH, 'utf8');
     const parsed = JSON5.parse(raw);
-    return parsed?.plugins?.entries?.['sogni-agent']?.config || null;
+    return parsed?.plugins?.entries?.['sogni-creative-agent-skill']?.config || null;
   } catch (e) {
     return null;
   }
@@ -3747,7 +3747,7 @@ async function main() {
         console.log(JSON.stringify({
           success: true,
           type: 'version',
-          name: 'sogni-agent',
+          name: 'sogni-creative-agent-skill',
           version: PACKAGE_VERSION,
           timestamp: new Date().toISOString()
         }));
@@ -4863,4 +4863,10 @@ async function main() {
   process.exit(exitCode);
 }
 
-main();
+main().then(
+  () => process.exit(0),
+  (error) => {
+    console.error(`Error: ${error?.message || error}`);
+    process.exit(1);
+  }
+);

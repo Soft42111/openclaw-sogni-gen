@@ -1,8 +1,8 @@
 {
-  "id": "sogni-agent",
-  "name": "Sogni Agent — Image & Video Generation",
-  "description": "Creative AI superpowers for all AI agent runtimes, powered by Sogni AI.",
-  "version": "2.0.0",
+  "id": "sogni-creative-agent-skill",
+  "name": "Sogni Creative Agent Skill — Image & Video Generation",
+  "description": "Agent skill and CLI for Sogni AI image and video generation.",
+  "version": "2.1.0",
   "skills": [
     "."
   ],

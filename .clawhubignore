@@ -1,7 +1,4 @@
 docs/
-*.mcpb
-desktop-extension/
-Support/
 test/
 node_modules/
 .openclaw-link/

@@ -1,20 +1,17 @@
-# sogni-agent
+# sogni-creative-agent-skill
 
-Creative AI superpowers for all AI agent runtimes — Claude Code, Claude Desktop,
-OpenClaw, Hermes Agent, Manus AI, and more. Powered by Sogni AI's decentralized
-GPU network.
+Agent skill and CLI for Sogni AI image and video generation. Works as a skill
+source for Claude Code, OpenClaw, Hermes Agent, Manus AI, and other agent
+runtimes.
 
 ## Install (pick the integration that matches your environment)
 
 ```bash
-# MCP server (Claude Code)
-claude mcp add sogni -- npx -y -p @sogni-ai/sogni-agent sogni-agent-mcp
-
 # OpenClaw plugin
-openclaw plugins install sogni-agent
+openclaw plugins install sogni-creative-agent-skill
 
 # OpenClaw local linked checkout (for continuous updates)
-cd /path/to/sogni-agent
+cd /path/to/sogni-creative-agent-skill
 npm install
 npm link
 npm run openclaw:sync
@@ -22,7 +19,7 @@ openclaw plugins install -l "$PWD/.openclaw-link"
 openclaw gateway restart
 
 # Update OpenClaw local linked checkout
-cd /path/to/sogni-agent
+cd /path/to/sogni-creative-agent-skill
 git pull --ff-only
 npm install
 npm link
@@ -30,11 +27,11 @@ npm run openclaw:sync
 openclaw gateway restart
 
 # Hermes Agent / Manus / other agent frameworks
-# Point the agent at https://github.com/Sogni-AI/sogni-agent — use SKILL.md as
-# the behavior source and invoke the CLI/MCP server.
+# Point the agent at https://github.com/Sogni-AI/sogni-creative-agent-skill — use SKILL.md as
+# the behavior source and invoke the CLI.
 
 # Standalone Node CLI
-npm install -g @sogni-ai/sogni-agent
+npm install -g @sogni-ai/sogni-creative-agent-skill
 ```
 
 ## Configure Sogni credentials
@@ -58,12 +55,11 @@ have an account.
 
 ## Repo
 
-https://github.com/Sogni-AI/sogni-agent
+https://github.com/Sogni-AI/sogni-creative-agent-skill
 
 ## Key files
 
 - `SKILL.md` — agent behavior and usage rules (load this into your agent)
 - `openclaw.plugin.json` — OpenClaw plugin manifest and config schema
 - `.openclaw-link/` — generated OpenClaw link target for local development only
-- `sogni-agent.mjs` — CLI used by the skill / MCP server
-- `mcp-server.mjs` — MCP server entry point
+- `sogni-agent.mjs` — CLI used by the skill

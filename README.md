@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Sogni-AI/sogni-agent/main/docs/screenshot.jpg" alt="Telegram image render workflow" width="320" />
+  <img src="https://raw.githubusercontent.com/Sogni-AI/sogni-creative-agent-skill/main/docs/screenshot.jpg" alt="Telegram image render workflow" width="320" />
 </p>
 
-# Sogni Agent: Creative AI Superpowers for All AI Agent Runtimes
+# Sogni Creative Agent Skill: Image & Video Generation for Agents
 
-**Sogni Agent** gives any AI agent runtime — Claude Code, Claude Desktop,
+**Sogni Creative Agent Skill** gives AI agent runtimes such as Claude Code,
 [OpenClaw](https://github.com/OpenClaw/OpenClaw),
 [Hermes Agent](https://hermes-agent.nousresearch.com/),
 [Manus AI](https://manus.im), and more — image generation, video generation, and
@@ -15,11 +15,10 @@ Drop it into the setup you already have:
 - as a standalone Node.js CLI
 - as a skill source for **Hermes Agent**, **Manus AI**, and other agent frameworks
 - as an [OpenClaw](https://github.com/OpenClaw/OpenClaw) plugin
-- optionally as an [MCP server](https://modelcontextprotocol.io/) for **Claude Code**, **Claude Desktop**, and any MCP-compatible agent
 
-For generic install requests, use the CLI plus skill setup by default. Configure MCP only when specifically requested.
+For install requests, use the CLI plus skill setup by default.
 
-With Sogni Agent, an agent can:
+With Sogni Creative Agent Skill, an agent can:
 - generate images from prompts
 - edit and restyle existing images
 - create videos from text, images, audio, or reference video
@@ -32,7 +31,7 @@ With Sogni Agent, an agent can:
 2. Install the command-line tool:
 
 ```bash
-npm install -g @sogni-ai/sogni-agent
+npm install -g @sogni-ai/sogni-creative-agent-skill
 sogni-agent --version
 ```
 
@@ -47,21 +46,21 @@ Then ask your agent to do something simple, for example:
 
 ## Installation
 
-Default install behavior: when someone asks to install Sogni Agent, install the command-line tool and skill source. Do not configure MCP unless they specifically ask for MCP, Claude MCP, or Claude Desktop integration.
+Default install behavior: when someone asks to install Sogni Creative Agent Skill, install the command-line tool and skill source.
 
 ```bash
-npm install -g @sogni-ai/sogni-agent
+npm install -g @sogni-ai/sogni-creative-agent-skill
 sogni-agent --version
 ```
 
-Then point the agent/runtime at this repository's [`SKILL.md`](./SKILL.md). MCP setup is optional and documented separately below.
+Then point the agent/runtime at this repository's [`SKILL.md`](./SKILL.md).
 
 ### OpenClaw Plugin
 
 For the published plugin:
 
 ```bash
-openclaw plugins install sogni-agent
+openclaw plugins install sogni-creative-agent-skill
 ```
 
 The installed plugin loads its behavior from [`SKILL.md`](./SKILL.md) via [`openclaw.plugin.json`](./openclaw.plugin.json).
@@ -69,7 +68,7 @@ The installed plugin loads its behavior from [`SKILL.md`](./SKILL.md) via [`open
 For a local checkout that you want to update continuously, link the minimal OpenClaw surface instead of the repository root:
 
 ```bash
-cd /path/to/sogni-agent
+cd /path/to/sogni-creative-agent-skill
 npm install
 npm link
 npm run openclaw:sync
@@ -80,7 +79,7 @@ openclaw gateway restart
 To update that linked install later:
 
 ```bash
-cd /path/to/sogni-agent
+cd /path/to/sogni-creative-agent-skill
 git pull --ff-only
 npm install
 npm link
@@ -92,19 +91,19 @@ Do not run `openclaw plugins install -l "$PWD"` from the repository root. The ro
 
 ### Hermes Agent / Manus / Other Frameworks
 
-Point the agent to this repository's [`SKILL.md`](./SKILL.md) for behavior guidance and [`llm.txt`](https://raw.githubusercontent.com/Sogni-AI/sogni-agent/main/llm.txt) for install/setup help. By default, the agent should invoke the globally installed `sogni-agent` CLI. Configure MCP only when specifically requested.
+Point the agent to this repository's [`SKILL.md`](./SKILL.md) for behavior guidance and [`llm.txt`](https://raw.githubusercontent.com/Sogni-AI/sogni-creative-agent-skill/main/llm.txt) for install/setup help. By default, the agent should invoke the globally installed `sogni-agent` CLI.
 
 ### Manual Installation
 
 ```bash
-git clone git@github.com:Sogni-AI/sogni-agent.git
-cd sogni-agent
+git clone git@github.com:Sogni-AI/sogni-creative-agent-skill.git
+cd sogni-creative-agent-skill
 npm install
 ```
 
 ### Advanced OpenClaw Config
 
-When loaded through OpenClaw, Sogni Agent reads plugin defaults from OpenClaw config. CLI flags always override those defaults.
+When loaded through OpenClaw, Sogni Creative Agent Skill reads plugin defaults from OpenClaw config. CLI flags always override those defaults.
 
 The supported config shape is defined in [`openclaw.plugin.json`](./openclaw.plugin.json). Common overrides include default models, video workflow models, token type, seed strategy, timeouts, and media paths. If your OpenClaw config lives elsewhere, set `OPENCLAW_CONFIG_PATH`.
 
@@ -128,36 +127,7 @@ You can also skip the file and set `SOGNI_API_KEY`, or `SOGNI_USERNAME` + `SOGNI
 
 ### Filesystem Paths and Overrides
 
-Defaults live under `~/.config/sogni/` for credentials, last-render metadata, personas, memories, and personality. Advanced path overrides are available through `SOGNI_CREDENTIALS_PATH`, `SOGNI_LAST_RENDER_PATH`, `SOGNI_MEDIA_INBOUND_DIR`, `OPENCLAW_CONFIG_PATH`, and MCP-specific download settings.
-
-## Claude Code and Claude Desktop MCP (Optional)
-
-This section is only for users who specifically want MCP. For a generic install request, use the command-line tool plus skill setup above.
-
-### Claude Code (one command)
-
-```bash
-claude mcp add sogni -- npx -y -p @sogni-ai/sogni-agent sogni-agent-mcp
-```
-
-### Claude Desktop
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "sogni": {
-      "command": "npx",
-      "args": ["-y", "-p", "@sogni-ai/sogni-agent", "sogni-agent-mcp"]
-    }
-  }
-}
-```
-
-Restart Claude Desktop after saving.
-
-The MCP server exposes the same core image/video/edit/persona/balance workflows as the CLI, plus local helpers such as last-frame extraction and video stitching.
+Defaults live under `~/.config/sogni/` for credentials, last-render metadata, personas, memories, and personality. Advanced path overrides are available through `SOGNI_CREDENTIALS_PATH`, `SOGNI_LAST_RENDER_PATH`, `SOGNI_MEDIA_INBOUND_DIR`, and `OPENCLAW_CONFIG_PATH`.
 
 ## Usage
 

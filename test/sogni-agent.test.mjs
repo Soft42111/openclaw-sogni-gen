@@ -294,7 +294,7 @@ test('--version with --json returns structured version information', () => {
   const payload = JSON.parse(stdout.trim());
   assert.equal(payload.success, true);
   assert.equal(payload.type, 'version');
-  assert.equal(payload.name, 'sogni-agent');
+  assert.equal(payload.name, 'sogni-creative-agent-skill');
   assert.equal(payload.version, PACKAGE_VERSION);
   assert.ok(payload.timestamp);
 });
