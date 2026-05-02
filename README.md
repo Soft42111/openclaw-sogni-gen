@@ -109,6 +109,8 @@ This public skill keeps CLI/runtime glue here, but Sogni model routing, video wo
 npm run sync:creative-agent-runtime
 ```
 
+`npm test` runs `npm run check:creative-agent-runtime` first, which regenerates this file and fails if it differs from the committed copy.
+
 The generated file is committed at [`generated/creative-agent-runtime.mjs`](./generated/creative-agent-runtime.mjs) so public installs do not need access to the private repo.
 
 ### Advanced OpenClaw Config
