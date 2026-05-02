@@ -5,6 +5,11 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import JSON5 from 'json5';
+import {
+  getModelDefaults,
+  resolveVideoSteps,
+  selectDefaultVideoModel
+} from '../generated/creative-agent-runtime.mjs';
 
 const originalSetInterval = globalThis.setInterval;
 globalThis.setInterval = (...args) => {
@@ -38,17 +43,6 @@ const TESTS = [
   { key: 't2v', name: 'Text-to-video 640x640' },
   { key: 'i2v', name: 'Image-to-video 512x512' }
 ];
-
-const VIDEO_WORKFLOW_DEFAULT_MODELS = {
-  t2v: 'ltx23-22b-fp8_t2v_distilled',
-  i2v: 'wan_v2.2-14b-fp8_i2v_lightx2v',
-  s2v: 'wan_v2.2-14b-fp8_s2v_lightx2v',
-  ia2v: 'ltx23-22b-fp8_ia2v_distilled',
-  a2v: 'ltx23-22b-fp8_a2v_distilled',
-  v2v: 'ltx23-22b-fp8_v2v_distilled',
-  'animate-move': 'wan_v2.2-14b-fp8_animate-move_lightx2v',
-  'animate-replace': 'wan_v2.2-14b-fp8_animate-replace_lightx2v'
-};
 
 function loadOpenClawPluginConfig() {
   if (process.env.OPENCLAW_PLUGIN_CONFIG) {
@@ -109,21 +103,7 @@ function formatNumber(value) {
 
 function resolveVideoModel(workflow) {
   if (!workflow) return null;
-  return openclawConfig?.videoModels?.[workflow] || VIDEO_WORKFLOW_DEFAULT_MODELS[workflow] || null;
-}
-
-function inferDefaultVideoSteps(modelId) {
-  const id = (modelId || '').toLowerCase();
-  if ((id.startsWith('ltx2-') || id.startsWith('ltx23-')) && id.includes('distilled')) return 8;
-  if (id.includes('lightx2v')) return 4;
-  if (id.includes('lightning') || id.includes('turbo') || id.includes('lcm')) return 4;
-  return 20;
-}
-
-function resolveVideoSteps(modelId, modelDefaults, explicitSteps) {
-  if (Number.isFinite(explicitSteps)) return explicitSteps;
-  if (Number.isFinite(modelDefaults?.steps)) return modelDefaults.steps;
-  return inferDefaultVideoSteps(modelId);
+  return selectDefaultVideoModel(workflow, {}, openclawConfig);
 }
 
 function parseCostEstimate(estimate, tokenType) {
@@ -269,7 +249,7 @@ async function checkVideoBudget({ workflow, label, width, height, fps, duration,
   const tokenLabel = tokenType.toUpperCase();
   const resolvedFps = fps ?? openclawConfig?.defaultFps ?? 16;
   const resolvedDuration = duration ?? openclawConfig?.defaultDurationSec ?? 5;
-  const modelDefaults = openclawConfig?.modelDefaults?.[modelId] || null;
+  const modelDefaults = getModelDefaults(modelId, openclawConfig);
   const steps = resolveVideoSteps(modelId, modelDefaults, null);
 
   const Wrapper = await getSogniClientWrapper();

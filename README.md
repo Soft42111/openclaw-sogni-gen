@@ -101,6 +101,16 @@ cd sogni-creative-agent-skill
 npm install
 ```
 
+### Maintainer Runtime Sync
+
+This public skill keeps CLI/runtime glue here, but Sogni model routing, video workflow defaults, quality tiers, and prompt guardrails are generated from the private `sogni-creative-agent` repo. With both repos checked out as siblings, refresh the generated runtime before publishing:
+
+```bash
+npm run sync:creative-agent-runtime
+```
+
+The generated file is committed at [`generated/creative-agent-runtime.mjs`](./generated/creative-agent-runtime.mjs) so public installs do not need access to the private repo.
+
 ### Advanced OpenClaw Config
 
 When loaded through OpenClaw, Sogni Creative Agent Skill reads plugin defaults from OpenClaw config. CLI flags always override those defaults.

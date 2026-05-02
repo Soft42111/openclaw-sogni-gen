@@ -14,6 +14,25 @@ import sharp from 'sharp';
 import { getEnv, hasEnv } from './env.mjs';
 import { PACKAGE_VERSION } from './version.mjs';
 import { assertSafeUrl } from './ssrf-guard.mjs';
+import {
+  LTX23_WORKFLOW_MODELS,
+  QUALITY_TIERS,
+  VIDEO_WORKFLOW_DEFAULT_MODELS,
+  dimensionsWithShortSide,
+  getModelDefaults,
+  getVideoPromptGuardrailPlan,
+  inferVideoWorkflowFromAssets,
+  inferVideoWorkflowFromModel,
+  isLtx2Model,
+  isSeedanceModel,
+  normalizeVideoWorkflow,
+  resolveVideoControlNetStrength,
+  resolveVideoModelAlias,
+  resolveVideoSteps,
+  sanitizeBatchPrompt,
+  selectDefaultVideoModel,
+  workflowRequiresImage
+} from './generated/creative-agent-runtime.mjs';
 
 // ---------------------------------------------------------------------------
 // Path sanitization — defense-in-depth for any value that becomes a file path
@@ -61,388 +80,6 @@ const IS_OPENCLAW_INVOCATION = Boolean(getEnv('OPENCLAW_PLUGIN_CONFIG'));
 const RAW_ARGS = process.argv.slice(2);
 const CLI_WANTS_JSON = RAW_ARGS.includes('--json');
 const JSON_ERROR_MODE = CLI_WANTS_JSON || IS_OPENCLAW_INVOCATION;
-const LTX23_WORKFLOW_MODELS = {
-  t2v: 'ltx23-22b-fp8_t2v_distilled',
-  i2v: 'ltx23-22b-fp8_i2v_distilled',
-  ia2v: 'ltx23-22b-fp8_ia2v_distilled',
-  a2v: 'ltx23-22b-fp8_a2v_distilled',
-  v2v: 'ltx23-22b-fp8_v2v_distilled'
-};
-
-const SEEDANCE_WORKFLOW_MODELS = {
-  t2v: 'seedance-2-0_t2v',
-  t2vFast: 'seedance-2-0-fast_t2v',
-  ia2v: 'seedance-2-0_ia2v',
-  v2v: 'seedance-2-0_v2v'
-};
-
-const VIDEO_MODEL_REGISTRY = {
-  [LTX23_WORKFLOW_MODELS.t2v]: {
-    workflow: 't2v',
-    family: 'ltx23',
-    defaultWidth: 1920,
-    defaultHeight: 1088,
-    minDimension: 640,
-    maxDimension: 3840,
-    dimensionMultiple: 64,
-    steps: 8,
-    guidance: 1.0,
-    fps: 24,
-    frameStep: 8,
-    minFrames: 25,
-    maxFrames: 505,
-    sampler: 'euler_ancestral',
-    scheduler: 'simple',
-    supportsNativeAudio: true
-  },
-  [LTX23_WORKFLOW_MODELS.i2v]: {
-    workflow: 'i2v',
-    family: 'ltx23',
-    defaultWidth: 1920,
-    defaultHeight: 1088,
-    minDimension: 640,
-    maxDimension: 3840,
-    dimensionMultiple: 64,
-    steps: 8,
-    guidance: 1.0,
-    fps: 24,
-    frameStep: 8,
-    minFrames: 25,
-    maxFrames: 505,
-    sampler: 'euler_ancestral',
-    scheduler: 'simple',
-    supportsNativeAudio: true
-  },
-  [LTX23_WORKFLOW_MODELS.ia2v]: {
-    workflow: 'ia2v',
-    family: 'ltx23',
-    defaultWidth: 1920,
-    defaultHeight: 1088,
-    minDimension: 640,
-    maxDimension: 3840,
-    dimensionMultiple: 64,
-    steps: 8,
-    guidance: 1.0,
-    fps: 24,
-    frameStep: 8,
-    minFrames: 25,
-    maxFrames: 505,
-    sampler: 'euler_ancestral',
-    scheduler: 'simple'
-  },
-  [LTX23_WORKFLOW_MODELS.a2v]: {
-    workflow: 'a2v',
-    family: 'ltx23',
-    defaultWidth: 1920,
-    defaultHeight: 1088,
-    minDimension: 640,
-    maxDimension: 3840,
-    dimensionMultiple: 64,
-    steps: 8,
-    guidance: 1.0,
-    fps: 24,
-    frameStep: 8,
-    minFrames: 25,
-    maxFrames: 505,
-    sampler: 'euler_ancestral',
-    scheduler: 'simple'
-  },
-  [LTX23_WORKFLOW_MODELS.v2v]: {
-    workflow: 'v2v',
-    family: 'ltx23',
-    defaultWidth: 1920,
-    defaultHeight: 1088,
-    minDimension: 640,
-    maxDimension: 3840,
-    dimensionMultiple: 64,
-    steps: 8,
-    guidance: 1.0,
-    fps: 25,
-    frameStep: 8,
-    minFrames: 25,
-    maxFrames: 505,
-    sampler: 'euler_ancestral',
-    scheduler: 'simple'
-  },
-  'wan_v2.2-14b-fp8_t2v_lightx2v': {
-    workflow: 't2v',
-    family: 'wan22',
-    defaultWidth: 640,
-    defaultHeight: 640,
-    minDimension: 480,
-    maxDimension: 1536,
-    dimensionMultiple: 16,
-    steps: 4,
-    guidance: 1.0,
-    fps: 32,
-    internalFps: 16,
-    frameStep: 1,
-    minFrames: 17,
-    maxFrames: 161,
-    sampler: 'euler',
-    scheduler: 'simple',
-    shift: 5.0
-  },
-  'wan_v2.2-14b-fp8_i2v_lightx2v': {
-    workflow: 'i2v',
-    family: 'wan22',
-    defaultWidth: 832,
-    defaultHeight: 480,
-    minDimension: 480,
-    maxDimension: 1536,
-    dimensionMultiple: 16,
-    steps: 4,
-    guidance: 1.0,
-    fps: 32,
-    internalFps: 16,
-    frameStep: 1,
-    minFrames: 17,
-    maxFrames: 321,
-    sampler: 'euler',
-    scheduler: 'simple',
-    shift: 8.0
-  },
-  'wan_v2.2-14b-fp8_s2v_lightx2v': {
-    workflow: 's2v',
-    family: 'wan22',
-    defaultWidth: 832,
-    defaultHeight: 480,
-    minDimension: 480,
-    maxDimension: 1536,
-    dimensionMultiple: 16,
-    steps: 4,
-    guidance: 1.0,
-    fps: 32,
-    internalFps: 16,
-    frameStep: 1,
-    minFrames: 17,
-    maxFrames: 321,
-    sampler: 'uni_pc',
-    scheduler: 'simple',
-    shift: 8.0
-  },
-  'wan_v2.2-14b-fp8_animate-move_lightx2v': {
-    workflow: 'animate-move',
-    family: 'wan22',
-    defaultWidth: 832,
-    defaultHeight: 480,
-    minDimension: 480,
-    maxDimension: 1536,
-    dimensionMultiple: 16,
-    steps: 4,
-    guidance: 1.0,
-    fps: 32,
-    internalFps: 16,
-    frameStep: 1,
-    minFrames: 17,
-    maxFrames: 321,
-    sampler: 'euler',
-    scheduler: 'simple',
-    shift: 8.0
-  },
-  'wan_v2.2-14b-fp8_animate-replace_lightx2v': {
-    workflow: 'animate-replace',
-    family: 'wan22',
-    defaultWidth: 832,
-    defaultHeight: 480,
-    minDimension: 480,
-    maxDimension: 1536,
-    dimensionMultiple: 16,
-    steps: 4,
-    guidance: 1.0,
-    fps: 32,
-    internalFps: 16,
-    frameStep: 1,
-    minFrames: 17,
-    maxFrames: 321,
-    sampler: 'euler',
-    scheduler: 'simple',
-    shift: 8.0
-  },
-  [SEEDANCE_WORKFLOW_MODELS.t2v]: {
-    workflow: 't2v',
-    family: 'seedance2',
-    defaultWidth: 1920,
-    defaultHeight: 1088,
-    minDimension: 1,
-    maxDimension: 99999,
-    dimensionMultiple: 1,
-    fps: 24,
-    frameStep: 1,
-    minFrames: 97,
-    maxFrames: 361,
-    supportsNativeAudio: true
-  },
-  [SEEDANCE_WORKFLOW_MODELS.t2vFast]: {
-    workflow: 't2v',
-    family: 'seedance2',
-    defaultWidth: 1280,
-    defaultHeight: 720,
-    minDimension: 1,
-    maxDimension: 1280,
-    dimensionMultiple: 1,
-    fps: 24,
-    frameStep: 1,
-    minFrames: 97,
-    maxFrames: 361,
-    supportsNativeAudio: true
-  },
-  [SEEDANCE_WORKFLOW_MODELS.ia2v]: {
-    workflow: 'ia2v',
-    family: 'seedance2',
-    defaultWidth: 1920,
-    defaultHeight: 1088,
-    minDimension: 1,
-    maxDimension: 99999,
-    dimensionMultiple: 1,
-    fps: 24,
-    frameStep: 1,
-    minFrames: 97,
-    maxFrames: 361
-  },
-  [SEEDANCE_WORKFLOW_MODELS.v2v]: {
-    workflow: 'v2v',
-    family: 'seedance2',
-    defaultWidth: 1920,
-    defaultHeight: 1088,
-    minDimension: 1,
-    maxDimension: 99999,
-    dimensionMultiple: 1,
-    fps: 24,
-    frameStep: 1,
-    minFrames: 96,
-    maxFrames: 360
-  }
-};
-
-for (const workflow of ['t2v', 'i2v', 'ia2v', 'a2v', 'v2v']) {
-  const ltx2Distilled = `ltx2-19b-fp8_${workflow}_distilled`;
-  const ltx2Quality = `ltx2-19b-fp8_${workflow}`;
-  const base = VIDEO_MODEL_REGISTRY[LTX23_WORKFLOW_MODELS[workflow]];
-  if (!base) continue;
-  VIDEO_MODEL_REGISTRY[ltx2Distilled] = {
-    ...base,
-    family: 'ltx2',
-    defaultWidth: 768,
-    defaultHeight: 768,
-    minDimension: 480,
-    maxDimension: 1536,
-    steps: 8,
-    supportsNativeAudio: workflow === 't2v' || workflow === 'i2v'
-  };
-  VIDEO_MODEL_REGISTRY[ltx2Quality] = {
-    ...VIDEO_MODEL_REGISTRY[ltx2Distilled],
-    steps: 20
-  };
-}
-
-const VIDEO_WORKFLOW_DEFAULT_MODELS = {
-  't2v': LTX23_WORKFLOW_MODELS.t2v,
-  'i2v': 'wan_v2.2-14b-fp8_i2v_lightx2v',
-  's2v': 'wan_v2.2-14b-fp8_s2v_lightx2v',
-  'ia2v': LTX23_WORKFLOW_MODELS.ia2v,
-  'a2v': LTX23_WORKFLOW_MODELS.a2v,
-  'animate-move': 'wan_v2.2-14b-fp8_animate-move_lightx2v',
-  'animate-replace': 'wan_v2.2-14b-fp8_animate-replace_lightx2v',
-  'v2v': LTX23_WORKFLOW_MODELS.v2v
-};
-
-function isLtx2Model(modelId) { return modelId?.startsWith('ltx2-') || modelId?.startsWith('ltx23-') || false; }
-function isWanModel(modelId) { return modelId?.startsWith('wan_') || false; }
-function isSeedanceModel(modelId) { return modelId?.startsWith('seedance-2-0') || false; }
-
-function resolveVideoControlNetStrength(name, explicitStrength) {
-  if (explicitStrength !== null && explicitStrength !== undefined) return explicitStrength;
-  return name === 'detailer' ? 1.0 : 0.85;
-}
-
-const VIDEO_MODEL_ALIASES = {
-  ltx23: LTX23_WORKFLOW_MODELS.t2v,
-  'ltx23-t2v': LTX23_WORKFLOW_MODELS.t2v,
-  'ltx23-i2v': LTX23_WORKFLOW_MODELS.i2v,
-  'ltx23-ia2v': LTX23_WORKFLOW_MODELS.ia2v,
-  'ltx23-a2v': LTX23_WORKFLOW_MODELS.a2v,
-  'ltx23-v2v': LTX23_WORKFLOW_MODELS.v2v,
-  wan22: 'wan_v2.2-14b-fp8_t2v_lightx2v',
-  'wan22-t2v': 'wan_v2.2-14b-fp8_t2v_lightx2v',
-  'wan22-i2v': 'wan_v2.2-14b-fp8_i2v_lightx2v',
-  'wan22-s2v': 'wan_v2.2-14b-fp8_s2v_lightx2v',
-  'wan22-animate-move': 'wan_v2.2-14b-fp8_animate-move_lightx2v',
-  'wan22-animate-replace': 'wan_v2.2-14b-fp8_animate-replace_lightx2v',
-  seedance2: SEEDANCE_WORKFLOW_MODELS.t2v,
-  'seedance2-t2v': SEEDANCE_WORKFLOW_MODELS.t2v,
-  'seedance2-fast': SEEDANCE_WORKFLOW_MODELS.t2vFast,
-  'seedance2-fast-t2v': SEEDANCE_WORKFLOW_MODELS.t2vFast,
-  'seedance2-ia2v': SEEDANCE_WORKFLOW_MODELS.ia2v,
-  'seedance2-v2v': SEEDANCE_WORKFLOW_MODELS.v2v
-};
-
-function resolveVideoModelAlias(modelId, workflow) {
-  if (!modelId) return modelId;
-  const key = String(modelId).trim().toLowerCase();
-  if (key === 'ltx23' && workflow && LTX23_WORKFLOW_MODELS[workflow]) {
-    return LTX23_WORKFLOW_MODELS[workflow];
-  }
-  if (key === 'wan22' && workflow) {
-    return VIDEO_WORKFLOW_DEFAULT_MODELS[workflow] || VIDEO_MODEL_ALIASES.wan22;
-  }
-  if (key === 'seedance2' && workflow && SEEDANCE_WORKFLOW_MODELS[workflow]) {
-    return SEEDANCE_WORKFLOW_MODELS[workflow];
-  }
-  return VIDEO_MODEL_ALIASES[key] || modelId;
-}
-
-function getBuiltinVideoModelConfig(modelId) {
-  if (!modelId) return null;
-  const id = resolveVideoModelAlias(modelId);
-  if (VIDEO_MODEL_REGISTRY[id]) return VIDEO_MODEL_REGISTRY[id];
-  const workflow = inferVideoWorkflowFromModel(id);
-  if (!workflow) return null;
-  if (id.startsWith('ltx23-') && LTX23_WORKFLOW_MODELS[workflow]) {
-    return VIDEO_MODEL_REGISTRY[LTX23_WORKFLOW_MODELS[workflow]] || null;
-  }
-  if (id.startsWith('ltx2-')) {
-    return {
-      workflow,
-      family: 'ltx2',
-      defaultWidth: 768,
-      defaultHeight: 768,
-      minDimension: 480,
-      maxDimension: 1536,
-      dimensionMultiple: 64,
-      steps: id.includes('distilled') ? 8 : 20,
-      guidance: 1.0,
-      fps: workflow === 'v2v' ? 25 : 24,
-      frameStep: 8,
-      minFrames: 25,
-      maxFrames: 321,
-      sampler: 'euler_ancestral',
-      scheduler: 'simple'
-    };
-  }
-  if (isWanModel(id)) {
-    return {
-      workflow,
-      family: 'wan22',
-      defaultWidth: workflow === 't2v' ? 640 : 832,
-      defaultHeight: workflow === 't2v' ? 640 : 480,
-      minDimension: 480,
-      maxDimension: 1536,
-      dimensionMultiple: 16,
-      steps: id.includes('lightx2v') ? 4 : 20,
-      guidance: 1.0,
-      fps: 32,
-      internalFps: 16,
-      frameStep: 1,
-      minFrames: 17,
-      maxFrames: workflow === 't2v' ? 161 : 321,
-      sampler: workflow === 's2v' ? 'uni_pc' : 'euler',
-      scheduler: 'simple',
-      shift: workflow === 't2v' ? 5.0 : 8.0
-    };
-  }
-  return null;
-}
 
 function expandHomePath(rawPath) {
   if (typeof rawPath !== 'string') return rawPath;
@@ -510,174 +147,25 @@ function fatalCliError(message, opts = {}) {
   process.exit(1);
 }
 
-function normalizeVideoWorkflow(value) {
-  if (!value) return null;
-  const normalized = value.toLowerCase();
-  if (normalized === 't2v' || normalized === 'text-to-video') return 't2v';
-  if (normalized === 'i2v' || normalized === 'image-to-video') return 'i2v';
-  if (normalized === 's2v' || normalized === 'sound-to-video') return 's2v';
-  if (normalized === 'ia2v' || normalized === 'image-audio-to-video' || normalized === 'image+audio-to-video') return 'ia2v';
-  if (normalized === 'a2v' || normalized === 'audio-to-video') return 'a2v';
-  if (normalized === 'animate-move' || normalized === 'animate_move') return 'animate-move';
-  if (normalized === 'animate-replace' || normalized === 'animate_replace') return 'animate-replace';
-  if (normalized === 'v2v' || normalized === 'video-to-video') return 'v2v';
-  return null;
-}
-
-function inferVideoWorkflowFromModel(modelId) {
-  if (!modelId) return null;
-  const id = resolveVideoModelAlias(modelId).toLowerCase();
-  if (id.includes('animate-move')) return 'animate-move';
-  if (id.includes('animate-replace')) return 'animate-replace';
-  if (id.includes('_v2v')) return 'v2v';
-  if (id.includes('_ia2v')) return 'ia2v';
-  if (id.includes('_a2v')) return 'a2v';
-  if (id.includes('_t2v') || id.includes('-t2v')) return 't2v';
-  if (id.includes('_i2v') || id.includes('-i2v')) return 'i2v';
-  if (id.includes('_s2v') || id.includes('-s2v')) return 's2v';
-  return null;
-}
-
-function promptExplicitlyDisablesSpeech(prompt) {
-  return /\b(no dialogue|no speech|without dialogue|without speech|silent|no voiceover|no voice-over)\b/i.test(prompt || '');
-}
-
-function containsQuotedDialogue(prompt) {
-  return /"[^"]{1,400}"/.test(prompt || '');
-}
-
-function promptMentionsSpeech(prompt) {
-  if (!prompt || promptExplicitlyDisablesSpeech(prompt)) return false;
-  return /\b(dialogue|speaks?|speaking|says?|said|asks?|asked|whispers?|shouts?|yells?|narrates?|narration|voiceover|voice-over|conversation|monologue|interview|talking|tells? (?:a )?story)\b/i.test(prompt);
-}
-
-function promptMentionsAudio(prompt) {
-  if (!prompt) return false;
-  return /\b(audio|sound|sounds|ambient sound|music|song|singing|sings|voice|voices|dialogue|speech|voiceover|voice-over|narration|foley)\b/i.test(prompt);
-}
-
-function promptLooksLikeLongFormStory(prompt) {
-  return /\b(story|screenplay|script|scene|episode|short film|commercial|storyboard|chapter|narrative)\b/i.test(prompt || '');
-}
-
-function promptLooksLikeLipSync(prompt) {
-  return /\b(lip[- ]?sync|lipsync|talking head|mouth movement|sync(?:hronize)? (?:the )?(?:lips|mouth|speech)|face speaks|sing along)\b/i.test(prompt || '');
-}
-
-function promptNeedsLtxNativeAudio(prompt) {
-  return !promptExplicitlyDisablesSpeech(prompt) && (
-    containsQuotedDialogue(prompt) ||
-    promptMentionsSpeech(prompt) ||
-    promptMentionsAudio(prompt) ||
-    promptLooksLikeLongFormStory(prompt)
-  );
-}
-
-function normalizeScreenplayDialogueQuotes(prompt) {
-  if (!prompt) return prompt;
-  return prompt
-    .replace(/^(\s*[A-Za-z][A-Za-z0-9 _.-]{0,48}:\s*)'([^'\n]{1,300})'/gm, '$1"$2"')
-    .replace(/([\s(])'([^'\n]{1,180})'(?=[\s).,!?:;]|$)/g, '$1"$2"');
-}
-
-function extractQuotedDialogueSegments(prompt) {
-  const matches = [];
-  const pattern = /"([^"]{1,800})"/g;
-  let match;
-  while ((match = pattern.exec(prompt || '')) !== null) {
-    matches.push(match[1]);
-  }
-  return matches;
-}
-
-function countWords(text) {
-  const words = String(text || '').trim().match(/\b[\w'-]+\b/g);
-  return words ? words.length : 0;
-}
-
-function quotedDialogueWordCount(prompt) {
-  return extractQuotedDialogueSegments(prompt).reduce((sum, segment) => sum + countWords(segment), 0);
-}
-
-function suggestedDurationForDialogue(prompt, currentDuration) {
-  const words = quotedDialogueWordCount(prompt);
-  if (words <= 0) return currentDuration;
-  const speechSeconds = Math.ceil(words / 2.5) + 2;
-  return Math.max(currentDuration, Math.min(20, speechSeconds));
-}
-
-function formatAudioIdPrompt(prompt, voiceName) {
-  if (!prompt || /\[VISUAL\]|\[SPEECH\]|\[SOUNDS\]/i.test(prompt)) return prompt;
-  const dialogue = extractQuotedDialogueSegments(prompt);
-  const speechLines = dialogue.length > 0
-    ? dialogue.map((line, index) => `${voiceName || `SPEAKER_${index + 1}`}: "${line}"`).join('\n')
-    : 'No spoken dialogue unless exact quoted words are present in the visual prompt.';
-  return [
-    '[VISUAL]',
-    prompt.trim(),
-    '',
-    '[SPEECH]',
-    speechLines,
-    '',
-    '[SOUNDS]',
-    'Use natural ambient sound that matches the scene unless the prompt specifies silence.'
-  ].join('\n');
-}
-
 function applyVideoPromptGuardrails() {
   if (!options.video || !options.prompt) return;
 
-  const normalizedPrompt = normalizeScreenplayDialogueQuotes(options.prompt);
-  if (normalizedPrompt !== options.prompt) {
-    options.prompt = normalizedPrompt;
-    if (!options.quiet) {
-      console.error('Normalized screenplay dialogue to double quotes for video prompting.');
+  const plan = getVideoPromptGuardrailPlan({
+    prompt: options.prompt,
+    duration: options.duration,
+    frames: options.frames,
+    fps: options.fps,
+    durationExplicit: cliSet.duration,
+    referenceAudioIdentity: options.referenceAudioIdentity,
+    voiceName: options._voicePersonaResolvedName || options.voicePersonaName || 'SPEAKER'
+  });
+  options.prompt = plan.prompt;
+  options.duration = plan.duration;
+  if (!options.quiet) {
+    for (const warning of plan.warnings) {
+      console.error(warning.message);
     }
   }
-
-  if (promptMentionsSpeech(options.prompt) && !containsQuotedDialogue(options.prompt) && !options.quiet) {
-    console.error(
-      'Warning: video prompt mentions speech/dialogue but has no exact spoken words in double quotes. ' +
-      'LTX native audio works best with concrete quoted dialogue.'
-    );
-  }
-
-  if (!options.frames && !cliSet.duration) {
-    const suggested = suggestedDurationForDialogue(options.prompt, options.duration);
-    if (suggested > options.duration) {
-      if (!options.quiet) {
-        console.error(`Auto-extended video duration from ${options.duration}s to ${suggested}s to fit quoted dialogue.`);
-      }
-      options.duration = suggested;
-    }
-  } else if (!options.quiet) {
-    const dialogueWords = quotedDialogueWordCount(options.prompt);
-    const hardBudget = Math.floor((options.frames ? options.frames / options.fps : options.duration) * 3.75);
-    if (dialogueWords > hardBudget) {
-      console.error(
-        `Warning: quoted dialogue has about ${dialogueWords} words, which may not fit in ` +
-        `${options.frames ? `${options.frames} frames` : `${options.duration}s`}.`
-      );
-    }
-  }
-
-  if (options.referenceAudioIdentity) {
-    options.prompt = formatAudioIdPrompt(options.prompt, options._voicePersonaResolvedName || options.voicePersonaName || 'SPEAKER');
-  }
-}
-
-function inferVideoWorkflowFromAssets(opts) {
-  if (opts.refVideo && opts.videoControlNetName) return 'v2v';
-  if (opts.refVideo) return 'animate-move';
-  if (opts.refAudio && !opts.refImage && !opts.refImageEnd) return 'a2v';
-  if (opts.refAudio && opts.refImage) return promptLooksLikeLipSync(opts.prompt) ? 's2v' : 'ia2v';
-  if (opts.refAudio) return 's2v';
-  if (opts.refImage || opts.refImageEnd) return 'i2v';
-  return null;
-}
-
-function workflowRequiresImage(workflow) {
-  return workflow === 'i2v' || workflow === 's2v' || workflow === 'ia2v' || workflow === 'animate-move' || workflow === 'animate-replace';
 }
 
 function normalizeSeedStrategy(value) {
@@ -707,36 +195,6 @@ function expandPromptVariation(prompt, index) {
     const options = group.split('|').map(s => s.trim());
     return options[index % options.length];
   });
-}
-
-// ---------------------------------------------------------------------------
-// Prompt sanitization — strip grid/collage-causing phrases for batch generation
-// Prevents models from rendering grids inside single images when count > 1.
-// ---------------------------------------------------------------------------
-const BATCH_SANITIZE_PATTERNS = [
-  /\b\d+\s+different\b/gi,
-  /\b\d+\s+versions?\b/gi,
-  /\b\d+\s+variations?\b/gi,
-  /\b\d+\s+separate\b/gi,
-  /\bdifferent\s+(?:expressions?|poses?|angles?|versions?|styles?)\b/gi,
-  /\bvarious\s+(?:expressions?|poses?|angles?)\b/gi,
-  /\bmultiple\s+(?:versions?|images?|photos?)\b/gi,
-  /\b(?:grid|collage|montage|triptych|side-by-side|split-screen|mood\s*board)\b/gi,
-  /\beach\s+(?:with|one|showing)\b/gi,
-  /\b(?:switch|mix)\s+up\b/gi,
-  /\bput\s+them\s+(?:all\s+)?together\b/gi,
-  /\ball\s+together\b/gi,
-  /\bin\s+one\s+image\b/gi,
-  /\brepeated?\s*(?:\d+\s*times?)?\b/gi,
-];
-
-function sanitizeBatchPrompt(prompt) {
-  let result = prompt;
-  for (const pattern of BATCH_SANITIZE_PATTERNS) {
-    result = result.replace(pattern, '');
-  }
-  // Clean up extra whitespace
-  return result.replace(/\s{2,}/g, ' ').trim();
 }
 
 function computePromptHashSeed(opts) {
@@ -850,63 +308,9 @@ function parseSeedValue(raw, flagName) {
   return num;
 }
 
-function getModelDefaults(modelId, config) {
-  if (!modelId) return null;
-  const normalizedModelId = resolveVideoModelAlias(modelId);
-  const builtin = getBuiltinVideoModelConfig(normalizedModelId);
-  const entry = config?.modelDefaults?.[normalizedModelId] || config?.modelDefaults?.[modelId];
-  if (!entry || typeof entry !== 'object') return builtin;
-  return { ...(builtin || {}), ...entry };
-}
-
-function selectDefaultVideoModel(workflow, opts, config) {
-  if (!workflow) return null;
-  const configured = config?.videoModels?.[workflow];
-  if (configured) return resolveVideoModelAlias(configured, workflow);
-  if (workflow === 'ia2v') return LTX23_WORKFLOW_MODELS.ia2v;
-  if (workflow === 'a2v') return LTX23_WORKFLOW_MODELS.a2v;
-  if (workflow === 'v2v') return LTX23_WORKFLOW_MODELS.v2v;
-  if (workflow === 't2v') return LTX23_WORKFLOW_MODELS.t2v;
-  if (workflow === 'i2v' && (opts.referenceAudioIdentity || promptNeedsLtxNativeAudio(opts.prompt) || opts.quality === 'hq' || opts.quality === 'pro')) {
-    return LTX23_WORKFLOW_MODELS.i2v;
-  }
-  return VIDEO_WORKFLOW_DEFAULT_MODELS[workflow] || null;
-}
-
-function dimensionsWithShortSide(width, height, shortSide) {
-  const w = Number(width);
-  const h = Number(height);
-  const s = Number(shortSide);
-  if (!Number.isFinite(w) || !Number.isFinite(h) || !Number.isFinite(s) || w <= 0 || h <= 0 || s <= 0) {
-    return { width, height };
-  }
-  const currentShort = Math.min(w, h);
-  const scale = s / currentShort;
-  return {
-    width: Math.round(w * scale),
-    height: Math.round(h * scale)
-  };
-}
-
 function formatTokenValue(value) {
   if (!Number.isFinite(value)) return 'unknown';
   return value.toFixed(2);
-}
-
-function inferDefaultVideoSteps(modelId) {
-  const id = (modelId || '').toLowerCase();
-  if (isSeedanceModel(id)) return undefined;
-  if (isLtx2Model(id) && id.includes('distilled')) return 8;
-  if (id.includes('lightx2v')) return 4;
-  if (id.includes('lightning') || id.includes('turbo') || id.includes('lcm')) return 4;
-  if (isLtx2Model(id)) return 20;
-  return 20;
-}
-
-function resolveVideoSteps(modelId, modelDefaults, explicitSteps) {
-  if (Number.isFinite(explicitSteps)) return explicitSteps;
-  if (Number.isFinite(modelDefaults?.steps)) return modelDefaults.steps;
-  return inferDefaultVideoSteps(modelId);
 }
 
 function parseCostEstimate(estimate, tokenType) {
@@ -2089,30 +1493,6 @@ if (options.tokenType) {
   }
   options.tokenType = token;
 }
-
-// ---------------------------------------------------------------------------
-// Quality tier presets — auto-select model, steps, and dimensions
-// ---------------------------------------------------------------------------
-const QUALITY_TIERS = {
-  fast: {
-    model: 'z_image_turbo_bf16',
-    steps: 8,
-    shortSide: null,
-    video: { steps: 8, shortSide: null }
-  },
-  hq: {
-    model: 'z_image_turbo_bf16',
-    steps: null,
-    shortSide: 768,
-    video: { steps: 8, shortSide: 1088 }
-  },
-  pro: {
-    model: 'flux2_dev_fp8',
-    steps: 40,
-    shortSide: 1024,
-    video: { steps: 20, shortSide: 1920 }
-  }
-};
 
 if (options.quality) {
   if (!QUALITY_TIERS[options.quality]) {
