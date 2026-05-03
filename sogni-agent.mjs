@@ -344,6 +344,20 @@ function isHttpUrl(value) {
   return typeof value === 'string' && (value.startsWith('http://') || value.startsWith('https://'));
 }
 
+function isHttpsUrl(value) {
+  return typeof value === 'string' && value.startsWith('https://');
+}
+
+function isSeedanceModelSelection(modelId) {
+  if (!modelId) return false;
+  return (
+    isSeedanceModel(modelId) ||
+    isSeedanceModel(resolveVideoModelAlias(modelId, 't2v')) ||
+    isSeedanceModel(resolveVideoModelAlias(modelId, 'ia2v')) ||
+    isSeedanceModel(resolveVideoModelAlias(modelId, 'v2v'))
+  );
+}
+
 function getPngDimensions(buffer) {
   if (!buffer || buffer.length < 24) return null;
   // PNG signature: 89 50 4E 47 0D 0A 1A 0A
@@ -425,12 +439,39 @@ const DEFAULT_VIDEO_DIMENSION_RULES = {
   maxDimension: 1536,
   dimensionMultiple: 16
 };
+const WRAPPER_MAX_VIDEO_DIMENSION = 2048;
+const WRAPPER_MAX_WAN_VIDEO_DIMENSION = 1536;
 const VIDEO_DIMENSION_MULTIPLE = DEFAULT_VIDEO_DIMENSION_RULES.dimensionMultiple;
 
-function videoDimensionRulesFromDefaults(modelDefaults) {
+function isWanVideoModelId(modelId) {
+  return typeof modelId === 'string' && modelId.startsWith('wan_');
+}
+
+function isWanAnimateVideoModelId(modelId) {
+  return typeof modelId === 'string' && (
+    modelId.includes('_animate-move') ||
+    modelId.includes('_animate-replace') ||
+    modelId.includes('_animate_move') ||
+    modelId.includes('_animate_replace')
+  );
+}
+
+function videoDurationLimitsLikeWrapper(modelId) {
+  if (isSeedanceModel(modelId)) return { min: 4, max: 15 };
+  if (isLtx2Model(modelId) || isWanAnimateVideoModelId(modelId)) return { min: 1, max: 20 };
+  return { min: 1, max: 10 };
+}
+
+function wrapperMaxVideoDimension(modelId) {
+  return isWanVideoModelId(modelId) ? WRAPPER_MAX_WAN_VIDEO_DIMENSION : WRAPPER_MAX_VIDEO_DIMENSION;
+}
+
+function videoDimensionRulesFromDefaults(modelDefaults, modelId) {
+  const wrapperMax = wrapperMaxVideoDimension(modelId);
+  const configuredMax = modelDefaults?.maxDimension || DEFAULT_VIDEO_DIMENSION_RULES.maxDimension;
   return {
     minDimension: modelDefaults?.minDimension || DEFAULT_VIDEO_DIMENSION_RULES.minDimension,
-    maxDimension: modelDefaults?.maxDimension || DEFAULT_VIDEO_DIMENSION_RULES.maxDimension,
+    maxDimension: Math.min(configuredMax, wrapperMax),
     dimensionMultiple: modelDefaults?.dimensionMultiple || DEFAULT_VIDEO_DIMENSION_RULES.dimensionMultiple
   };
 }
@@ -1301,15 +1342,15 @@ Video Options:
   --target-resolution <px> Short-side target that preserves aspect ratio
   --auto-resize-assets  Auto-resize video reference assets (default)
   --no-auto-resize-assets  Disable auto-resize for video assets
-  --estimate-video-cost Estimate video cost and exit (requires --steps)
+  --estimate-video-cost Estimate video cost and exit
   --ref <path|url>      Reference image for video (start frame)
   --ref-end <path|url>  End frame for interpolation/morphing
-  --ref-audio <path>    Uploaded/generated audio for ia2v/a2v, or s2v lip-sync
+  --ref-audio <path|url> Uploaded/generated audio for ia2v/a2v, or s2v lip-sync
   --audio-start <sec>   Start offset into --ref-audio for audio-driven clips
   --audio-duration <sec> Duration slice from --ref-audio
   --reference-audio-identity <path>  Voice identity clip for LTX native audio
   --voice-persona <name>  Use saved persona voice clip as LTX voice identity
-  --ref-video <path>    Reference video for animate/v2v workflows
+  --ref-video <path|url> Reference video for animate/v2v workflows
   --video-start <sec>   Start offset into --ref-video for segmented V2V/animate
   --controlnet-name <n> ControlNet type for v2v: canny|pose|depth|detailer
   --controlnet-strength <n>  ControlNet strength for v2v (0.0-1.0, default: 0.8)
@@ -1377,7 +1418,7 @@ Recommended LTX 2.3 Video Models:
   ltx23-22b-fp8_v2v_distilled     Video-to-video with ControlNet
 
 Seedance 2.0 Video Aliases:
-  seedance2                         Text-to-video, 4-15s, native audio
+  seedance2                         Text-to-video, 4-15s, native audio, HTTPS multimodal refs
   seedance2-fast                    Fast 720p-capped text-to-video
   seedance2-ia2v                    Image+audio-to-video
   seedance2-v2v                     Video-to-video without ControlNet
@@ -1701,6 +1742,16 @@ if (options.video) {
     options.videoWorkflow = normalized;
   }
 
+  if (!options.videoWorkflow && isSeedanceModelSelection(options.model)) {
+    if (options.refVideo) {
+      options.videoWorkflow = 'v2v';
+    } else if (options.refAudio && (options.refImage || options.refImageEnd)) {
+      options.videoWorkflow = 'ia2v';
+    } else {
+      options.videoWorkflow = 't2v';
+    }
+  }
+
   const workflowFromModel = inferVideoWorkflowFromModel(resolveVideoModelAlias(options.model, options.videoWorkflow));
   if (options.videoWorkflow && workflowFromModel && options.videoWorkflow !== workflowFromModel) {
     fatalCliError(`Workflow "${options.videoWorkflow}" does not match model "${options.model}".`, {
@@ -1805,8 +1856,16 @@ if (options.photobooth) {
 }
 
 if (options.video) {
+  const isSeedanceVideo = isSeedanceModel(options.model);
+  if (isSeedanceVideo && !['t2v', 'ia2v', 'v2v'].includes(options.videoWorkflow)) {
+    fatalCliError('Seedance models support only t2v, ia2v, or v2v workflows.', {
+      code: 'INVALID_ARGUMENT',
+      details: { workflow: options.videoWorkflow, model: options.model }
+    });
+  }
+
   if (options.videoWorkflow === 't2v') {
-    if (options.refImage || options.refImageEnd || options.refAudio || options.refVideo) {
+    if (!isSeedanceVideo && (options.refImage || options.refImageEnd || options.refAudio || options.refVideo)) {
       fatalCliError('t2v does not accept reference image/audio/video.', {
         code: 'INVALID_ARGUMENT'
       });
@@ -1826,10 +1885,14 @@ if (options.video) {
       fatalCliError('s2v does not accept reference video.', { code: 'INVALID_ARGUMENT' });
     }
   } else if (options.videoWorkflow === 'ia2v') {
-    if (!options.refImage || !options.refAudio) {
+    if (isSeedanceVideo) {
+      if (!options.refAudio || (!options.refImage && !options.refImageEnd && !options.refVideo)) {
+        fatalCliError('Seedance ia2v requires --ref-audio plus --ref or --ref-video.', { code: 'INVALID_ARGUMENT' });
+      }
+    } else if (!options.refImage || !options.refAudio) {
       fatalCliError('ia2v requires both --ref and --ref-audio.', { code: 'INVALID_ARGUMENT' });
     }
-    if (options.refImageEnd || options.refVideo) {
+    if (!isSeedanceVideo && (options.refImageEnd || options.refVideo)) {
       fatalCliError('ia2v does not accept --ref-end or --ref-video.', { code: 'INVALID_ARGUMENT' });
     }
   } else if (options.videoWorkflow === 'a2v') {
@@ -1846,7 +1909,7 @@ if (options.video) {
     if (!options.videoControlNetName && !isSeedanceModel(options.model)) {
       fatalCliError('v2v requires --controlnet-name (canny|pose|depth|detailer).', { code: 'INVALID_ARGUMENT' });
     }
-    if (options.refAudio) {
+    if (!isSeedanceVideo && options.refAudio) {
       fatalCliError('v2v does not accept reference audio.', { code: 'INVALID_ARGUMENT' });
     }
   } else if (options.videoWorkflow === 'animate-move' || options.videoWorkflow === 'animate-replace') {
@@ -1863,6 +1926,9 @@ if (options.video) {
   }
   if (options.videoStart !== null && !options.refVideo) {
     fatalCliError('--video-start requires --ref-video.', { code: 'INVALID_ARGUMENT' });
+  }
+  if (isSeedanceVideo && options.refAudio && !options.refImage && !options.refImageEnd && !options.refVideo) {
+    fatalCliError('Seedance audio references require --ref or --ref-video.', { code: 'INVALID_ARGUMENT' });
   }
 
   if (options.referenceAudioIdentity && !['t2v', 'i2v'].includes(options.videoWorkflow)) {
@@ -1912,11 +1978,23 @@ if (options.video) {
 
 applyVideoPromptGuardrails();
 
-if (options.video && isSeedanceModel(options.model) && !options.frames) {
-  const clampedDuration = Math.max(4, Math.min(15, options.duration));
+if (options.video && isSeedanceModel(options.model) && options.fps !== 24) {
+  const originalFps = options.fps;
+  options.fps = 24;
+  if (!options.quiet) {
+    console.error(`Adjusted Seedance fps from ${originalFps} to 24 (Seedance uses fixed 24fps video generation).`);
+  }
+}
+
+if (options.video && !options.frames) {
+  const durationLimits = videoDurationLimitsLikeWrapper(options.model);
+  const clampedDuration = Math.max(durationLimits.min, Math.min(durationLimits.max, options.duration));
   if (clampedDuration !== options.duration) {
     if (!options.quiet) {
-      console.error(`Adjusted Seedance video duration from ${options.duration}s to ${clampedDuration}s (supported range: 4-15s).`);
+      console.error(
+        `Adjusted video duration from ${options.duration}s to ${clampedDuration}s ` +
+        `(supported range for ${options.model}: ${durationLimits.min}-${durationLimits.max}s).`
+      );
     }
     options.duration = clampedDuration;
   }
@@ -1928,7 +2006,7 @@ if (options.video && isSeedanceModel(options.model) && !options.frames) {
 //   with sharp `fit: inside` and then override the project width/height with the resized reference dims.
 //   That means a "valid" requested size can still fail if the resized ref lands off the model divisor.
 if (options.video) {
-  const videoDimensionRules = videoDimensionRulesFromDefaults(getModelDefaults(options.model, openclawConfig));
+  const videoDimensionRules = videoDimensionRulesFromDefaults(getModelDefaults(options.model, openclawConfig), options.model);
   if (!Number.isFinite(options.width) || options.width <= 0 || !Number.isFinite(options.height) || options.height <= 0) {
     fatalCliError('Video width/height must be positive numbers.', {
       code: 'INVALID_ARGUMENT',
@@ -2865,7 +2943,7 @@ async function runMultiAngleFlow(client, log) {
     const clipDir = mkdtempSync(join(tmpdir(), 'sogni-angles-clips-'));
     videoModelId = resolveVideoModelAlias(options.videoModel || openclawConfig?.videoModels?.i2v || VIDEO_WORKFLOW_DEFAULT_MODELS.i2v, 'i2v');
     const videoDefaults = getModelDefaults(videoModelId, openclawConfig);
-    const videoDimensionRules = videoDimensionRulesFromDefaults(videoDefaults);
+    const videoDimensionRules = videoDimensionRulesFromDefaults(videoDefaults, videoModelId);
     const videoSteps = options.steps ?? videoDefaults?.steps;
     const videoGuidance = options.guidance ?? videoDefaults?.guidance;
     const segmentCount = videoFrames.length;
@@ -3053,6 +3131,31 @@ async function runMultiAngleFlow(client, log) {
   }
 }
 
+function buildVideoEstimateParams({ tokenType, steps }) {
+  const isSeedanceVideo = isSeedanceModel(options.model);
+  const params = {
+    modelId: options.model,
+    width: options.width,
+    height: options.height,
+    fps: options.fps,
+    numberOfMedia: options.count,
+    tokenType,
+    ...(Number.isFinite(steps) && steps > 0 ? { steps } : {}),
+    ...(options.frames ? { frames: options.frames } : { duration: options.duration })
+  };
+
+  if (isSeedanceVideo && options.refVideo) {
+    params.hasVideoInput = true;
+    if (isHttpsUrl(options.refVideo)) {
+      params.referenceVideoUrls = [options.refVideo];
+    } else {
+      params.referenceVideo = true;
+    }
+  }
+
+  return params;
+}
+
 async function ensureSufficientVideoBalance(client, log) {
   if (!options.video || options.estimateVideoCost) return;
   const tokenType = options.tokenType || 'spark';
@@ -3082,17 +3185,7 @@ async function ensureSufficientVideoBalance(client, log) {
 
   let estimate;
   try {
-    estimate = await client.estimateVideoCost({
-      modelId: options.model,
-      width: options.width,
-      height: options.height,
-      fps: options.fps,
-      numberOfMedia: options.count,
-      tokenType,
-      hasVideoInput: isSeedanceVideo && Boolean(options.refVideo),
-      ...(Number.isFinite(steps) && steps > 0 ? { steps } : {}),
-      ...(options.frames ? { frames: options.frames } : { duration: options.duration })
-    });
+    estimate = await client.estimateVideoCost(buildVideoEstimateParams({ tokenType, steps }));
   } catch (err) {
     if (!options.quiet) {
       log(`Warning: Could not estimate video cost (${err?.message || 'error'})`);
@@ -3447,21 +3540,10 @@ async function main() {
         err.hint = 'Pass --steps explicitly (e.g. --steps 4 for lightx2v models).';
         throw err;
       }
-      const estimateParams = {
-        modelId: options.model,
-        width: options.width,
-        height: options.height,
-        fps: options.fps,
-        numberOfMedia: options.count,
+      const estimateParams = buildVideoEstimateParams({
         tokenType: options.tokenType || 'spark',
-        hasVideoInput: isSeedanceVideo && Boolean(options.refVideo),
-        ...(Number.isFinite(steps) && steps > 0 ? { steps } : {})
-      };
-      if (options.frames) {
-        estimateParams.frames = options.frames;
-      } else {
-        estimateParams.duration = options.duration;
-      }
+        steps
+      });
       const estimate = await client.estimateVideoCost(estimateParams);
       if (options.json) {
         const duration = options.frames ? Math.max(1, Math.round((options.frames - 1) / options.fps)) : options.duration;
@@ -3563,14 +3645,27 @@ async function main() {
       if (options.refAudio) log(`Reference audio: ${options.refAudio}`);
       if (options.referenceAudioIdentity) log(`Voice identity: ${options._voicePersonaResolvedName || options.referenceAudioIdentity}`);
       if (options.refVideo) log(`Reference video: ${options.refVideo}`);
-      
-      let imageBuffer = options.refImage ? await fetchMediaBuffer(options.refImage) : undefined;
-      let endImageBuffer = options.refImageEnd ? await fetchMediaBuffer(options.refImageEnd) : undefined;
-      const audioBuffer = options.refAudio ? await fetchMediaBuffer(options.refAudio) : undefined;
-      const videoBuffer = options.refVideo ? await fetchMediaBuffer(options.refVideo) : undefined;
+
+      const isSeedanceVideo = isSeedanceModel(options.model);
+      const seedanceReferenceImageUrls = [];
+      const seedanceReferenceVideoUrls = [];
+      const seedanceReferenceAudioUrls = [];
+      const useRefImageUrl = isSeedanceVideo && isHttpsUrl(options.refImage);
+      const useRefImageEndUrl = isSeedanceVideo && isHttpsUrl(options.refImageEnd);
+      const useRefAudioUrl = isSeedanceVideo && isHttpsUrl(options.refAudio);
+      const useRefVideoUrl = isSeedanceVideo && isHttpsUrl(options.refVideo);
+      if (useRefImageUrl) seedanceReferenceImageUrls.push(options.refImage);
+      if (useRefImageEndUrl) seedanceReferenceImageUrls.push(options.refImageEnd);
+      if (useRefAudioUrl) seedanceReferenceAudioUrls.push(options.refAudio);
+      if (useRefVideoUrl) seedanceReferenceVideoUrls.push(options.refVideo);
+
+      let imageBuffer = options.refImage && !useRefImageUrl ? await fetchMediaBuffer(options.refImage) : undefined;
+      let endImageBuffer = options.refImageEnd && !useRefImageEndUrl ? await fetchMediaBuffer(options.refImageEnd) : undefined;
+      const audioBuffer = options.refAudio && !useRefAudioUrl ? await fetchMediaBuffer(options.refAudio) : undefined;
+      const videoBuffer = options.refVideo && !useRefVideoUrl ? await fetchMediaBuffer(options.refVideo) : undefined;
       const audioIdentityBuffer = options.referenceAudioIdentity ? await fetchMediaBuffer(options.referenceAudioIdentity) : undefined;
       const modelDefaults = getModelDefaults(options.model, openclawConfig);
-      const videoDimensionRules = videoDimensionRulesFromDefaults(modelDefaults);
+      const videoDimensionRules = videoDimensionRulesFromDefaults(modelDefaults, options.model);
 
       // Pre-resize reference images to model-compatible dimensions if needed for i2v workflow.
       if (options.videoWorkflow === 'i2v' && imageBuffer && options._needsRefResize) {
@@ -3653,6 +3748,15 @@ async function main() {
       }
       if (videoBuffer) {
         projectConfig.referenceVideo = videoBuffer;
+      }
+      if (seedanceReferenceImageUrls.length > 0) {
+        projectConfig.referenceImageUrls = seedanceReferenceImageUrls;
+      }
+      if (seedanceReferenceVideoUrls.length > 0) {
+        projectConfig.referenceVideoUrls = seedanceReferenceVideoUrls;
+      }
+      if (seedanceReferenceAudioUrls.length > 0) {
+        projectConfig.referenceAudioUrls = seedanceReferenceAudioUrls;
       }
       if (options.videoStart !== null) {
         projectConfig.videoStart = options.videoStart;

@@ -250,6 +250,36 @@ test('seedance v2v alias does not require or send ControlNet', () => {
   assert.equal(state.lastVideoProject.controlNet, undefined);
 });
 
+test('seedance t2v forwards HTTPS multimodal references as URL arrays', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    '--workflow', 't2v',
+    '-m', 'seedance2',
+    '--fps', '30',
+    '--ref', 'https://cdn.example.com/product.png',
+    '--ref-video', 'https://cdn.example.com/motion.mp4',
+    '--ref-audio', 'https://cdn.example.com/music.m4a',
+    'Use @Image1 for product identity, @Video1 for motion, and @Audio1 for rhythm.'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastVideoProject, 'createVideoProject was called');
+  assert.equal(state.lastVideoProject.modelId, 'seedance-2-0');
+  assert.equal(state.lastVideoProject.fps, 24);
+  assert.deepEqual(state.lastVideoProject.referenceImageUrls, ['https://cdn.example.com/product.png']);
+  assert.deepEqual(state.lastVideoProject.referenceVideoUrls, ['https://cdn.example.com/motion.mp4']);
+  assert.deepEqual(state.lastVideoProject.referenceAudioUrls, ['https://cdn.example.com/music.m4a']);
+  assert.equal(state.lastVideoProject.referenceImage, undefined);
+  assert.equal(state.lastVideoProject.referenceVideo, undefined);
+  assert.equal(state.lastVideoProject.referenceAudio, undefined);
+});
+
+test('seedance rejects audio-only references before wrapper validation', () => {
+  expectCliError(
+    ['--video', '--workflow', 't2v', '-m', 'seedance2', '--ref-audio', 'https://cdn.example.com/music.m4a', 'music-led clip'],
+    'Seedance audio references require --ref or --ref-video.'
+  );
+});
+
 test('looping is only supported with i2v workflow', () => {
   expectCliError(['--video', '--workflow', 't2v', '--looping', 'a cat'], '--looping is only supported with i2v workflow.');
 });
@@ -402,7 +432,7 @@ test('seedance v2v cost estimation marks video input and omits steps', () => {
   assert.equal(state?.lastEstimateVideoCost?.steps, undefined);
 });
 
-test('LTX 2.3 video dimensions use 64-multiple high-resolution rules', () => {
+test('LTX 2.3 video dimensions follow wrapper 2048px cap and 64-multiple rules', () => {
   const { exitCode, stdout } = runCli([
     '--json',
     '--video',
@@ -414,8 +444,19 @@ test('LTX 2.3 video dimensions use 64-multiple high-resolution rules', () => {
   assert.equal(exitCode, 0);
   const payload = JSON.parse(stdout.trim());
   assert.equal(payload.model, 'ltx23-22b-fp8_t2v_distilled');
-  assert.equal(payload.width, 3840);
-  assert.equal(payload.height, 2112);
+  assert.equal(payload.width, 2048);
+  assert.equal(payload.height, 1152);
+});
+
+test('WAN non-animate duration is clamped to wrapper max', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    '-m', 'wan_v2.2-14b-fp8_t2v_lightx2v',
+    '--duration', '20',
+    'ocean waves'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.equal(state.lastVideoProject.duration, 10);
 });
 
 test('quoted dialogue auto-extends implicit video duration', () => {

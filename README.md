@@ -164,6 +164,13 @@ sogni-agent --video --target-resolution 768 \
 sogni-agent --video -m seedance2 --duration 8 \
   "A polished product reveal with native ambient sound"
 
+# Seedance multimodal context with public HTTPS references
+sogni-agent --video -m seedance2 --workflow t2v \
+  --ref https://cdn.example.com/product.png \
+  --ref-video https://cdn.example.com/motion.mp4 \
+  --ref-audio https://cdn.example.com/music.m4a \
+  "Use @Image1 for product identity, @Video1 for camera movement, and @Audio1 for music rhythm"
+
 # Image-to-video (i2v)
 sogni-agent --video --ref cat.jpg "gentle camera pan"
 
@@ -189,7 +196,7 @@ sogni-agent --help
 
 For local multi-clip workflows, prefer the built-in FFmpeg wrappers over raw shell commands. `--video-start`, `--audio-start`, and `--audio-duration` let you generate focused segments, while `--concat-videos` can stitch them and optionally mux a single soundtrack with `--concat-audio`.
 
-V2V defaults mirror the Sogni Chat workflow tuning: `canny`, `pose`, and `depth` use ControlNet strength `0.85` with detailer assist, while `detailer` uses strength `1.0`. Use `-m seedance2-v2v` for Seedance V2V without ControlNet.
+V2V defaults mirror the Sogni Chat workflow tuning: `canny`, `pose`, and `depth` use ControlNet strength `0.85` with detailer assist, while `detailer` uses strength `1.0`. Use `-m seedance2-v2v` for Seedance V2V without ControlNet. Seedance also accepts public HTTPS image, video, and audio references; audio references must be paired with an image or video reference.
 
 ## LTX-2.3 Prompting Guide
 
@@ -230,7 +237,8 @@ Multi-angle mode auto-builds the `<sks>` prompt and applies the `multiple_angles
 ## Video Sizing Rules (Aspect Ratios)
 
 - WAN models use dimensions divisible by 16, min 480px, max 1536px.
-- LTX family models (`ltx2-*`, `ltx23-*`) use dimensions divisible by 64. LTX 2.3 supports 640px to 3840px.
+- LTX family models (`ltx2-*`, `ltx23-*`) use dimensions divisible by 64. The current wrapper caps non-WAN video dimensions at 2048px on the long side.
+- Seedance runs at fixed 24fps and supports 4-15s durations. Other default/WAN video paths support up to 10s; LTX and WAN animate workflows support up to 20s.
 - The script auto-normalizes video sizes to satisfy those constraints.
 - Use `--target-resolution <px>` for bare resolution requests such as "720p" when the user did not specify exact pixels. It targets the short side and preserves the inherited aspect ratio.
 - For i2v (and any workflow using `--ref` / `--ref-end`), the client wrapper resizes the reference image with a strict aspect-fit (`fit: inside`) and then uses the *resized reference dimensions* as the final video size. Because that resize uses rounding, a “valid” requested size can still produce an invalid final size (example: `1024x1536` requested, but ref becomes `1024x1535`).
@@ -251,7 +259,7 @@ Run `sogni-agent --help` for the complete CLI. These are the options most agents
 | `-o <path>` | Save output locally |
 | `-c <path>` | Provide image context for edits |
 | `--video` | Generate video instead of image |
-| `--ref`, `--ref-audio`, `--ref-video` | Provide image/audio/video references |
+| `--ref`, `--ref-audio`, `--ref-video` | Provide image/audio/video references; Seedance HTTPS references are forwarded as URL context |
 | `--target-resolution <px>` | Target the short side while preserving aspect ratio |
 | `--workflow <type>` | Force `t2v`, `i2v`, `s2v`, `ia2v`, `a2v`, `v2v`, or animate workflows |
 | `--persona <name>` | Use a saved persona reference |

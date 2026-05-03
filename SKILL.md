@@ -185,18 +185,18 @@ node sogni-agent.mjs -q -o /tmp/cat.png "a cat wearing a hat"
 | `--target-resolution <px>` | Short-side video target preserving aspect ratio | - |
 | `--auto-resize-assets` | Auto-resize video assets | true |
 | `--no-auto-resize-assets` | Disable auto-resize | - |
-| `--estimate-video-cost` | Estimate video cost and exit (requires --steps) | - |
+| `--estimate-video-cost` | Estimate video cost and exit | - |
 | `--photobooth` | Face transfer mode (InstantID + SDXL Turbo) | - |
 | `--cn-strength <n>` | ControlNet strength (photobooth) | 0.8 |
 | `--cn-guidance-end <n>` | ControlNet guidance end point (photobooth) | 0.3 |
-| `--ref <path>` | Reference image for video or photobooth face | required for video/photobooth |
-| `--ref-end <path>` | End frame for i2v interpolation | - |
-| `--ref-audio <path>` | Uploaded/generated audio for ia2v/a2v, or s2v lip-sync | - |
+| `--ref <path\|url>` | Reference image for video or photobooth face | required for video/photobooth |
+| `--ref-end <path\|url>` | End frame for i2v interpolation | - |
+| `--ref-audio <path\|url>` | Uploaded/generated audio for ia2v/a2v, or s2v lip-sync | - |
 | `--audio-start <sec>` | Start offset into `--ref-audio` | - |
 | `--audio-duration <sec>` | Duration slice from `--ref-audio` | - |
 | `--reference-audio-identity <path>` | Voice identity clip for LTX native audio | - |
 | `--voice-persona <name>` | Use saved persona voice clip as LTX voice identity | - |
-| `--ref-video <path>` | Reference video for animate/v2v workflows | - |
+| `--ref-video <path\|url>` | Reference video for animate/v2v workflows | - |
 | `--video-start <sec>` | Start offset into `--ref-video` for segmented V2V/animate | - |
 | `--controlnet-name <name>` | ControlNet type for v2v: canny\|pose\|depth\|detailer | - |
 | `--controlnet-strength <n>` | ControlNet strength for v2v (0.0-1.0) | canny/pose/depth 0.85, detailer 1.0 |
@@ -462,6 +462,13 @@ node sogni-agent.mjs --video --target-resolution 768 \
 node sogni-agent.mjs --video -m seedance2 --duration 8 \
   "A polished product reveal with native ambient sound"
 
+# Seedance multimodal context with public HTTPS references
+node sogni-agent.mjs --video -m seedance2 --workflow t2v \
+  --ref https://cdn.example.com/product.png \
+  --ref-video https://cdn.example.com/motion.mp4 \
+  --ref-audio https://cdn.example.com/music.m4a \
+  "Use @Image1 for product identity, @Video1 for camera movement, and @Audio1 for music rhythm"
+
 # Sound-to-video (s2v)
 node sogni-agent.mjs --video --ref face.jpg --ref-audio speech.m4a \
   -m wan_v2.2-14b-fp8_s2v_lightx2v "lip sync talking head"
@@ -511,7 +518,7 @@ node sogni-agent.mjs --video --workflow v2v --ref-video scene.mp4 \
 ```
 
 ControlNet types: `canny` (edge detection), `pose` (body pose), `depth` (depth map), `detailer` (detail enhancement).
-Default V2V strengths are tuned from Sogni Chat: `canny`/`pose`/`depth` use `0.85` plus detailer assist, while `detailer` uses `1.0` for preservation. For Seedance V2V, use `-m seedance2-v2v` and omit ControlNet.
+Default V2V strengths are tuned from Sogni Chat: `canny`/`pose`/`depth` use `0.85` plus detailer assist, while `detailer` uses `1.0` for preservation. For Seedance V2V, use `-m seedance2-v2v` and omit ControlNet. Seedance accepts public HTTPS image, video, and audio references as URL context; audio references must be paired with an image or video reference.
 
 ```bash
 # Seedance V2V without ControlNet
@@ -685,7 +692,7 @@ When the user asks for video in **"hd"**, **"1080p"**, **"4k"**, **"uhd"**, or *
 - For bare named resolutions such as "720p" without orientation or exact pixels, prefer `--target-resolution 768` or the closest requested short side instead of forcing landscape dimensions.
 - If the user explicitly asks for `vertical`, `portrait`, `story`, `reel`, `tiktok`, `square`, or `4:3`, apply the matching dimensions from the **Orientation Mapping** rules instead of defaulting to 16:9.
 - Rewrite the user's request using the **LTX-2.3 Prompt Rule** before invoking the command. Do not send short slogan-style prompts to LTX.
-- Treat "4k" as a signal to use the highest practical LTX path exposed by this skill, even if the exact output is not literal 3840x2160.
+- Treat "4k" as a signal to use the highest practical LTX path exposed by this skill, even though the current wrapper caps non-WAN video dimensions at 2048px on the long side.
 
 **Security:** Agents must use the CLI's built-in flags (`--extract-last-frame`, `--concat-videos`, `--list-media`) for all file operations and video manipulation. Never run raw shell commands (`ffmpeg`, `ls`, `cp`, etc.) directly.
 
@@ -919,7 +926,7 @@ node {{skillDir}}/sogni-agent.mjs --angles-360 -c subject.jpg "same subject"
 ## Troubleshooting
 
 - **Auth errors**: Check `SOGNI_API_KEY` or the credentials in `~/.config/sogni/credentials`
-- **i2v sizing gotchas**: Video sizes are model-specific. WAN uses min 480px, max 1536px, divisible by 16. LTX uses divisible-by-64 dimensions, and LTX 2.3 supports up to 3840px. For i2v, the client wrapper resizes the reference (`fit: inside`) and uses the resized dimensions as the final video size. Because this uses rounding, a requested size can still yield an invalid final size.
+- **i2v sizing gotchas**: Video sizes are model-specific. WAN uses min 480px, max 1536px, divisible by 16. LTX uses divisible-by-64 dimensions, and the current wrapper caps non-WAN video dimensions at 2048px on the long side. For i2v, the client wrapper resizes the reference (`fit: inside`) and uses the resized dimensions as the final video size. Because this uses rounding, a requested size can still yield an invalid final size.
 - **Auto-adjustment**: With a local `--ref`, the script will auto-adjust the requested size to avoid resized reference dimensions that miss the model divisor.
 - **If the script adjusts your size but you want to fail instead**: pass `--strict-size` and it will print a suggested `--width/--height`.
 - **Timeouts**: Try a faster model or increase `-t` timeout
