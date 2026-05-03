@@ -9,7 +9,7 @@ import {
 } from '../generated/creative-agent-runtime.mjs';
 
 test('runtime resolves public video model aliases by workflow', () => {
-  assert.equal(resolveVideoModelAlias('seedance2', 'v2v'), 'seedance-2-0_v2v');
+  assert.equal(resolveVideoModelAlias('seedance2', 'v2v'), 'seedance-2-0');
   assert.equal(resolveVideoModelAlias('ltx23', 'ia2v'), 'ltx23-22b-fp8_ia2v_distilled');
 });
 

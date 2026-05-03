@@ -230,7 +230,7 @@ test('seedance alias selects Seedance T2V without step overrides', () => {
   ]);
   assert.equal(exitCode, 0);
   assert.ok(state?.lastVideoProject, 'createVideoProject was called');
-  assert.equal(state.lastVideoProject.modelId, 'seedance-2-0_t2v');
+  assert.equal(state.lastVideoProject.modelId, 'seedance-2-0');
   assert.equal(state.lastVideoProject.fps, 24);
   assert.equal(Object.hasOwn(state.lastVideoProject, 'steps'), false);
 });
@@ -245,7 +245,7 @@ test('seedance v2v alias does not require or send ControlNet', () => {
   ]);
   assert.equal(exitCode, 0);
   assert.ok(state?.lastVideoProject, 'createVideoProject was called');
-  assert.equal(state.lastVideoProject.modelId, 'seedance-2-0_v2v');
+  assert.equal(state.lastVideoProject.modelId, 'seedance-2-0');
   assert.equal(state.lastVideoProject.referenceVideo != null, true);
   assert.equal(state.lastVideoProject.controlNet, undefined);
 });
@@ -385,6 +385,21 @@ test('ltx2.3 distilled models use LTX-family defaults for cost estimation', () =
   assert.equal(state?.lastEstimateVideoCost?.modelId, 'ltx23-22b-fp8_t2v_distilled');
   assert.equal(state?.lastEstimateVideoCost?.steps, 8);
   assert.equal(state?.lastEstimateVideoCost?.duration, 20);
+});
+
+test('seedance v2v cost estimation marks video input and omits steps', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    '--estimate-video-cost',
+    '--json',
+    '--workflow', 'v2v',
+    '--ref-video', 'source.mp4',
+    '-m', 'seedance2-v2v'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.equal(state?.lastEstimateVideoCost?.modelId, 'seedance-2-0');
+  assert.equal(state?.lastEstimateVideoCost?.hasVideoInput, true);
+  assert.equal(state?.lastEstimateVideoCost?.steps, undefined);
 });
 
 test('LTX 2.3 video dimensions use 64-multiple high-resolution rules', () => {

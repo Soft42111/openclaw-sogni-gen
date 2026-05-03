@@ -13,10 +13,10 @@ export const LTX23_WORKFLOW_MODELS = Object.freeze({
     v2v: 'ltx23-22b-fp8_v2v_distilled'
 });
 export const SEEDANCE_WORKFLOW_MODELS = Object.freeze({
-    t2v: 'seedance-2-0_t2v',
-    t2vFast: 'seedance-2-0-fast_t2v',
-    ia2v: 'seedance-2-0_ia2v',
-    v2v: 'seedance-2-0_v2v'
+    t2v: 'seedance-2-0',
+    t2vFast: 'seedance-2-0-fast',
+    ia2v: 'seedance-2-0',
+    v2v: 'seedance-2-0'
 });
 export const VIDEO_MODEL_REGISTRY = Object.freeze({
     [LTX23_WORKFLOW_MODELS.t2v]: {
@@ -228,32 +228,6 @@ export const VIDEO_MODEL_REGISTRY = Object.freeze({
         minFrames: 97,
         maxFrames: 361,
         supportsNativeAudio: true
-    },
-    [SEEDANCE_WORKFLOW_MODELS.ia2v]: {
-        workflow: 'ia2v',
-        family: 'seedance2',
-        defaultWidth: 1920,
-        defaultHeight: 1088,
-        minDimension: 1,
-        maxDimension: 99999,
-        dimensionMultiple: 1,
-        fps: 24,
-        frameStep: 1,
-        minFrames: 97,
-        maxFrames: 361
-    },
-    [SEEDANCE_WORKFLOW_MODELS.v2v]: {
-        workflow: 'v2v',
-        family: 'seedance2',
-        defaultWidth: 1920,
-        defaultHeight: 1088,
-        minDimension: 1,
-        maxDimension: 99999,
-        dimensionMultiple: 1,
-        fps: 24,
-        frameStep: 1,
-        minFrames: 96,
-        maxFrames: 360
     }
 });
 export const EXPANDED_VIDEO_MODEL_REGISTRY = (() => {

@@ -3077,7 +3077,8 @@ async function ensureSufficientVideoBalance(client, log) {
 
   const modelDefaults = getModelDefaults(options.model, openclawConfig);
   const steps = resolveVideoSteps(options.model, modelDefaults, options.steps);
-  if (!Number.isFinite(steps) || steps <= 0) return;
+  const isSeedanceVideo = isSeedanceModel(options.model);
+  if (!isSeedanceVideo && (!Number.isFinite(steps) || steps <= 0)) return;
 
   let estimate;
   try {
@@ -3086,9 +3087,10 @@ async function ensureSufficientVideoBalance(client, log) {
       width: options.width,
       height: options.height,
       fps: options.fps,
-      steps,
       numberOfMedia: options.count,
       tokenType,
+      hasVideoInput: isSeedanceVideo && Boolean(options.refVideo),
+      ...(Number.isFinite(steps) && steps > 0 ? { steps } : {}),
       ...(options.frames ? { frames: options.frames } : { duration: options.duration })
     });
   } catch (err) {
@@ -3438,7 +3440,8 @@ async function main() {
     if (options.estimateVideoCost) {
       const modelDefaults = getModelDefaults(options.model, openclawConfig);
       const steps = resolveVideoSteps(options.model, modelDefaults, options.steps);
-      if (!Number.isFinite(steps) || steps <= 0) {
+      const isSeedanceVideo = isSeedanceModel(options.model);
+      if (!isSeedanceVideo && (!Number.isFinite(steps) || steps <= 0)) {
         const err = new Error('--estimate-video-cost requires --steps (or modelDefaults for this model).');
         err.code = 'MISSING_STEPS';
         err.hint = 'Pass --steps explicitly (e.g. --steps 4 for lightx2v models).';
@@ -3449,9 +3452,10 @@ async function main() {
         width: options.width,
         height: options.height,
         fps: options.fps,
-        steps,
         numberOfMedia: options.count,
-        tokenType: options.tokenType || 'spark'
+        tokenType: options.tokenType || 'spark',
+        hasVideoInput: isSeedanceVideo && Boolean(options.refVideo),
+        ...(Number.isFinite(steps) && steps > 0 ? { steps } : {})
       };
       if (options.frames) {
         estimateParams.frames = options.frames;
