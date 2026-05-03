@@ -4,7 +4,8 @@
 function isLtxWorkflow(workflow) {
     return workflow === 't2v' || workflow === 'i2v' || workflow === 'ia2v' || workflow === 'a2v' || workflow === 'v2v';
 }
-export const SKILL_RUNTIME_VERSION = '2026-05-02.1';
+export const SKILL_RUNTIME_VERSION = '2026-05-04.1';
+export const SEEDANCE_STORYBOARD_REFERENCE_PROMPT = 'Turn the video storyboard in @Image1 into a video by following the thumbnails and script for each segment in the image.';
 export const LTX23_WORKFLOW_MODELS = Object.freeze({
     t2v: 'ltx23-22b-fp8_t2v_distilled',
     i2v: 'ltx23-22b-fp8_i2v_distilled',
@@ -25,7 +26,7 @@ export const VIDEO_MODEL_REGISTRY = Object.freeze({
         defaultWidth: 1920,
         defaultHeight: 1088,
         minDimension: 640,
-        maxDimension: 3840,
+        maxDimension: 2048,
         dimensionMultiple: 64,
         steps: 8,
         guidance: 1.0,
@@ -43,7 +44,7 @@ export const VIDEO_MODEL_REGISTRY = Object.freeze({
         defaultWidth: 1920,
         defaultHeight: 1088,
         minDimension: 640,
-        maxDimension: 3840,
+        maxDimension: 2048,
         dimensionMultiple: 64,
         steps: 8,
         guidance: 1.0,
@@ -61,7 +62,7 @@ export const VIDEO_MODEL_REGISTRY = Object.freeze({
         defaultWidth: 1920,
         defaultHeight: 1088,
         minDimension: 640,
-        maxDimension: 3840,
+        maxDimension: 2048,
         dimensionMultiple: 64,
         steps: 8,
         guidance: 1.0,
@@ -78,7 +79,7 @@ export const VIDEO_MODEL_REGISTRY = Object.freeze({
         defaultWidth: 1920,
         defaultHeight: 1088,
         minDimension: 640,
-        maxDimension: 3840,
+        maxDimension: 2048,
         dimensionMultiple: 64,
         steps: 8,
         guidance: 1.0,
@@ -95,7 +96,7 @@ export const VIDEO_MODEL_REGISTRY = Object.freeze({
         defaultWidth: 1920,
         defaultHeight: 1088,
         minDimension: 640,
-        maxDimension: 3840,
+        maxDimension: 2048,
         dimensionMultiple: 64,
         steps: 8,
         guidance: 1.0,
@@ -624,6 +625,425 @@ export function dimensionsWithShortSide(width, height, shortSide) {
         width: Math.round(w * scale),
         height: Math.round(h * scale)
     };
+}
+function hasPortraitResolutionHint(text) {
+    return /\b(portrait|vertical|reels?|tiktok|shorts?|story)\b/i.test(text);
+}
+function hasLandscapeResolutionHint(text) {
+    return /\b(landscape|horizontal|wide(?:screen)?|cinematic|youtube)\b/i.test(text);
+}
+function normalizeRequestedPixelDimension(value) {
+    return Number.isInteger(value) && value > 0 && value <= 10000 ? value : null;
+}
+function makeLandscapeOrPortraitDimensions(landscapeWidth, landscapeHeight, text) {
+    return hasPortraitResolutionHint(text)
+        ? { width: landscapeHeight, height: landscapeWidth }
+        : { width: landscapeWidth, height: landscapeHeight };
+}
+export function inferNamedVideoResolutionShortSideFromText(text) {
+    const compact = text.replace(/,/g, '');
+    if (/\b4\s*k\b|\buhd\b/i.test(compact))
+        return 2160;
+    if (/\b8\s*k\b/i.test(compact))
+        return 4320;
+    const namedResolution = compact.match(/\b(480|720|1080|1440|2160)\s*p\b/i);
+    return namedResolution ? Number(namedResolution[1]) : null;
+}
+export function inferExplicitPixelDimensionsFromText(text) {
+    const compact = text.replace(/,/g, '');
+    const exactPair = compact.match(/\b(\d{1,5})\s*(x|by)\s*(\d{1,5})\s*(px|pixels?)?\b/i);
+    if (exactPair) {
+        const width = normalizeRequestedPixelDimension(Number(exactPair[1]));
+        const height = normalizeRequestedPixelDimension(Number(exactPair[3]));
+        const hasPixelUnit = Boolean(exactPair[4]);
+        if (width && height && (hasPixelUnit || Math.max(width, height) >= 100)) {
+            return { width, height };
+        }
+    }
+    const widthThenHeight = compact.match(/\b(?:width|wide|w)\s*(?:is|=|:)?\s*(\d{1,5})\s*(?:px|pixels?)?\b[\s\S]{0,80}\b(?:height|tall|high|h)\s*(?:is|=|:)?\s*(\d{1,5})\s*(?:px|pixels?)?\b/i);
+    if (widthThenHeight) {
+        const width = normalizeRequestedPixelDimension(Number(widthThenHeight[1]));
+        const height = normalizeRequestedPixelDimension(Number(widthThenHeight[2]));
+        if (width && height)
+            return { width, height };
+    }
+    const heightThenWidth = compact.match(/\b(?:height|tall|high|h)\s*(?:is|=|:)?\s*(\d{1,5})\s*(?:px|pixels?)?\b[\s\S]{0,80}\b(?:width|wide|w)\s*(?:is|=|:)?\s*(\d{1,5})\s*(?:px|pixels?)?\b/i);
+    if (heightThenWidth) {
+        const height = normalizeRequestedPixelDimension(Number(heightThenWidth[1]));
+        const width = normalizeRequestedPixelDimension(Number(heightThenWidth[2]));
+        if (width && height)
+            return { width, height };
+    }
+    if (/\b4\s*k\b|\buhd\b/i.test(compact)) {
+        return hasPortraitResolutionHint(compact) || hasLandscapeResolutionHint(compact)
+            ? makeLandscapeOrPortraitDimensions(3840, 2160, compact)
+            : null;
+    }
+    if (/\b8\s*k\b/i.test(compact)) {
+        return hasPortraitResolutionHint(compact) || hasLandscapeResolutionHint(compact)
+            ? makeLandscapeOrPortraitDimensions(7680, 4320, compact)
+            : null;
+    }
+    const namedResolution = compact.match(/\b(480|720|1080|1440|2160)\s*p\b/i);
+    if (namedResolution) {
+        if (!hasPortraitResolutionHint(compact) && !hasLandscapeResolutionHint(compact)) {
+            return null;
+        }
+        const shortSide = Number(namedResolution[1]);
+        const landscapeByShortSide = {
+            480: { width: 854, height: 480 },
+            720: { width: 1280, height: 720 },
+            1080: { width: 1920, height: 1080 },
+            1440: { width: 2560, height: 1440 },
+            2160: { width: 3840, height: 2160 },
+        };
+        const dimensions = landscapeByShortSide[shortSide];
+        if (dimensions) {
+            return makeLandscapeOrPortraitDimensions(dimensions.width, dimensions.height, compact);
+        }
+    }
+    return null;
+}
+export function inferExplicitAspectRatioFromText(text) {
+    const match = text.match(/\b(\d{1,4}(?:\.\d+)?)\s*:\s*(\d{1,4}(?:\.\d+)?)\b/);
+    if (!match)
+        return null;
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+        return null;
+    }
+    const index = match.index ?? 0;
+    const context = text.slice(Math.max(0, index - 48), Math.min(text.length, index + match[0].length + 48));
+    if (/\b(?:ratio|aspect|format|portrait|landscape|vertical|horizontal|widescreen|frame|video|output)\b/i.test(context)) {
+        return { width, height, text: match[0] };
+    }
+    return null;
+}
+export function inferRequestedTotalVideoDurationSeconds(text) {
+    const durations = [];
+    for (const match of text.matchAll(/\b(\d{1,3}(?:\.\d+)?)\s*(?:minutes?|mins?)\b/gi)) {
+        const minutes = Number(match[1]);
+        if (Number.isFinite(minutes) && minutes > 0)
+            durations.push(Math.ceil(minutes * 60));
+    }
+    for (const match of text.matchAll(/\b(\d{1,3})\s*(?:s|sec|secs|seconds?)\b/gi)) {
+        const seconds = Number(match[1]);
+        if (Number.isFinite(seconds) && seconds > 0)
+            durations.push(seconds);
+    }
+    return durations.length > 0 ? Math.max(...durations) : null;
+}
+export function textProvidesLiteralVideoPrompt(text) {
+    return /\b(?:full|exact|literal)\s+prompt\b/i.test(text)
+        || /\bdo\s+not\s+(?:modify|change|rewrite|alter|enhance|expand|improve)\s+(?:this\s+|the\s+)?prompt\b/i.test(text)
+        || /\bprompt\s+to\s+use\b/i.test(text)
+        || /\bprompt\s+(?:exactly|verbatim|as[-\s]?is)\b/i.test(text)
+        || /\buse\s+(?:this|the)\s+(?:full|exact|literal)\s+prompt\b/i.test(text)
+        || /\buse\s+(?:this|the)\s+prompt\s+(?:exactly|verbatim|as[-\s]?is)\b/i.test(text);
+}
+function stripPromptWrapper(text) {
+    let prompt = text.trim();
+    const fenced = prompt.match(/^```(?:[\w-]+)?\s*\n?([\s\S]*?)\n?```\s*$/);
+    if (fenced?.[1]?.trim()) {
+        prompt = fenced[1].trim();
+    }
+    const quotePairs = [
+        ['"', '"'],
+        ["'", "'"],
+    ];
+    for (const [open, close] of quotePairs) {
+        if (prompt.startsWith(open) && prompt.endsWith(close)) {
+            const unwrapped = prompt.slice(open.length, -close.length).trim();
+            if (unwrapped)
+                return unwrapped;
+        }
+    }
+    return prompt;
+}
+export function extractLiteralVideoPrompt(text) {
+    const markers = [
+        /\b(?:use|using|with)\s+(?:this|the)\s+(?:full\s+|exact\s+|literal\s+)?prompt\s+(?:exactly|verbatim|as[-\s]?is)\s*:?\s*/gi,
+        /\b(?:use|using|with)\s+(?:this|the)\s+(?:full|exact|literal)\s+prompt\s*:?\s*/gi,
+        /\b(?:full|exact|literal)\s+prompt\s*:?\s*/gi,
+        /\bprompt\s+to\s+use\s*:?\s*/gi,
+    ];
+    let markerEnd = -1;
+    for (const marker of markers) {
+        marker.lastIndex = 0;
+        while (marker.exec(text) !== null) {
+            markerEnd = Math.max(markerEnd, marker.lastIndex);
+        }
+    }
+    if (markerEnd < 0 && /\bdo\s+not\s+(?:modify|change|rewrite|alter|enhance|expand|improve)\s+(?:this\s+|the\s+)?prompt\b/i.test(text)) {
+        const promptLabel = /\bprompt\s*:\s*/gi;
+        while (promptLabel.exec(text) !== null) {
+            markerEnd = Math.max(markerEnd, promptLabel.lastIndex);
+        }
+    }
+    if (markerEnd < 0)
+        return null;
+    const extracted = stripPromptWrapper(text
+        .slice(markerEnd)
+        .replace(/^\s*[:-]\s*/, ''));
+    return extracted.length >= 3 ? extracted : null;
+}
+export function textMentionsStoryboardReference(text) {
+    return /\b(?:story\s*board|storyboard|video\s+sequence|sequence\s+sheet|shot\s+sheet|thumbnail\s+sequence|panel\s+sequence)\b/i.test(text);
+}
+export function textProvidesVideoScriptOrDetailedPrompt(text) {
+    const normalized = text.trim();
+    if (!normalized)
+        return false;
+    if (textProvidesLiteralVideoPrompt(normalized))
+        return true;
+    if (/\[\s*\d{1,2}(?:[:.]\d{2})?\s*(?:-|to)\s*\d{1,2}(?:[:.]\d{2})?\s*\]/i.test(normalized))
+        return true;
+    if (/^\s*(?:style|shot|scene|segment|camera|motion|audio|vo|v\.o\.|voiceover|sfx|fx|music|dialogue)\s*:/im.test(normalized))
+        return true;
+    if (/^\s*(?:scene|shot|segment)\s*\d{1,2}\b/im.test(normalized))
+        return true;
+    if ((normalized.match(/^\s*(?:vo|v\.o\.|sfx|fx|music|camera)\s*:/gim) || []).length >= 2)
+        return true;
+    if ((normalized.match(/\b(?:VO|SFX|camera|style|dialogue|shot|segment)\s*:/g) || []).length >= 3)
+        return true;
+    const quotedPhrases = normalized.match(/"[^"]{8,}"/g) || [];
+    if (quotedPhrases.length >= 2)
+        return true;
+    const commandStripped = normalized
+        .replace(/\b(?:generate|create|make|render|turn|use|using|with|this|the|uploaded|attached|provided|image|photo|picture|reference|seedance|video|seconds?|secs?|s)\b/gi, ' ')
+        .replace(/\b\d{1,2}\b/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const wordCount = commandStripped ? commandStripped.split(/\s+/).length : 0;
+    return wordCount >= 55;
+}
+export function seedanceStoryboardFallbackAllowedForText(text) {
+    return !textProvidesVideoScriptOrDetailedPrompt(text);
+}
+function normalizeDurationSeconds(value) {
+    const raw = typeof value === 'string'
+        ? Number(value.trim().match(/^(\d{1,3}(?:\.\d+)?)\s*(?:s|sec|secs|seconds?)?$/i)?.[1])
+        : typeof value === 'number'
+            ? value
+            : NaN;
+    if (!Number.isFinite(raw) || raw <= 0 || raw > 600)
+        return null;
+    return Math.ceil(raw);
+}
+function greatestCommonDivisor(a, b) {
+    let x = Math.abs(Math.trunc(a));
+    let y = Math.abs(Math.trunc(b));
+    while (y > 0) {
+        const next = x % y;
+        x = y;
+        y = next;
+    }
+    return x || 1;
+}
+function formatAspectRatio(width, height) {
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+        return null;
+    }
+    const ratio = width / height;
+    if (ratio < 0.25 || ratio > 4)
+        return null;
+    const divisor = greatestCommonDivisor(width, height);
+    return `${Math.trunc(width) / divisor}:${Math.trunc(height) / divisor}`;
+}
+function normalizeAspectRatio(value) {
+    if (typeof value !== 'string')
+        return null;
+    const normalized = value.trim().replace(/[x/]/gi, ':').toLowerCase();
+    if (!normalized || normalized === 'null' || normalized === 'unknown' || normalized === 'ambiguous') {
+        return null;
+    }
+    if (/^(?:portrait|vertical)$/.test(normalized))
+        return '9:16';
+    if (/^(?:landscape|horizontal|widescreen)$/.test(normalized))
+        return '16:9';
+    if (/^square$/.test(normalized))
+        return '1:1';
+    const match = normalized.match(/(\d{1,5})\s*:\s*(\d{1,5})/);
+    if (!match)
+        return null;
+    return formatAspectRatio(Number(match[1]), Number(match[2]));
+}
+function textExplicitlyRequestsMultipleVideoRenders(text) {
+    return /\b(?:\d{1,2}|multiple|several|many)\s+(?:separate\s+|different\s+|distinct\s+)?(?:videos?|clips?|versions?|variations?)\b/i.test(text);
+}
+function textExplicitlyRequestsGeneratedImageStage(text) {
+    return /\b(?:generate|create|make|render|produce|design|build)\b\s+(?:an?\s+|the\s+)?(?:\d{1,2}\s+)?(?:new|different|distinct|separate|alternate|transformed|scene\s+)*(?:images?|photos?|pictures?|portraits?|keyframes?|frames?|versions?|variations?|variants?)\b/i.test(text);
+}
+function textRequestsAdjacentImageTransitions(text) {
+    const lower = text.toLowerCase();
+    const mentionsTransition = /\b(?:transition|transitions|transitioning|link|links|linking|connect|connecting|morph)\b/.test(lower)
+        || /\bbetween\s+(?:the\s+)?(?:images?|photos?|pictures?|keyframes?|frames?|versions?|variations?|scenes?)\b/.test(lower)
+        || /(?:->)/.test(text);
+    if (!mentionsTransition)
+        return false;
+    const mentionsGeneratedSequence = /\b(?:versions?|variations?|images?|photos?|pictures?|keyframes?|frames?|scenes?)\b/.test(lower)
+        || /(?:->)/.test(text);
+    const mentionsVideoOutput = /\b(?:video|videos|clips?|segments?|stitch|stitched|stitching|montage)\b/.test(lower);
+    return mentionsGeneratedSequence && mentionsVideoOutput;
+}
+export function planSeedanceStoryboardFallback(input) {
+    const userIntentText = input.userIntentText;
+    const providesLiteralPrompt = input.providesLiteralPrompt
+        ?? textProvidesLiteralVideoPrompt(userIntentText);
+    if (providesLiteralPrompt)
+        return null;
+    if (!seedanceStoryboardFallbackAllowedForText(userIntentText))
+        return null;
+    if (input.uploadedImageCount !== 1)
+        return null;
+    if ((input.uploadedVideoCount ?? 0) > 0 || (input.uploadedAudioCount ?? 0) > 0)
+        return null;
+    if (textExplicitlyRequestsMultipleVideoRenders(userIntentText))
+        return null;
+    if (textExplicitlyRequestsGeneratedImageStage(userIntentText))
+        return null;
+    if (textRequestsAdjacentImageTransitions(userIntentText))
+        return null;
+    const reason = textMentionsStoryboardReference(userIntentText)
+        ? 'text_mentions_storyboard'
+        : input.storyboardDetected
+            ? 'vision_detected_storyboard'
+            : null;
+    if (!reason)
+        return null;
+    const requestedDuration = input.requestedDurationSeconds
+        ?? inferRequestedTotalVideoDurationSeconds(userIntentText);
+    const storyboardDuration = normalizeDurationSeconds(input.storyboardDurationSeconds);
+    const storyboardAspectRatio = normalizeAspectRatio(input.storyboardAspectRatio);
+    const defaultDuration = input.defaultDurationSeconds ?? 5;
+    const maxDuration = input.maxDurationSeconds ?? 15;
+    const minDuration = input.minDurationSeconds ?? 4;
+    const intendedDuration = requestedDuration !== null && requestedDuration !== undefined
+        ? requestedDuration
+        : storyboardDuration ?? defaultDuration;
+    return {
+        prompt: SEEDANCE_STORYBOARD_REFERENCE_PROMPT,
+        duration: Math.max(minDuration, Math.min(maxDuration, intendedDuration)),
+        referenceImageIndices: input.referenceImageIndices ?? [-1],
+        skipPromptProcessing: true,
+        expandPrompt: false,
+        reason,
+        ...(storyboardAspectRatio ? { aspectRatio: storyboardAspectRatio } : {}),
+    };
+}
+function valuePresent(value) {
+    return value !== undefined && value !== null && value !== '';
+}
+export function dimensionsForAspectRatio(width, height, aspectRatio) {
+    const normalized = normalizeAspectRatio(aspectRatio);
+    if (!normalized)
+        return null;
+    const [ratioWText, ratioHText] = normalized.split(':');
+    const ratioW = Number(ratioWText);
+    const ratioH = Number(ratioHText);
+    if (!Number.isFinite(ratioW) || !Number.isFinite(ratioH) || ratioW <= 0 || ratioH <= 0) {
+        return null;
+    }
+    const shortSide = Math.min(width, height);
+    if (!Number.isFinite(shortSide) || shortSide <= 0)
+        return null;
+    if (ratioW >= ratioH) {
+        return {
+            width: Math.round(shortSide * ratioW / ratioH),
+            height: Math.round(shortSide),
+        };
+    }
+    return {
+        width: Math.round(shortSide),
+        height: Math.round(shortSide * ratioH / ratioW),
+    };
+}
+export function isSeedanceModelSelection(modelId) {
+    if (!modelId)
+        return false;
+    return (isSeedanceModel(modelId) ||
+        isSeedanceModel(resolveVideoModelAlias(modelId, 't2v')) ||
+        isSeedanceModel(resolveVideoModelAlias(modelId, 'ia2v')) ||
+        isSeedanceModel(resolveVideoModelAlias(modelId, 'v2v')));
+}
+export function planCliVideoBrain(input) {
+    const plan = { warnings: [] };
+    if (!input.video || !input.prompt?.trim())
+        return plan;
+    const cliSet = input.cliSet ?? {};
+    const text = input.prompt;
+    const normalizedWorkflow = normalizeVideoWorkflow(input.workflow);
+    const literalPrompt = extractLiteralVideoPrompt(text);
+    if (literalPrompt) {
+        plan.literalPrompt = true;
+        plan.prompt = literalPrompt;
+    }
+    const inferredDuration = inferRequestedTotalVideoDurationSeconds(text);
+    if (!cliSet.duration && !cliSet.frames && inferredDuration !== null) {
+        plan.duration = inferredDuration;
+    }
+    if (!cliSet.width && !cliSet.height) {
+        const exactDimensions = inferExplicitPixelDimensionsFromText(text);
+        if (exactDimensions) {
+            plan.width = exactDimensions.width;
+            plan.height = exactDimensions.height;
+            plan.dimensionSource = 'exact';
+        }
+        else if (!cliSet.targetResolution) {
+            const shortSide = inferNamedVideoResolutionShortSideFromText(text);
+            if (shortSide !== null) {
+                plan.targetResolution = shortSide;
+            }
+            else {
+                const aspectRatio = inferExplicitAspectRatioFromText(text);
+                if (aspectRatio) {
+                    const dimensions = dimensionsForAspectRatio(input.width ?? 1920, input.height ?? 1088, aspectRatio.text);
+                    if (dimensions) {
+                        plan.width = dimensions.width;
+                        plan.height = dimensions.height;
+                        plan.dimensionSource = 'aspect';
+                    }
+                }
+            }
+        }
+    }
+    const uploadedImageCount = (valuePresent(input.refImage) ? 1 : 0) +
+        (valuePresent(input.refImageEnd) ? 1 : 0);
+    const storyboard = plan.literalPrompt
+        ? null
+        : planSeedanceStoryboardFallback({
+            userIntentText: text,
+            uploadedImageCount,
+            uploadedVideoCount: valuePresent(input.refVideo) ? 1 : 0,
+            uploadedAudioCount: valuePresent(input.refAudio) ? 1 : 0,
+            requestedDurationSeconds: cliSet.duration ? input.duration : plan.duration ?? inferredDuration,
+            defaultDurationSeconds: input.duration ?? 5,
+            storyboardAspectRatio: inferExplicitAspectRatioFromText(text)?.text,
+        });
+    if (storyboard) {
+        const explicitNonSeedanceModel = cliSet.model && input.model && !isSeedanceModelSelection(input.model);
+        const workflowAllowsStoryboard = !normalizedWorkflow || normalizedWorkflow === 't2v';
+        if (!explicitNonSeedanceModel && workflowAllowsStoryboard) {
+            plan.storyboard = storyboard;
+            plan.prompt = storyboard.prompt;
+            if (!cliSet.model)
+                plan.model = SEEDANCE_WORKFLOW_MODELS.t2v;
+            if (!cliSet.workflow)
+                plan.workflow = 't2v';
+            if (!cliSet.duration && !cliSet.frames)
+                plan.duration = storyboard.duration;
+            if (storyboard.aspectRatio && !cliSet.width && !cliSet.height && plan.width === undefined && plan.height === undefined) {
+                const dimensions = dimensionsForAspectRatio(input.width ?? 1920, input.height ?? 1088, storyboard.aspectRatio);
+                if (dimensions) {
+                    plan.width = dimensions.width;
+                    plan.height = dimensions.height;
+                    plan.dimensionSource = 'aspect';
+                }
+            }
+        }
+    }
+    return plan;
 }
 export function inferDefaultVideoSteps(modelId) {
     const id = (modelId || '').toLowerCase();

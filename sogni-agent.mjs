@@ -26,6 +26,7 @@ import {
   isLtx2Model,
   isSeedanceModel,
   normalizeVideoWorkflow,
+  planCliVideoBrain,
   resolveVideoControlNetStrength,
   resolveVideoModelAlias,
   resolveVideoSteps,
@@ -149,6 +150,7 @@ function fatalCliError(message, opts = {}) {
 
 function applyVideoPromptGuardrails() {
   if (!options.video || !options.prompt) return;
+  if (options._literalPrompt) return;
 
   const plan = getVideoPromptGuardrailPlan({
     prompt: options.prompt,
@@ -165,6 +167,78 @@ function applyVideoPromptGuardrails() {
     for (const warning of plan.warnings) {
       console.error(warning.message);
     }
+  }
+}
+
+function applyCreativeBrainPreflight() {
+  if (!options.video || !options.prompt) return;
+
+  const plan = planCliVideoBrain({
+    video: options.video,
+    prompt: options.prompt,
+    model: options.model,
+    workflow: options.videoWorkflow,
+    width: options.width,
+    height: options.height,
+    duration: options.duration,
+    frames: options.frames,
+    targetResolution: options.targetResolution,
+    refImage: options.refImage,
+    refImageEnd: options.refImageEnd,
+    refAudio: options.refAudio,
+    refVideo: options.refVideo,
+    cliSet: {
+      model: cliSet.model,
+      workflow: cliSet.workflow,
+      width: cliSet.width,
+      height: cliSet.height,
+      targetResolution: cliSet.targetResolution,
+      duration: cliSet.duration,
+      frames: cliSet.frames
+    }
+  });
+
+  if (plan.literalPrompt) {
+    options._literalPrompt = true;
+  }
+  if (plan.prompt && plan.prompt !== options.prompt) {
+    options.prompt = plan.prompt;
+  }
+  if (plan.model && !cliSet.model) {
+    options.model = plan.model;
+  }
+  if (plan.workflow && !cliSet.workflow) {
+    options.videoWorkflow = plan.workflow;
+  }
+  if (Number.isFinite(plan.duration) && !cliSet.duration && !cliSet.frames) {
+    options.duration = plan.duration;
+    durationFromPrompt = true;
+  }
+  if (
+    plan.dimensionSource === 'exact' &&
+    Number.isFinite(plan.width) &&
+    Number.isFinite(plan.height) &&
+    !cliSet.width &&
+    !cliSet.height
+  ) {
+    options.width = plan.width;
+    options.height = plan.height;
+    widthFromPrompt = true;
+    heightFromPrompt = true;
+  }
+  if (
+    Number.isFinite(plan.targetResolution) &&
+    !cliSet.targetResolution &&
+    !cliSet.width &&
+    !cliSet.height &&
+    !widthFromPrompt &&
+    !heightFromPrompt
+  ) {
+    options.targetResolution = plan.targetResolution;
+    targetResolutionFromPrompt = true;
+  }
+  if (plan.storyboard) {
+    options._seedanceStoryboardPlan = plan.storyboard;
   }
 }
 
@@ -1483,6 +1557,10 @@ let timeoutFromConfig = false;
 let widthFromConfig = false;
 let heightFromConfig = false;
 let fpsFromConfig = false;
+let widthFromPrompt = false;
+let heightFromPrompt = false;
+let targetResolutionFromPrompt = false;
+let durationFromPrompt = false;
 let configuredDefaultVideoWorkflow = null;
 if (openclawConfig) {
   const isNumber = (value) => Number.isFinite(value);
@@ -1742,6 +1820,8 @@ if (options.video) {
     options.videoWorkflow = normalized;
   }
 
+  applyCreativeBrainPreflight();
+
   if (!options.videoWorkflow && isSeedanceModelSelection(options.model)) {
     if (options.refVideo) {
       options.videoWorkflow = 'v2v';
@@ -1789,10 +1869,10 @@ if (options.video) {
   options.model = resolveVideoModelAlias(options.model, options.videoWorkflow);
   const videoModelDefaults = getModelDefaults(options.model, openclawConfig);
   const isSeedanceVideo = isSeedanceModel(options.model);
-  if (!cliSet.width && !widthFromConfig && Number.isFinite(videoModelDefaults?.defaultWidth)) {
+  if (!cliSet.width && !widthFromConfig && !widthFromPrompt && Number.isFinite(videoModelDefaults?.defaultWidth)) {
     options.width = videoModelDefaults.defaultWidth;
   }
-  if (!cliSet.height && !heightFromConfig && Number.isFinite(videoModelDefaults?.defaultHeight)) {
+  if (!cliSet.height && !heightFromConfig && !heightFromPrompt && Number.isFinite(videoModelDefaults?.defaultHeight)) {
     options.height = videoModelDefaults.defaultHeight;
   }
   if (!cliSet.fps && !fpsFromConfig && Number.isFinite(videoModelDefaults?.fps)) {
@@ -1804,10 +1884,10 @@ if (options.video) {
       options.steps = videoQuality.steps;
     }
   }
-  const videoShortSide = cliSet.targetResolution
+  const videoShortSide = (cliSet.targetResolution || targetResolutionFromPrompt)
     ? options.targetResolution
     : (!isSeedanceVideo ? videoQuality?.shortSide : null);
-  if (videoShortSide && !cliSet.width && !cliSet.height && !widthFromConfig && !heightFromConfig) {
+  if (videoShortSide && !cliSet.width && !cliSet.height && !widthFromConfig && !heightFromConfig && !widthFromPrompt && !heightFromPrompt) {
     const dims = dimensionsWithShortSide(options.width, options.height, videoShortSide);
     options.width = dims.width;
     options.height = dims.height;

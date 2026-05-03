@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { SEEDANCE_STORYBOARD_REFERENCE_PROMPT } from '../generated/creative-agent-runtime.mjs';
 
 const MIN_NODE_VERSION = [22, 11, 0];
 
@@ -222,6 +223,40 @@ test('target resolution scales video short side while preserving aspect', () => 
   assert.equal(state.lastVideoProject.height, 768);
 });
 
+test('video preflight infers natural-language duration and bare resolution tier', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    'make a 12 second 720p video of ocean waves'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastVideoProject, 'createVideoProject was called');
+  assert.equal(state.lastVideoProject.duration, 12);
+  assert.equal(state.lastVideoProject.width, 1216);
+  assert.equal(state.lastVideoProject.height, 704);
+});
+
+test('video preflight infers orientation-qualified resolution pixels', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    'make a 12 second 720p portrait video of ocean waves'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastVideoProject, 'createVideoProject was called');
+  assert.equal(state.lastVideoProject.duration, 12);
+  assert.equal(state.lastVideoProject.width, 704);
+  assert.equal(state.lastVideoProject.height, 1280);
+});
+
+test('literal video prompt bypasses prompt guardrail rewriting', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    "Use this prompt exactly: HOST: 'Hello there'"
+  ]);
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastVideoProject, 'createVideoProject was called');
+  assert.equal(state.lastVideoProject.positivePrompt, "HOST: 'Hello there'");
+});
+
 test('seedance alias selects Seedance T2V without step overrides', () => {
   const { exitCode, state } = runCli([
     '--video',
@@ -271,6 +306,22 @@ test('seedance t2v forwards HTTPS multimodal references as URL arrays', () => {
   assert.equal(state.lastVideoProject.referenceImage, undefined);
   assert.equal(state.lastVideoProject.referenceVideo, undefined);
   assert.equal(state.lastVideoProject.referenceAudio, undefined);
+});
+
+test('storyboard upload mention routes to Seedance storyboard fallback', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    '--ref', SCREENSHOT_FIXTURE,
+    'I am uploading a storyboard. Turn it into a 9 second video.'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastVideoProject, 'createVideoProject was called');
+  assert.equal(state.lastVideoProject.modelId, 'seedance-2-0');
+  assert.equal(state.lastVideoProject.positivePrompt, SEEDANCE_STORYBOARD_REFERENCE_PROMPT);
+  assert.equal(state.lastVideoProject.duration, 9);
+  assert.equal(state.lastVideoProject.fps, 24);
+  assert.equal(state.lastVideoProject.referenceImage != null, true);
+  assert.equal(Object.hasOwn(state.lastVideoProject, 'steps'), false);
 });
 
 test('seedance rejects audio-only references before wrapper validation', () => {
