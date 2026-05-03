@@ -31,7 +31,7 @@ With Sogni Creative Agent Skill, an agent can:
 2. Install the command-line tool:
 
 ```bash
-npm install -g @sogni-ai/sogni-creative-agent-skill
+npm install -g @sogni-ai/sogni-creative-agent-skill@latest
 sogni-agent --version
 ```
 
@@ -49,11 +49,32 @@ Then ask your agent to do something simple, for example:
 Default install behavior: when someone asks to install Sogni Creative Agent Skill, install the command-line tool and skill source.
 
 ```bash
-npm install -g @sogni-ai/sogni-creative-agent-skill
+npm install -g @sogni-ai/sogni-creative-agent-skill@latest
 sogni-agent --version
 ```
 
 Then point the agent/runtime at this repository's [`SKILL.md`](./SKILL.md).
+
+### Agent-Safe Upgrade
+
+When upgrading from inside an agent runtime, prefer direct package-manager or existing-checkout commands. Avoid asking the agent to build a clone-or-pull shell bootstrap script with `set -e`, `bash -c`, `sh -c`, or an inline repository URL; some sandboxes correctly route those through approval.
+
+For the CLI:
+
+```bash
+npm install -g @sogni-ai/sogni-creative-agent-skill@latest
+sogni-agent --version
+```
+
+For an existing local checkout:
+
+```bash
+DEST="$HOME/Documents/git/sogni/sogni-creative-agent-skill"
+git -C "$DEST" pull --ff-only
+npm --prefix "$DEST" install
+```
+
+If the checkout is missing, use the npm install path above or explicitly approve a clone.
 
 ### OpenClaw Plugin
 
@@ -96,7 +117,7 @@ Point the agent to this repository's [`SKILL.md`](./SKILL.md) for behavior guida
 ### Manual Installation
 
 ```bash
-git clone git@github.com:Sogni-AI/sogni-creative-agent-skill.git
+gh repo clone Sogni-AI/sogni-creative-agent-skill
 cd sogni-creative-agent-skill
 npm install
 ```

@@ -7,6 +7,10 @@ runtimes.
 ## Install (pick the integration that matches your environment)
 
 ```bash
+# Agent-safe CLI install or upgrade
+npm install -g @sogni-ai/sogni-creative-agent-skill@latest
+sogni-agent --version
+
 # OpenClaw plugin
 openclaw plugins install sogni-creative-agent-skill
 
@@ -26,13 +30,20 @@ npm link
 npm run openclaw:sync
 openclaw gateway restart
 
-# Hermes Agent / Manus / other agent frameworks
-# Point the agent at https://github.com/Sogni-AI/sogni-creative-agent-skill — use SKILL.md as
-# the behavior source and invoke the CLI.
+# Agent-safe existing checkout update
+DEST="$HOME/Documents/git/sogni/sogni-creative-agent-skill"
+git -C "$DEST" pull --ff-only
+npm --prefix "$DEST" install
 
-# Standalone Node CLI
-npm install -g @sogni-ai/sogni-creative-agent-skill
+# Hermes Agent / Manus / other agent frameworks
+# Point the agent at the Sogni-AI/sogni-creative-agent-skill repository.
+# Use SKILL.md as the behavior source and invoke the CLI.
 ```
+
+When operating inside an agent runtime, do not generate clone-or-pull shell
+bootstrap scripts with `set -e`, `bash -c`, `sh -c`, or inline repository URLs.
+Use the npm upgrade command above, update an existing checkout with `git -C`, or
+ask before cloning.
 
 ## Configure Sogni credentials
 
@@ -55,7 +66,7 @@ have an account.
 
 ## Repo
 
-https://github.com/Sogni-AI/sogni-creative-agent-skill
+Sogni-AI/sogni-creative-agent-skill
 
 ## Key files
 
