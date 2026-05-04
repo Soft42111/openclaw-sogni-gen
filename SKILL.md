@@ -159,7 +159,23 @@ node sogni-agent.mjs --json --balance
 
 # Quiet mode (suppress progress)
 node sogni-agent.mjs -q -o /tmp/cat.png "a cat wearing a hat"
+
+# Hosted API chat: natural-language rich creative-agent tool execution
+node sogni-agent.mjs --api-chat "Create a 4-shot product video concept for a red sneaker"
+
+# Durable API workflow: async image-to-video with resumable workflow record
+node sogni-agent.mjs --api-workflow image-to-video \
+  --video-prompt "The camera slowly pushes in as the sketch comes alive" \
+  "A graphite robot sketch on a drafting table"
 ```
+
+Use `--api-chat` for text-first natural-language workflows that should go through
+Sogni API's OpenAI-compatible `/v1/chat/completions` tool loop. Use
+`--api-workflow` when the caller already knows it wants an async durable workflow
+record under `/v1/creative-agent/workflows`. Uploaded-media execution still
+belongs on the direct CLI path (`-c`, `--ref`, `--ref-audio`, `--ref-video`)
+until the hosted rich API and durable workflow endpoint support uploaded
+negative-index media references through CLI media flags.
 
 ## Options
 
@@ -232,6 +248,17 @@ node sogni-agent.mjs -q -o /tmp/cat.png "a cat wearing a hat"
 | `--concat-audio <path>` | Optional audio track to mux over `--concat-videos` output | - |
 | `--concat-audio-start <sec>` | Start offset into `--concat-audio` | - |
 | `--list-media [type]` | List recent inbound media (images\|audio\|all) | images |
+| `--api-chat` | Call `/v1/chat/completions` with rich creative-agent tool injection | - |
+| `--api-tools <mode>` | API tool mode: creative-agent\|rich\|hosted\|none | creative-agent |
+| `--no-api-tool-execution` | Plan/tool-call via API chat without executing Sogni tools | - |
+| `--llm-model <id>` | LLM model for `--api-chat` | qwen3.6-35b-a3b-gguf-iq4xs |
+| `--api-workflow <kind>` | Start durable workflow: image-to-video\|hosted-tool-sequence | - |
+| `--workflow-input <json\|path\|@path>` | Workflow input JSON for hosted tool sequences/custom starts | - |
+| `--workflow-title <text>` | Title for hosted-tool-sequence workflow input | - |
+| `--video-prompt <text>` | Motion prompt for durable image-to-video workflow | - |
+| `--watch-workflow` | Stream durable workflow events after start | - |
+| `--list-workflows`, `--get-workflow <id>`, `--workflow-events <id>`, `--stream-workflow <id>`, `--cancel-workflow <id>` | Durable workflow management helpers | - |
+| `--api-base-url <url>` | Sogni API base for hosted API modes | https://api.sogni.ai |
 | `--no-filter` | Disable NSFW content filter | - |
 | `--memory-set <key> <value>` | Save a user preference | - |
 | `--memory-get <key>` | Get a specific memory | - |

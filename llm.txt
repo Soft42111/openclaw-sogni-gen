@@ -64,6 +64,11 @@ You can also export `SOGNI_API_KEY`, or `SOGNI_USERNAME` + `SOGNI_PASSWORD`,
 instead of writing the file. Sign up at https://app.sogni.ai/ if you do not
 have an account.
 
+Hosted API modes require `SOGNI_API_KEY`: use `sogni-agent --api-chat "prompt"`
+for `/v1/chat/completions` with rich creative-agent tools, or
+`sogni-agent --api-workflow image-to-video --video-prompt "motion" "image prompt"`
+for durable `/v1/creative-agent/workflows` execution.
+
 ## Repo
 
 Sogni-AI/sogni-creative-agent-skill

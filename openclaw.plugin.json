@@ -58,6 +58,22 @@
         "default": "spark",
         "description": "Default token balance to use."
       },
+      "apiBaseUrl": {
+        "type": "string",
+        "default": "https://api.sogni.ai",
+        "description": "Default Sogni API base URL for --api-chat and --api-workflow modes."
+      },
+      "defaultLlmModel": {
+        "type": "string",
+        "default": "qwen3.6-35b-a3b-gguf-iq4xs",
+        "description": "Default LLM model for --api-chat."
+      },
+      "defaultApiToolMode": {
+        "type": "string",
+        "enum": ["creative-agent", "rich", "hosted", "none"],
+        "default": "creative-agent",
+        "description": "Default Sogni tool family injected into --api-chat requests."
+      },
       "seedStrategy": {
         "type": "string",
         "enum": ["random", "prompt-hash"],

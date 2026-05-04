@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { createServer } from 'node:http';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SEEDANCE_STORYBOARD_REFERENCE_PROMPT } from '../generated/creative-agent-runtime.mjs';
@@ -25,12 +26,11 @@ if (!isVersionAtLeast(currentNodeVersion, MIN_NODE_VERSION)) {
 const PACKAGE_VERSION = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')).version;
 const SCREENSHOT_FIXTURE = join(process.cwd(), 'docs', 'screenshot.jpg');
 
-function runCli(args, envOverrides = {}) {
+function prepareCliRun(envOverrides = {}) {
   const tempHome = mkdtempSync(join(tmpdir(), 'sogni-agent-test-'));
   const statePath = join(tempHome, 'state.json');
   const loaderPath = join(process.cwd(), 'test', 'loader.mjs');
   const cliPath = join(process.cwd(), 'sogni-agent.mjs');
-
   const env = {
     ...process.env,
     HOME: tempHome,
@@ -44,6 +44,19 @@ function runCli(args, envOverrides = {}) {
   };
 
   Object.assign(env, envOverrides);
+  return { env, statePath, loaderPath, cliPath };
+}
+
+function readTestState(statePath) {
+  try {
+    return JSON.parse(readFileSync(statePath, 'utf8'));
+  } catch (err) {
+    return null;
+  }
+}
+
+function runCli(args, envOverrides = {}) {
+  const { env, statePath, loaderPath, cliPath } = prepareCliRun(envOverrides);
 
   const result = spawnSync(
     process.execPath,
@@ -55,19 +68,97 @@ function runCli(args, envOverrides = {}) {
     throw result.error;
   }
 
-  let state = null;
-  try {
-    state = JSON.parse(readFileSync(statePath, 'utf8'));
-  } catch (err) {
-    state = null;
-  }
-
   return {
     exitCode: result.status,
-    state,
+    state: readTestState(statePath),
     stdout: result.stdout,
     stderr: result.stderr
   };
+}
+
+function runCliAsync(args, envOverrides = {}) {
+  const { env, statePath, loaderPath, cliPath } = prepareCliRun(envOverrides);
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      ['--loader', loaderPath, cliPath, ...args],
+      { env, stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', chunk => { stdout += chunk; });
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      resolve({ exitCode: code, state: readTestState(statePath), stdout, stderr });
+    });
+  });
+}
+
+async function withTestApiServer(fn) {
+  const requests = [];
+  const server = createServer((req, res) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      let parsedBody = null;
+      if (body) {
+        try {
+          parsedBody = JSON.parse(body);
+        } catch {
+          parsedBody = body;
+        }
+      }
+      requests.push({
+        method: req.method,
+        url: req.url,
+        headers: req.headers,
+        body: parsedBody
+      });
+
+      res.setHeader('Content-Type', 'application/json');
+      if (req.url === '/v1/chat/completions' && req.method === 'POST') {
+        res.end(JSON.stringify({
+          id: 'chatcmpl-test',
+          object: 'chat.completion',
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content: 'Test API chat response' },
+            finish_reason: 'stop'
+          }],
+          creative_workflows: []
+        }));
+        return;
+      }
+      if (req.url === '/v1/creative-agent/workflows' && req.method === 'POST') {
+        res.statusCode = 201;
+        res.end(JSON.stringify({
+          status: 'success',
+          data: {
+            workflow: { workflowId: 'wf_test', kind: 'image_to_video', status: 'queued', artifacts: [] }
+          }
+        }));
+        return;
+      }
+      res.statusCode = 404;
+      res.end(JSON.stringify({ status: 'error', message: 'Not found' }));
+    });
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    return await fn(baseUrl, requests);
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close(error => error ? reject(error) : resolve());
+    });
+  }
 }
 
 function expectCliError(args, messageIncludes) {
@@ -247,6 +338,17 @@ test('video preflight infers orientation-qualified resolution pixels', () => {
   assert.equal(state.lastVideoProject.height, 1280);
 });
 
+test('video preflight applies explicit aspect ratios after model defaults', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    'make a 9:16 portrait video of ocean waves'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastVideoProject, 'createVideoProject was called');
+  assert.equal(state.lastVideoProject.width, 1088);
+  assert.equal(state.lastVideoProject.height, 1920);
+});
+
 test('literal video prompt bypasses prompt guardrail rewriting', () => {
   const { exitCode, state } = runCli([
     '--video',
@@ -291,21 +393,28 @@ test('seedance t2v forwards HTTPS multimodal references as URL arrays', () => {
     '--workflow', 't2v',
     '-m', 'seedance2',
     '--fps', '30',
-    '--ref', 'https://cdn.example.com/product.png',
-    '--ref-video', 'https://cdn.example.com/motion.mp4',
-    '--ref-audio', 'https://cdn.example.com/music.m4a',
+    '--ref', 'https://example.com/product.png',
+    '--ref-video', 'https://example.com/motion.mp4',
+    '--ref-audio', 'https://example.com/music.m4a',
     'Use @Image1 for product identity, @Video1 for motion, and @Audio1 for rhythm.'
   ]);
   assert.equal(exitCode, 0);
   assert.ok(state?.lastVideoProject, 'createVideoProject was called');
   assert.equal(state.lastVideoProject.modelId, 'seedance-2-0');
   assert.equal(state.lastVideoProject.fps, 24);
-  assert.deepEqual(state.lastVideoProject.referenceImageUrls, ['https://cdn.example.com/product.png']);
-  assert.deepEqual(state.lastVideoProject.referenceVideoUrls, ['https://cdn.example.com/motion.mp4']);
-  assert.deepEqual(state.lastVideoProject.referenceAudioUrls, ['https://cdn.example.com/music.m4a']);
+  assert.deepEqual(state.lastVideoProject.referenceImageUrls, ['https://example.com/product.png']);
+  assert.deepEqual(state.lastVideoProject.referenceVideoUrls, ['https://example.com/motion.mp4']);
+  assert.deepEqual(state.lastVideoProject.referenceAudioUrls, ['https://example.com/music.m4a']);
   assert.equal(state.lastVideoProject.referenceImage, undefined);
   assert.equal(state.lastVideoProject.referenceVideo, undefined);
   assert.equal(state.lastVideoProject.referenceAudio, undefined);
+});
+
+test('seedance rejects unsafe HTTPS reference URLs before forwarding', () => {
+  expectCliError(
+    ['--video', '--workflow', 't2v', '-m', 'seedance2', '--ref', 'https://127.0.0.1/product.png', 'Use @Image1 as reference.'],
+    'Reference image URL is not safe to forward'
+  );
 });
 
 test('storyboard upload mention routes to Seedance storyboard fallback', () => {
@@ -322,6 +431,25 @@ test('storyboard upload mention routes to Seedance storyboard fallback', () => {
   assert.equal(state.lastVideoProject.fps, 24);
   assert.equal(state.lastVideoProject.referenceImage != null, true);
   assert.equal(Object.hasOwn(state.lastVideoProject, 'steps'), false);
+});
+
+test('--last-image participates in video workflow inference', () => {
+  const tempHome = mkdtempSync(join(tmpdir(), 'sogni-agent-last-image-test-'));
+  const lastRenderPath = join(tempHome, 'last-render.json');
+  writeFileSync(lastRenderPath, JSON.stringify({ localPath: SCREENSHOT_FIXTURE }));
+
+  const { exitCode, state } = runCli([
+    '--video',
+    '--last-image',
+    'gentle camera pan'
+  ], {
+    SOGNI_LAST_RENDER_PATH: lastRenderPath
+  });
+
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastVideoProject, 'createVideoProject was called');
+  assert.equal(state.lastVideoProject.modelId, 'wan_v2.2-14b-fp8_i2v_lightx2v');
+  assert.equal(state.lastVideoProject.referenceImage != null, true);
 });
 
 test('seedance rejects audio-only references before wrapper validation', () => {
@@ -378,6 +506,136 @@ test('--version with --json returns structured version information', () => {
   assert.equal(payload.name, 'sogni-creative-agent-skill');
   assert.equal(payload.version, PACKAGE_VERSION);
   assert.ok(payload.timestamp);
+});
+
+test('--api-chat posts to /v1/chat/completions with rich creative-agent tools', async () => {
+  await withTestApiServer(async (apiBaseUrl, requests) => {
+    const { exitCode, stdout } = await runCliAsync([
+      '--api-chat',
+      '--api-base-url', apiBaseUrl,
+      '--json',
+      'Create a 4-shot product video concept for a red sneaker'
+    ], {
+      SOGNI_USERNAME: '',
+      SOGNI_PASSWORD: '',
+      SOGNI_API_KEY: 'test-api-key'
+    });
+
+    assert.equal(exitCode, 0);
+    const payload = JSON.parse(stdout.trim());
+    assert.equal(payload.success, true);
+    assert.equal(payload.type, 'api-chat');
+    assert.equal(payload.content, 'Test API chat response');
+
+    assert.equal(requests.length, 1);
+    const request = requests[0];
+    assert.equal(request.url, '/v1/chat/completions');
+    assert.equal(request.method, 'POST');
+    assert.equal(request.headers.authorization, 'Bearer test-api-key');
+    assert.equal(request.body.sogni_tools, 'creative-agent');
+    assert.equal(request.body.sogni_tool_execution, true);
+    assert.equal(request.body.token_type, 'spark');
+    assert.equal(request.body.messages[1].content, 'Create a 4-shot product video concept for a red sneaker');
+  });
+});
+
+test('--api-chat rejects uploaded-media server-side execution and points to direct CLI path', () => {
+  const { exitCode, stderr } = runCli([
+    '--api-chat',
+    '--ref', SCREENSHOT_FIXTURE,
+    'edit this image into a poster'
+  ], {
+    SOGNI_USERNAME: '',
+    SOGNI_PASSWORD: '',
+    SOGNI_API_KEY: 'test-api-key'
+  });
+
+  assert.equal(exitCode, 1);
+  assert.ok(stderr.includes('does not currently support image references'));
+  assert.ok(stderr.includes('Use the direct CLI path'));
+});
+
+test('--api-chat rejects audio and video references instead of silently dropping them', () => {
+  const { exitCode, stderr } = runCli([
+    '--api-chat',
+    '--ref-audio', SCREENSHOT_FIXTURE,
+    'make a music video'
+  ], {
+    SOGNI_USERNAME: '',
+    SOGNI_PASSWORD: '',
+    SOGNI_API_KEY: 'test-api-key'
+  });
+
+  assert.equal(exitCode, 1);
+  assert.ok(stderr.includes('--api-chat does not support --ref-audio'));
+});
+
+test('--api-workflow starts durable image-to-video workflow through /v1/creative-agent/workflows', async () => {
+  await withTestApiServer(async (apiBaseUrl, requests) => {
+    const { exitCode, stdout } = await runCliAsync([
+      '--api-workflow', 'image-to-video',
+      '--api-base-url', apiBaseUrl,
+      '--json',
+      '--video-prompt', 'The camera slowly pushes in as the sketch comes alive',
+      '--width', '1024',
+      '--height', '576',
+      '--duration', '5',
+      'A graphite robot sketch on a drafting table'
+    ], {
+      SOGNI_USERNAME: '',
+      SOGNI_PASSWORD: '',
+      SOGNI_API_KEY: 'test-api-key'
+    });
+
+    assert.equal(exitCode, 0);
+    const payload = JSON.parse(stdout.trim());
+    assert.equal(payload.success, true);
+    assert.equal(payload.type, 'api-workflow');
+    assert.equal(payload.workflow.workflowId, 'wf_test');
+
+    assert.equal(requests.length, 1);
+    const request = requests[0];
+    assert.equal(request.url, '/v1/creative-agent/workflows');
+    assert.equal(request.method, 'POST');
+    assert.equal(request.body.kind, 'image_to_video');
+    assert.equal(request.body.token_type, 'spark');
+    assert.equal(request.body.input.prompt, 'A graphite robot sketch on a drafting table');
+    assert.equal(request.body.input.videoPrompt, 'The camera slowly pushes in as the sketch comes alive');
+    assert.equal(request.body.input.width, 1024);
+    assert.equal(request.body.input.height, 576);
+    assert.equal(request.body.input.duration, 5);
+  });
+});
+
+test('--api-workflow rejects CLI media flags instead of silently dropping them', () => {
+  const { exitCode, stderr } = runCli([
+    '--api-workflow', 'image-to-video',
+    '--ref', SCREENSHOT_FIXTURE,
+    'animate this image'
+  ], {
+    SOGNI_USERNAME: '',
+    SOGNI_PASSWORD: '',
+    SOGNI_API_KEY: 'test-api-key'
+  });
+
+  assert.equal(exitCode, 1);
+  assert.ok(stderr.includes('Hosted workflow API modes do not accept CLI media reference flags'));
+  assert.ok(stderr.includes('--ref'));
+});
+
+test('--api-workflow image-to-video rejects unsupported workflow title flag', () => {
+  const { exitCode, stderr } = runCli([
+    '--api-workflow', 'image-to-video',
+    '--workflow-title', 'Launch sketch',
+    'A graphite robot sketch on a drafting table'
+  ], {
+    SOGNI_USERNAME: '',
+    SOGNI_PASSWORD: '',
+    SOGNI_API_KEY: 'test-api-key'
+  });
+
+  assert.equal(exitCode, 1);
+  assert.ok(stderr.includes('--workflow-title is currently only supported'));
 });
 
 test('explicit 512x512, output format, and seed are applied', () => {
@@ -865,4 +1123,6 @@ test('new utility flags appear in --help output', () => {
   assert.ok(stdout.includes('--extract-last-frame'), 'Help should include --extract-last-frame');
   assert.ok(stdout.includes('--concat-videos'), 'Help should include --concat-videos');
   assert.ok(stdout.includes('--list-media'), 'Help should include --list-media');
+  assert.ok(stdout.includes('--api-chat'), 'Help should include --api-chat');
+  assert.ok(stdout.includes('--api-workflow'), 'Help should include --api-workflow');
 });

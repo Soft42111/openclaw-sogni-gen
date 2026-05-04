@@ -138,7 +138,7 @@ The generated file is committed at [`generated/creative-agent-runtime.mjs`](./ge
 
 When loaded through OpenClaw, Sogni Creative Agent Skill reads plugin defaults from OpenClaw config. CLI flags always override those defaults.
 
-The supported config shape is defined in [`openclaw.plugin.json`](./openclaw.plugin.json). Common overrides include default models, video workflow models, token type, seed strategy, timeouts, and media paths. If your OpenClaw config lives elsewhere, set `OPENCLAW_CONFIG_PATH`.
+The supported config shape is defined in [`openclaw.plugin.json`](./openclaw.plugin.json). Common overrides include default models, video workflow models, hosted API defaults (`apiBaseUrl`, `defaultLlmModel`, `defaultApiToolMode`), token type, seed strategy, timeouts, and media paths. If your OpenClaw config lives elsewhere, set `OPENCLAW_CONFIG_PATH`.
 
 ## Setup
 
@@ -181,7 +181,7 @@ sogni-agent --video "A narrator says \"welcome to the story\" as ocean waves cra
 sogni-agent --video --target-resolution 768 \
   "A calm cinematic shot of lanterns drifting across a night lake"
 
-# Seedance 2.0 explicit aliases (4-15s vendor video path)
+# Seedance 2.0 model selector (4-15s vendor video path)
 sogni-agent --video -m seedance2 --duration 8 \
   "A polished product reveal with native ambient sound"
 
@@ -203,6 +203,15 @@ sogni-agent --video --ref cover.jpg --ref-audio song.mp3 \
 sogni-agent --video --reference-audio-identity voice.webm \
   "NARRATOR: \"This is my voice.\""
 
+# Hosted API chat with rich creative-agent tools (/v1/chat/completions)
+sogni-agent --api-chat \
+  "Create a 4-shot product video concept for a red sneaker"
+
+# Durable hosted workflow (/v1/creative-agent/workflows)
+sogni-agent --api-workflow image-to-video \
+  --video-prompt "The camera slowly pushes in as the sketch comes alive" \
+  "A graphite robot sketch on a drafting table"
+
 # Segment a source video, then stitch clips locally with an external soundtrack
 sogni-agent --video --workflow v2v --ref-video dance.mp4 \
   --video-start 10 --duration 8 --controlnet-name pose -o /tmp/clip-2.mp4 \
@@ -217,7 +226,20 @@ sogni-agent --help
 
 For local multi-clip workflows, prefer the built-in FFmpeg wrappers over raw shell commands. `--video-start`, `--audio-start`, and `--audio-duration` let you generate focused segments, while `--concat-videos` can stitch them and optionally mux a single soundtrack with `--concat-audio`.
 
-V2V defaults mirror the Sogni Chat workflow tuning: `canny`, `pose`, and `depth` use ControlNet strength `0.85` with detailer assist, while `detailer` uses strength `1.0`. Use `-m seedance2-v2v` for Seedance V2V without ControlNet. Seedance also accepts public HTTPS image, video, and audio references; audio references must be paired with an image or video reference.
+Hosted API modes require `SOGNI_API_KEY`. `--api-chat` targets
+`/v1/chat/completions` with rich creative-agent tools and is best for text-first
+natural-language workflows. Use `--api-tools creative-agent|hosted|none`,
+`--no-api-tool-execution`, `--llm-model`, and `--system` to control the chat
+request. `--api-workflow` targets `/v1/creative-agent/workflows` for durable
+async workflow records, event streaming, cancellation, and explicit hosted tool
+sequences. Use `--workflow-input` for exact hosted workflow JSON, and
+`--watch-workflow`, `--workflow-events`, `--stream-workflow`, and
+`--cancel-workflow` to manage durable runs. Uploaded local media still uses the
+direct CLI path because hosted API modes do not accept CLI `--ref*` media flags
+for server-side tool execution. Override the API origin with `--api-base-url`,
+`SOGNI_API_BASE_URL`, or `SOGNI_REST_ENDPOINT`.
+
+V2V defaults mirror the Sogni Chat workflow tuning: `canny`, `pose`, and `depth` use ControlNet strength `0.85` with detailer assist, while `detailer` uses strength `1.0`. Use `-m seedance2-v2v` for Seedance V2V without ControlNet. Seedance accepts public HTTPS image, video, and audio references that pass the CLI URL safety checks; localhost and private-network URLs are rejected before forwarding. Audio references must be paired with an image or video reference.
 
 ## LTX-2.3 Prompting Guide
 
@@ -262,6 +284,7 @@ Multi-angle mode auto-builds the `<sks>` prompt and applies the `multiple_angles
 - Seedance runs at fixed 24fps and supports 4-15s durations. Other default/WAN video paths support up to 10s; LTX and WAN animate workflows support up to 20s.
 - The script auto-normalizes video sizes to satisfy those constraints.
 - Use `--target-resolution <px>` for bare resolution requests such as "720p" when the user did not specify exact pixels. It targets the short side and preserves the inherited aspect ratio.
+- Natural-language aspect requests such as "portrait", "square", "16:9", or "9:16" are inferred when width and height are not explicitly set. Combined requests such as "720p 9:16" keep the requested short side while applying the requested shape.
 - For i2v (and any workflow using `--ref` / `--ref-end`), the client wrapper resizes the reference image with a strict aspect-fit (`fit: inside`) and then uses the *resized reference dimensions* as the final video size. Because that resize uses rounding, a “valid” requested size can still produce an invalid final size (example: `1024x1536` requested, but ref becomes `1024x1535`).
 - `sogni-agent` detects this for local refs and will auto-adjust the requested size to a nearby safe size so the resized reference matches the model divisor.
 - If you want the script to fail instead of auto-adjusting, pass `--strict-size` and it will print a suggested size.
@@ -283,6 +306,12 @@ Run `sogni-agent --help` for the complete CLI. These are the options most agents
 | `--ref`, `--ref-audio`, `--ref-video` | Provide image/audio/video references; Seedance HTTPS references are forwarded as URL context |
 | `--target-resolution <px>` | Target the short side while preserving aspect ratio |
 | `--workflow <type>` | Force `t2v`, `i2v`, `s2v`, `ia2v`, `a2v`, `v2v`, or animate workflows |
+| `--api-chat` | Use `/v1/chat/completions` with Sogni creative-agent tools |
+| `--api-workflow <kind>` | Start `/v1/creative-agent/workflows` durable workflow |
+| `--workflow-input <json\|path\|@path>` | Explicit hosted workflow input JSON |
+| `--video-prompt`, `--negative-prompt`, `--generate-audio`, `--expand-prompt` | Durable image-to-video workflow inputs |
+| `--watch-workflow`, `--list-workflows`, `--get-workflow <id>`, `--workflow-events <id>`, `--stream-workflow <id>`, `--cancel-workflow <id>` | Manage durable workflows |
+| `--api-tools <mode>`, `--no-api-tool-execution`, `--llm-model <id>`, `--api-base-url <url>` | Tune hosted API chat/workflow requests |
 | `--persona <name>` | Use a saved persona reference |
 | `--concat-videos <out> <clips...>` | Stitch clips locally with FFmpeg |
 | `--json` | Return structured output for agents |
@@ -377,7 +406,7 @@ Stored at `~/.config/sogni/personality.txt`.
 
 Prefer `-Q fast|hq|pro` for images and automatic workflow routing for video. Only pass `-m` when you need a specific model family.
 
-| Need | Recommended model or alias |
+| Need | Recommended model selector |
 |------|----------------------------|
 | Default images | `z_image_turbo_bf16` |
 | Highest quality images | `flux2_dev_fp8` or `-Q pro` |

@@ -984,6 +984,7 @@ export function planCliVideoBrain(input) {
         plan.duration = inferredDuration;
     }
     if (!cliSet.width && !cliSet.height) {
+        const aspectRatio = inferExplicitAspectRatioFromText(text);
         const exactDimensions = inferExplicitPixelDimensionsFromText(text);
         if (exactDimensions) {
             plan.width = exactDimensions.width;
@@ -996,7 +997,6 @@ export function planCliVideoBrain(input) {
                 plan.targetResolution = shortSide;
             }
             else {
-                const aspectRatio = inferExplicitAspectRatioFromText(text);
                 if (aspectRatio) {
                     const dimensions = dimensionsForAspectRatio(input.width ?? 1920, input.height ?? 1088, aspectRatio.text);
                     if (dimensions) {
@@ -1006,6 +1006,9 @@ export function planCliVideoBrain(input) {
                     }
                 }
             }
+        }
+        if (aspectRatio && !exactDimensions) {
+            plan.aspectRatio = aspectRatio.text;
         }
     }
     const uploadedImageCount = (valuePresent(input.refImage) ? 1 : 0) +

@@ -66,6 +66,16 @@ test('runtime infers natural-language video dimensions and durations', () => {
   assert.equal(plan.width, 720);
   assert.equal(plan.height, 1280);
   assert.equal(plan.dimensionSource, 'exact');
+
+  const aspectPlan = planCliVideoBrain({
+    video: true,
+    prompt: 'Make a 720p 9:16 video of ocean waves',
+    width: 1920,
+    height: 1088,
+    cliSet: {}
+  });
+  assert.equal(aspectPlan.targetResolution, 720);
+  assert.equal(aspectPlan.aspectRatio, '9:16');
 });
 
 test('runtime extracts literal video prompts', () => {

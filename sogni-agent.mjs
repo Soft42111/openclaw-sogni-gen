@@ -7,6 +7,7 @@
 import { SogniClientWrapper, ClientEvent, getMaxContextImages } from '@sogni-ai/sogni-client-wrapper';
 import JSON5 from 'json5';
 import { createHash, randomBytes } from 'crypto';
+import { createRequire } from 'module';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, statSync, readdirSync, realpathSync, lstatSync, unlinkSync, rmdirSync } from 'fs';
 import { join, dirname, basename, extname, sep } from 'path';
 import { homedir, tmpdir } from 'os';
@@ -18,6 +19,7 @@ import {
   LTX23_WORKFLOW_MODELS,
   QUALITY_TIERS,
   VIDEO_WORKFLOW_DEFAULT_MODELS,
+  dimensionsForAspectRatio,
   dimensionsWithShortSide,
   getModelDefaults,
   getVideoPromptGuardrailPlan,
@@ -25,6 +27,7 @@ import {
   inferVideoWorkflowFromModel,
   isLtx2Model,
   isSeedanceModel,
+  isSeedanceModelSelection,
   normalizeVideoWorkflow,
   planCliVideoBrain,
   resolveVideoControlNetStrength,
@@ -34,6 +37,9 @@ import {
   selectDefaultVideoModel,
   workflowRequiresImage
 } from './generated/creative-agent-runtime.mjs';
+
+const require = createRequire(import.meta.url);
+const { parseCreativeWorkflowSseChunk } = require('@sogni-ai/sogni-client-wrapper');
 
 // ---------------------------------------------------------------------------
 // Path sanitization — defense-in-depth for any value that becomes a file path
@@ -76,6 +82,8 @@ const DEFAULT_MEMORIES_PATH = join(homedir(), '.config', 'sogni', 'memories.json
 const DEFAULT_PERSONALITY_PATH = join(homedir(), '.config', 'sogni', 'personality.txt');
 const DEFAULT_PERSONAS_DIR = join(homedir(), '.config', 'sogni', 'personas');
 const DEFAULT_PERSONAS_INDEX_PATH = join(homedir(), '.config', 'sogni', 'personas', 'index.json');
+const DEFAULT_API_BASE_URL = 'https://api.sogni.ai';
+const DEFAULT_LLM_MODEL = 'qwen3.6-35b-a3b-gguf-iq4xs';
 const OPENCLAW_CONFIG_PATH = getEnv('OPENCLAW_CONFIG_PATH') || DEFAULT_OPENCLAW_CONFIG_PATH;
 const IS_OPENCLAW_INVOCATION = Boolean(getEnv('OPENCLAW_PLUGIN_CONFIG'));
 const RAW_ARGS = process.argv.slice(2);
@@ -226,6 +234,9 @@ function applyCreativeBrainPreflight() {
     widthFromPrompt = true;
     heightFromPrompt = true;
   }
+  if (plan.dimensionSource === 'aspect' && plan.aspectRatio && !cliSet.width && !cliSet.height) {
+    aspectRatioFromPrompt = plan.aspectRatio;
+  }
   if (
     Number.isFinite(plan.targetResolution) &&
     !cliSet.targetResolution &&
@@ -248,6 +259,31 @@ function normalizeSeedStrategy(value) {
   if (normalized === 'random') return 'random';
   if (normalized === 'prompt-hash' || normalized === 'prompt_hash') return 'prompt-hash';
   return null;
+}
+
+function normalizeApiToolMode(value) {
+  const normalized = String(value || 'creative-agent').toLowerCase();
+  if (normalized === 'creative-agent' || normalized === 'rich') return 'creative-agent';
+  if (normalized === 'hosted' || normalized === 'true') return true;
+  if (normalized === 'none' || normalized === 'false') return false;
+  return null;
+}
+
+function normalizeApiWorkflowKind(value) {
+  const normalized = String(value || '').toLowerCase().replace(/-/g, '_');
+  if (normalized === 'image_to_video' || normalized === 'i2v') return 'image_to_video';
+  if (normalized === 'hosted_tool_sequence' || normalized === 'tool_sequence') return 'hosted_tool_sequence';
+  return null;
+}
+
+function appendApiPath(baseUrl, path) {
+  const base = String(baseUrl || DEFAULT_API_BASE_URL).replace(/\/+$/, '');
+  const suffix = path.startsWith('/') ? path : `/${path}`;
+  return `${base}${suffix}`;
+}
+
+function getApiBaseUrl() {
+  return options.apiBaseUrl || getEnv('SOGNI_API_BASE_URL') || getEnv('SOGNI_REST_ENDPOINT') || DEFAULT_API_BASE_URL;
 }
 
 function generateRandomSeed() {
@@ -419,17 +455,12 @@ function isHttpUrl(value) {
 }
 
 function isHttpsUrl(value) {
-  return typeof value === 'string' && value.startsWith('https://');
-}
-
-function isSeedanceModelSelection(modelId) {
-  if (!modelId) return false;
-  return (
-    isSeedanceModel(modelId) ||
-    isSeedanceModel(resolveVideoModelAlias(modelId, 't2v')) ||
-    isSeedanceModel(resolveVideoModelAlias(modelId, 'ia2v')) ||
-    isSeedanceModel(resolveVideoModelAlias(modelId, 'v2v'))
-  );
+  if (typeof value !== 'string') return false;
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 function getPngDimensions(buffer) {
@@ -898,6 +929,22 @@ const options = {
   personaVoice: null,
   personaVoiceClip: null,
   personaPhoto: null, // alias for --ref when used with --persona-add
+  apiChat: false,
+  apiBaseUrl: null,
+  llmModel: DEFAULT_LLM_MODEL,
+  apiTools: 'creative-agent',
+  apiToolExecution: true,
+  apiSystemPrompt: null,
+  apiWorkflowAction: null, // start|list|get|events|stream|cancel
+  apiWorkflowKind: null, // image_to_video|hosted_tool_sequence
+  apiWorkflowInput: null,
+  apiWorkflowTitle: null,
+  apiWorkflowId: null,
+  apiWorkflowWatch: false,
+  apiVideoPrompt: null,
+  apiNegativePrompt: null,
+  apiGenerateAudio: null,
+  apiExpandPrompt: null,
   noFilter: false // Disable NSFW content filter
 };
 const cliSet = {
@@ -953,7 +1000,18 @@ const cliSet = {
   sam2Coordinates: false,
   trimEndFrame: false,
   firstFrameStrength: false,
-  lastFrameStrength: false
+  lastFrameStrength: false,
+  apiBaseUrl: false,
+  llmModel: false,
+  apiTools: false,
+  apiSystemPrompt: false,
+  apiWorkflowKind: false,
+  apiWorkflowInput: false,
+  apiWorkflowTitle: false,
+  apiVideoPrompt: false,
+  apiNegativePrompt: false,
+  apiGenerateAudio: false,
+  apiExpandPrompt: false
 };
 
 // Parse CLI args
@@ -1278,6 +1336,93 @@ for (let i = 0; i < args.length; i++) {
     } else {
       options.listMedia = 'images';
     }
+  // --- Hosted Sogni API paths ---
+  } else if (arg === '--api-chat') {
+    options.apiChat = true;
+  } else if (arg === '--api-base-url' || arg === '--api-base') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.apiBaseUrl = raw;
+    cliSet.apiBaseUrl = true;
+  } else if (arg === '--llm-model') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.llmModel = raw;
+    cliSet.llmModel = true;
+  } else if (arg === '--api-tools') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.apiTools = raw;
+    cliSet.apiTools = true;
+  } else if (arg === '--no-api-tool-execution') {
+    options.apiToolExecution = false;
+  } else if (arg === '--system') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.apiSystemPrompt = raw;
+    cliSet.apiSystemPrompt = true;
+  } else if (arg === '--api-workflow' || arg === '--creative-workflow') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.apiWorkflowAction = 'start';
+    options.apiWorkflowKind = raw;
+    cliSet.apiWorkflowKind = true;
+  } else if (arg === '--workflow-input') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.apiWorkflowInput = raw;
+    cliSet.apiWorkflowInput = true;
+  } else if (arg === '--workflow-title') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.apiWorkflowTitle = raw;
+    cliSet.apiWorkflowTitle = true;
+  } else if (arg === '--video-prompt') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.apiVideoPrompt = raw;
+    cliSet.apiVideoPrompt = true;
+  } else if (arg === '--negative-prompt') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.apiNegativePrompt = raw;
+    cliSet.apiNegativePrompt = true;
+  } else if (arg === '--generate-audio') {
+    options.apiGenerateAudio = true;
+    cliSet.apiGenerateAudio = true;
+  } else if (arg === '--no-generate-audio') {
+    options.apiGenerateAudio = false;
+    cliSet.apiGenerateAudio = true;
+  } else if (arg === '--expand-prompt') {
+    options.apiExpandPrompt = true;
+    cliSet.apiExpandPrompt = true;
+  } else if (arg === '--no-expand-prompt') {
+    options.apiExpandPrompt = false;
+    cliSet.apiExpandPrompt = true;
+  } else if (arg === '--watch-workflow' || arg === '--watch') {
+    options.apiWorkflowWatch = true;
+  } else if (arg === '--list-workflows') {
+    options.apiWorkflowAction = 'list';
+  } else if (arg === '--get-workflow') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.apiWorkflowAction = 'get';
+    options.apiWorkflowId = raw;
+  } else if (arg === '--workflow-events') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.apiWorkflowAction = 'events';
+    options.apiWorkflowId = raw;
+  } else if (arg === '--stream-workflow') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.apiWorkflowAction = 'stream';
+    options.apiWorkflowId = raw;
+  } else if (arg === '--cancel-workflow') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.apiWorkflowAction = 'cancel';
+    options.apiWorkflowId = raw;
   // --- Memory commands ---
   } else if (arg === '--memory-set') {
     options.memoryAction = 'set';
@@ -1435,6 +1580,25 @@ Video Options:
   --looping, --loop     Create seamless loop (i2v only): A→B→A
   --last-image          Use last generated image as reference
 
+Hosted API Modes:
+  --api-chat            Use /v1/chat/completions with rich creative-agent tools
+  --api-tools <mode>    creative-agent|rich|hosted|none (default: creative-agent)
+  --no-api-tool-execution  Ask for tool calls/plans but do not execute Sogni tools
+  --llm-model <id>      LLM model for --api-chat (default: ${DEFAULT_LLM_MODEL})
+  --system <text>       System prompt for --api-chat
+  --api-workflow <kind> Start /v1/creative-agent/workflows: image-to-video|hosted-tool-sequence
+  --workflow-input <json|path|@path> JSON input for hosted-tool-sequence or custom image-to-video
+  --workflow-title <text> Title for hosted-tool-sequence workflow input
+  --video-prompt <text> Motion prompt for --api-workflow image-to-video
+  --negative-prompt <text> Negative prompt for --api-workflow image-to-video
+  --watch-workflow      Stream workflow events after starting
+  --list-workflows      List recent durable creative workflows
+  --get-workflow <id>   Fetch a workflow snapshot
+  --workflow-events <id> Fetch workflow event history
+  --stream-workflow <id> Stream workflow events over SSE
+  --cancel-workflow <id> Cancel a running workflow
+  --api-base-url <url>  Sogni API base URL (default: ${DEFAULT_API_BASE_URL})
+
 General:
   -t, --timeout <sec>   Timeout in seconds (default: 30, video: 300)
   --steps <num>         Override steps (model-dependent)
@@ -1527,6 +1691,8 @@ Examples:
   sogni-agent --video --ref cover.jpg --ref-audio song.mp3 "music video"
   sogni-agent --video --ref-audio song.mp3 "abstract music visualizer"
   sogni-agent --video --reference-audio-identity voice.webm "NARRATOR: \"This is my voice.\""
+  sogni-agent --api-chat "Create a 4-shot product video concept for a red sneaker"
+  sogni-agent --api-workflow image-to-video --video-prompt "slow push-in as it comes alive" "a graphite robot sketch"
   sogni-agent --video -m ltx23-22b-fp8_t2v_distilled --duration 20 "A wide cinematic aerial shot opens over steep tropical cliffs at golden hour, warm sunlight grazing the rock faces while sea mist drifts above the water below. Palm trees bend gently along the ridge as waves roll against the shoreline, leaving bright bands of foam across the dark stone. The camera glides forward in one continuous pass, revealing more of the coastline as sunlight flickers across wet surfaces and distant birds wheel through the haze. The scene holds a calm, upscale travel-film mood with smooth stabilized motion and crisp environmental detail."
   sogni-agent --video --ref subject.jpg --ref-video motion.mp4 --workflow animate-move "transfer motion"
   sogni-agent --video --last-image "gentle camera pan"
@@ -1561,6 +1727,7 @@ let widthFromPrompt = false;
 let heightFromPrompt = false;
 let targetResolutionFromPrompt = false;
 let durationFromPrompt = false;
+let aspectRatioFromPrompt = null;
 let configuredDefaultVideoWorkflow = null;
 if (openclawConfig) {
   const isNumber = (value) => Number.isFinite(value);
@@ -1577,6 +1744,15 @@ if (openclawConfig) {
   }
   if (!cliSet.tokenType && openclawConfig.defaultTokenType) {
     options.tokenType = openclawConfig.defaultTokenType;
+  }
+  if (!cliSet.apiBaseUrl && openclawConfig.apiBaseUrl) {
+    options.apiBaseUrl = openclawConfig.apiBaseUrl;
+  }
+  if (!cliSet.llmModel && openclawConfig.defaultLlmModel) {
+    options.llmModel = openclawConfig.defaultLlmModel;
+  }
+  if (!cliSet.apiTools && openclawConfig.defaultApiToolMode) {
+    options.apiTools = openclawConfig.defaultApiToolMode;
   }
   if (!cliSet.seedStrategy && openclawConfig.seedStrategy) {
     options.seedStrategy = openclawConfig.seedStrategy;
@@ -1611,6 +1787,26 @@ if (options.tokenType) {
     });
   }
   options.tokenType = token;
+}
+
+const normalizedApiToolMode = normalizeApiToolMode(options.apiTools);
+if (normalizedApiToolMode === null) {
+  fatalCliError('--api-tools must be "creative-agent", "rich", "hosted", or "none".', {
+    code: 'INVALID_ARGUMENT',
+    details: { flag: '--api-tools', value: options.apiTools }
+  });
+}
+options.apiTools = normalizedApiToolMode;
+
+if (options.apiWorkflowKind) {
+  const normalized = normalizeApiWorkflowKind(options.apiWorkflowKind);
+  if (!normalized) {
+    fatalCliError('--api-workflow must be "image-to-video" or "hosted-tool-sequence".', {
+      code: 'INVALID_ARGUMENT',
+      details: { flag: '--api-workflow', value: options.apiWorkflowKind }
+    });
+  }
+  options.apiWorkflowKind = normalized;
 }
 
 if (options.quality) {
@@ -1820,6 +2016,15 @@ if (options.video) {
     options.videoWorkflow = normalized;
   }
 
+  if (
+    options._lastImagePath &&
+    !options.refImage &&
+    (!options.videoWorkflow || workflowRequiresImage(options.videoWorkflow) || isSeedanceModelSelection(options.model))
+  ) {
+    options.refImage = options._lastImagePath;
+    delete options._lastImagePath;
+  }
+
   applyCreativeBrainPreflight();
 
   if (!options.videoWorkflow && isSeedanceModelSelection(options.model)) {
@@ -1892,6 +2097,15 @@ if (options.video) {
     options.width = dims.width;
     options.height = dims.height;
   }
+  if (aspectRatioFromPrompt && !cliSet.width && !cliSet.height) {
+    const dims = dimensionsForAspectRatio(options.width, options.height, aspectRatioFromPrompt);
+    if (dims) {
+      options.width = dims.width;
+      options.height = dims.height;
+      widthFromPrompt = true;
+      heightFromPrompt = true;
+    }
+  }
   if (!cliSet.timeout && !timeoutFromConfig && options.timeout === 30000) {
     options.timeout = 300000; // 5 min for video
   }
@@ -1913,11 +2127,52 @@ if (options.video) {
   options.model = options.model || openclawConfig?.defaultImageModel || 'z_image_turbo_bf16';
 }
 
-if (!options.prompt && !options.estimateVideoCost && !options.multiAngle && !options.showBalance && !options.showVersion && !options.extractLastFrame && !options.concatVideos && !options.listMedia && !options.memoryAction && !options.personalityAction && !(options.personaAction && options.personaAction !== 'generate')) {
+const apiWorkflowUtilityAction = options.apiWorkflowAction && options.apiWorkflowAction !== 'start';
+const apiWorkflowStartAction = options.apiWorkflowAction === 'start';
+const apiWorkflowStartHasExternalInput = options.apiWorkflowAction === 'start' && options.apiWorkflowInput;
+if (apiWorkflowStartAction && options.apiWorkflowKind === 'image_to_video' && !options.prompt && !apiWorkflowStartHasExternalInput) {
+  fatalCliError('--api-workflow image-to-video requires a prompt or --workflow-input JSON.', { code: 'INVALID_ARGUMENT' });
+}
+if (apiWorkflowStartAction && options.apiWorkflowKind === 'hosted_tool_sequence' && !apiWorkflowStartHasExternalInput) {
+  fatalCliError('--api-workflow hosted-tool-sequence requires --workflow-input JSON.', { code: 'INVALID_ARGUMENT' });
+}
+if (!options.prompt && !options.apiChat && !apiWorkflowUtilityAction && !apiWorkflowStartAction && !options.estimateVideoCost && !options.multiAngle && !options.showBalance && !options.showVersion && !options.extractLastFrame && !options.concatVideos && !options.listMedia && !options.memoryAction && !options.personalityAction && !(options.personaAction && options.personaAction !== 'generate')) {
   fatalCliError('No prompt provided. Use --help for usage.', { code: 'INVALID_ARGUMENT' });
 }
 
-if (!options.video && (options.refAudio || options.refVideo || options.referenceAudioIdentity || options.voicePersonaName || options.videoWorkflow || options.frames || options.targetResolution || options.audioStart !== null || options.audioDuration !== null || options.videoStart !== null)) {
+if (options.apiChat && !options.prompt && options.contextImages.length === 0 && !options.refImage && !options.refImageEnd) {
+  fatalCliError('--api-chat requires a prompt or an image reference for vision-only planning.', { code: 'INVALID_ARGUMENT' });
+}
+
+const apiMediaRefs = getApiModeMediaReferences();
+const apiImageRefs = apiMediaRefs.filter(ref => ref.kind === 'image');
+const apiNonImageRefs = apiMediaRefs.filter(ref => ref.kind !== 'image');
+if (options.apiChat && apiNonImageRefs.length > 0) {
+  fatalCliError(
+    `--api-chat does not support ${formatApiMediaFlags(apiNonImageRefs)}. Use the direct CLI path for audio/video media workflows.`,
+    { code: 'UNSUPPORTED_API_MEDIA_REFERENCE' }
+  );
+}
+if (options.apiChat && options.apiToolExecution && apiImageRefs.length > 0) {
+  fatalCliError(
+    '--api-chat with server-side tool execution does not currently support image references. Use the direct CLI path for uploaded-media workflows, or pass --no-api-tool-execution for vision-only chat/planning.',
+    { code: 'UNSUPPORTED_API_UPLOAD_EXECUTION' }
+  );
+}
+if (options.apiWorkflowAction && apiMediaRefs.length > 0) {
+  fatalCliError(
+    `Hosted workflow API modes do not accept CLI media reference flags (${formatApiMediaFlags(apiMediaRefs)}). Use --workflow-input JSON for hosted workflow inputs, or use the direct CLI path for local media workflows.`,
+    { code: 'UNSUPPORTED_API_MEDIA_REFERENCE' }
+  );
+}
+if (options.apiWorkflowAction === 'start' && options.apiWorkflowKind === 'image_to_video' && options.apiWorkflowTitle) {
+  fatalCliError('--workflow-title is currently only supported with --api-workflow hosted-tool-sequence.', {
+    code: 'INVALID_ARGUMENT',
+    details: { flag: '--workflow-title', workflow: options.apiWorkflowKind }
+  });
+}
+
+if (!options.video && !options.apiChat && !options.apiWorkflowAction && (options.refAudio || options.refVideo || options.referenceAudioIdentity || options.voicePersonaName || options.videoWorkflow || options.frames || options.targetResolution || options.audioStart !== null || options.audioDuration !== null || options.videoStart !== null)) {
   fatalCliError('Video-only options (--workflow/--frames/--target-resolution/--ref-audio/--ref-video/--reference-audio-identity/--voice-persona) require --video.', {
     code: 'INVALID_ARGUMENT'
   });
@@ -2263,7 +2518,7 @@ if (options.lastSeed) {
   }
 }
 
-if (!options.estimateVideoCost && !options.showVersion && !options.extractLastFrame && !options.concatVideos && !options.listMedia && (options.seed === null || options.seed === undefined)) {
+if (!options.apiChat && !apiWorkflowUtilityAction && !options.estimateVideoCost && !options.showVersion && !options.extractLastFrame && !options.concatVideos && !options.listMedia && (options.seed === null || options.seed === undefined)) {
   const strategy = options.seedStrategy || openclawConfig?.seedStrategy || 'prompt-hash';
   const normalized = normalizeSeedStrategy(strategy) || 'prompt-hash';
   options.seedStrategy = normalized;
@@ -2323,6 +2578,394 @@ function saveLastRender(info) {
     writeFileSync(LAST_RENDER_PATH, JSON.stringify(info, null, 2));
   } catch (e) {
     // Ignore save errors
+  }
+}
+
+function requireApiKeyCredentials(creds, modeLabel) {
+  if (creds?.SOGNI_API_KEY) return creds.SOGNI_API_KEY;
+  const err = new Error(`${modeLabel} requires SOGNI_API_KEY API-key authentication.`);
+  err.code = 'MISSING_API_KEY';
+  err.hint = 'Create an API key and set SOGNI_API_KEY; username/password auth is only supported by the direct client-wrapper path.';
+  throw err;
+}
+
+function apiRequestHeaders(apiKey, extra = {}) {
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${apiKey}`,
+    'api-key': apiKey,
+    ...extra
+  };
+}
+
+async function fetchApiJson(path, { apiKey, method = 'GET', body = undefined, headers = {} } = {}) {
+  const url = appendApiPath(getApiBaseUrl(), path);
+  const init = {
+    method,
+    headers: apiRequestHeaders(apiKey, headers),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+  };
+
+  const response = await fetch(url, init);
+  const text = await response.text();
+  let payload = {};
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = { message: text };
+    }
+  }
+  if (!response.ok) {
+    const err = new Error(payload?.message || payload?.error?.message || response.statusText || 'Sogni API request failed');
+    err.code = 'API_REQUEST_FAILED';
+    err.details = { url, status: response.status, payload };
+    throw err;
+  }
+  return payload;
+}
+
+function getApiModeMediaReferences() {
+  const refs = [];
+  for (const value of options.contextImages || []) {
+    if (value) refs.push({ flag: '-c/--context', value, kind: 'image' });
+  }
+  if (options.refImage) refs.push({ flag: '--ref', value: options.refImage, kind: 'image' });
+  if (options.refImageEnd) refs.push({ flag: '--ref-end', value: options.refImageEnd, kind: 'image' });
+  if (options.refAudio) refs.push({ flag: '--ref-audio', value: options.refAudio, kind: 'audio' });
+  if (options.referenceAudioIdentity) refs.push({ flag: '--reference-audio-identity', value: options.referenceAudioIdentity, kind: 'audio' });
+  if (options.refVideo) refs.push({ flag: '--ref-video', value: options.refVideo, kind: 'video' });
+  return refs;
+}
+
+function formatApiMediaFlags(refs) {
+  return [...new Set(refs.map(ref => ref.flag))].join(', ');
+}
+
+function extractApiEnvelopeData(payload) {
+  return payload?.data && typeof payload.data === 'object' ? payload.data : payload;
+}
+
+function extractChatMessage(payload) {
+  const data = extractApiEnvelopeData(payload);
+  return data?.choices?.[0]?.message || data?.choices?.[0]?.delta || payload?.choices?.[0]?.message || {};
+}
+
+function extractChatWorkflows(payload) {
+  const data = extractApiEnvelopeData(payload);
+  return data?.creative_workflows || data?.creativeWorkflows || payload?.creative_workflows || payload?.creativeWorkflows || [];
+}
+
+function mimeTypeForPath(pathOrUrl, fallback = 'application/octet-stream') {
+  const clean = String(pathOrUrl || '').split('?')[0].toLowerCase();
+  if (clean.endsWith('.jpg') || clean.endsWith('.jpeg')) return 'image/jpeg';
+  if (clean.endsWith('.png')) return 'image/png';
+  if (clean.endsWith('.mp3')) return 'audio/mpeg';
+  if (clean.endsWith('.wav')) return 'audio/wav';
+  if (clean.endsWith('.m4a')) return 'audio/mp4';
+  if (clean.endsWith('.mp4')) return 'video/mp4';
+  if (clean.endsWith('.mov')) return 'video/quicktime';
+  return fallback;
+}
+
+async function imageDataUriFromPathOrUrl(pathOrUrl) {
+  const mimeType = mimeTypeForPath(pathOrUrl);
+  if (mimeType !== 'image/jpeg' && mimeType !== 'image/png') {
+    const err = new Error(`API chat vision supports PNG or JPEG image references, got ${pathOrUrl}.`);
+    err.code = 'UNSUPPORTED_MEDIA_TYPE';
+    throw err;
+  }
+  const buffer = await fetchMediaBuffer(pathOrUrl);
+  return `data:${mimeType};base64,${buffer.toString('base64')}`;
+}
+
+async function buildApiChatMessages() {
+  const system = options.apiSystemPrompt ||
+    'You are a concise creative production assistant. Use Sogni creative tools when they help produce concrete media.';
+  const imageRefs = [
+    ...options.contextImages,
+    options.refImage,
+    options.refImageEnd
+  ].filter(Boolean);
+
+  const messages = [{ role: 'system', content: system }];
+  if (imageRefs.length === 0) {
+    messages.push({ role: 'user', content: options.prompt });
+    return messages;
+  }
+
+  if (options.apiToolExecution) {
+    const err = new Error(
+      '--api-chat with server-side tool execution does not currently support image references. ' +
+      'Use the direct CLI path for uploaded-media workflows, or pass --no-api-tool-execution for vision-only chat/planning.'
+    );
+    err.code = 'UNSUPPORTED_API_UPLOAD_EXECUTION';
+    throw err;
+  }
+
+  const content = [{ type: 'text', text: options.prompt || 'Describe the attached media.' }];
+  for (const ref of imageRefs) {
+    content.push({ type: 'image_url', image_url: { url: await imageDataUriFromPathOrUrl(ref) } });
+  }
+  messages.push({ role: 'user', content });
+  return messages;
+}
+
+async function runApiChat(log) {
+  const creds = loadCredentials();
+  const apiKey = requireApiKeyCredentials(creds, '--api-chat');
+  const body = {
+    model: options.llmModel || DEFAULT_LLM_MODEL,
+    messages: await buildApiChatMessages(),
+    temperature: 0.4,
+    max_tokens: 1600,
+    token_type: options.tokenType || 'spark',
+    sogni_tools: options.apiTools,
+    sogni_tool_execution: options.apiToolExecution
+  };
+  const payload = await fetchApiJson('/v1/chat/completions', {
+    apiKey,
+    method: 'POST',
+    body
+  });
+  const message = extractChatMessage(payload);
+  const workflows = extractChatWorkflows(payload);
+  const toolCalls = message.tool_calls || message.toolCalls || [];
+
+  if (options.json) {
+    console.log(JSON.stringify({
+      success: true,
+      type: 'api-chat',
+      content: message.content || '',
+      toolCalls,
+      creativeWorkflows: workflows,
+      raw: payload
+    }));
+    return;
+  }
+
+  if (message.content) console.log(message.content);
+  if (toolCalls.length > 0) {
+    console.log('\nTool calls:');
+    for (const call of toolCalls) {
+      console.log(`  - ${call.function?.name || call.name || call.id || 'tool_call'}`);
+    }
+  }
+  if (workflows.length > 0) {
+    console.log('\nCreative workflows:');
+    for (const workflow of workflows) {
+      console.log(`  - ${workflow.workflowId || workflow.id}: ${workflow.status || 'submitted'}`);
+    }
+  }
+  if (!message.content && toolCalls.length === 0 && workflows.length === 0) {
+    log('No API chat content returned.');
+  }
+}
+
+function parseWorkflowInput(raw) {
+  if (!raw) return null;
+  const sourcePath = raw.startsWith('@') ? raw.slice(1) : raw;
+  const expanded = expandHomePath(sourcePath);
+  const text = raw.startsWith('@') || existsSync(expanded)
+    ? readFileSync(expanded, 'utf8')
+    : raw;
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    const err = new Error(`Invalid --workflow-input JSON: ${error?.message || String(error)}`);
+    err.code = 'INVALID_WORKFLOW_INPUT';
+    throw err;
+  }
+}
+
+function buildImageToVideoWorkflowInput() {
+  const parsed = parseWorkflowInput(options.apiWorkflowInput);
+  if (parsed) return parsed;
+  const input = {
+    prompt: options.prompt
+  };
+  if (options.apiVideoPrompt) input.videoPrompt = options.apiVideoPrompt;
+  if (options.apiNegativePrompt) input.negativePrompt = options.apiNegativePrompt;
+  if (Number.isFinite(options.width)) input.width = options.width;
+  if (Number.isFinite(options.height)) input.height = options.height;
+  if (Number.isFinite(options.duration)) input.duration = options.duration;
+  if (options.model) input.imageModel = options.model;
+  if (options.videoModel) input.videoModel = options.videoModel;
+  if (Number.isFinite(options.count)) input.numberOfMedia = options.count;
+  if (options.seed !== null && options.seed !== undefined) input.seed = options.seed;
+  if (options.apiGenerateAudio !== null) input.generateAudio = options.apiGenerateAudio;
+  if (options.apiExpandPrompt !== null) input.expandPrompt = options.apiExpandPrompt;
+  return input;
+}
+
+function buildHostedToolSequenceWorkflowInput() {
+  const parsed = parseWorkflowInput(options.apiWorkflowInput);
+  if (!parsed) {
+    const err = new Error('--api-workflow hosted-tool-sequence requires --workflow-input JSON.');
+    err.code = 'MISSING_WORKFLOW_INPUT';
+    throw err;
+  }
+  if (options.apiWorkflowTitle && !parsed.title) {
+    parsed.title = options.apiWorkflowTitle;
+  }
+  return parsed;
+}
+
+function workflowFromPayload(payload) {
+  const data = extractApiEnvelopeData(payload);
+  return data?.workflow || payload?.workflow || payload;
+}
+
+function workflowsFromPayload(payload) {
+  const data = extractApiEnvelopeData(payload);
+  return data?.workflows || payload?.workflows || [];
+}
+
+function eventsFromPayload(payload) {
+  const data = extractApiEnvelopeData(payload);
+  return data?.events || payload?.events || [];
+}
+
+function printWorkflowSummary(workflow) {
+  console.log(`Workflow: ${workflow.workflowId || workflow.id || '(unknown)'}`);
+  if (workflow.kind) console.log(`Kind:     ${workflow.kind}`);
+  if (workflow.status) console.log(`Status:   ${workflow.status}`);
+  if (workflow.title) console.log(`Title:    ${workflow.title}`);
+  const artifacts = Array.isArray(workflow.artifacts) ? workflow.artifacts : [];
+  if (artifacts.length > 0) {
+    console.log('\nArtifacts:');
+    for (const artifact of artifacts) {
+      console.log(`  - ${artifact.type || artifact.mediaType || 'artifact'}: ${artifact.url || artifact.id || JSON.stringify(artifact)}`);
+    }
+  }
+}
+
+function printWorkflowSseFrames(raw) {
+  for (const frame of parseCreativeWorkflowSseChunk(raw)) {
+    const data = frame.data && typeof frame.data === 'object' ? frame.data : {};
+    const suffix = data.status ? ` ${data.status}` : data.message ? ` ${data.message}` : '';
+    console.log(`[${frame.id || '-'}] ${frame.event}${suffix}`);
+  }
+}
+
+async function streamApiWorkflowEvents(apiKey, workflowId) {
+  const url = appendApiPath(getApiBaseUrl(), `/v1/creative-agent/workflows/${encodeURIComponent(workflowId)}/events/stream`);
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: apiRequestHeaders(apiKey, { Accept: 'text/event-stream' })
+  });
+  if (!response.ok) {
+    const err = new Error(`Workflow stream failed (${response.status} ${response.statusText})`);
+    err.code = 'API_STREAM_FAILED';
+    throw err;
+  }
+  if (!response.body) return;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let boundary = buffer.search(/\r?\n\r?\n/);
+      while (boundary !== -1) {
+        const chunk = buffer.slice(0, boundary);
+        const match = buffer.slice(boundary).match(/^\r?\n\r?\n/);
+        buffer = buffer.slice(boundary + (match?.[0].length || 2));
+        printWorkflowSseFrames(chunk);
+        boundary = buffer.search(/\r?\n\r?\n/);
+      }
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) {
+      printWorkflowSseFrames(buffer);
+    }
+  } finally {
+    try { reader.releaseLock(); } catch {}
+  }
+}
+
+async function runApiWorkflow() {
+  const creds = loadCredentials();
+  const apiKey = requireApiKeyCredentials(creds, '--api-workflow');
+  const tokenType = options.tokenType || 'spark';
+  let payload;
+  let type = 'api-workflow';
+
+  if (options.apiWorkflowAction === 'list') {
+    payload = await fetchApiJson('/v1/creative-agent/workflows?limit=20', { apiKey });
+    const workflows = workflowsFromPayload(payload);
+    if (options.json) {
+      console.log(JSON.stringify({ success: true, type, action: 'list', workflows, raw: payload }));
+    } else {
+      for (const workflow of workflows) {
+        console.log(`${workflow.workflowId || workflow.id}\t${workflow.status || '-'}\t${workflow.title || ''}`);
+      }
+    }
+    return;
+  }
+
+  if (options.apiWorkflowAction === 'get' || options.apiWorkflowAction === 'events' || options.apiWorkflowAction === 'stream' || options.apiWorkflowAction === 'cancel') {
+    const id = options.apiWorkflowId;
+    if (!id) {
+      const err = new Error('Workflow id is required.');
+      err.code = 'MISSING_WORKFLOW_ID';
+      throw err;
+    }
+    if (options.apiWorkflowAction === 'stream') {
+      if (options.json) {
+        console.log(JSON.stringify({ success: true, type, action: 'stream', workflowId: id, note: 'Streaming writes SSE frames as text output.' }));
+      }
+      await streamApiWorkflowEvents(apiKey, id);
+      return;
+    }
+    const path = options.apiWorkflowAction === 'events'
+      ? `/v1/creative-agent/workflows/${encodeURIComponent(id)}/events`
+      : options.apiWorkflowAction === 'cancel'
+        ? `/v1/creative-agent/workflows/${encodeURIComponent(id)}/cancel`
+        : `/v1/creative-agent/workflows/${encodeURIComponent(id)}`;
+    payload = await fetchApiJson(path, {
+      apiKey,
+      method: options.apiWorkflowAction === 'cancel' ? 'POST' : 'GET'
+    });
+    if (options.apiWorkflowAction === 'events') {
+      const events = eventsFromPayload(payload);
+      if (options.json) console.log(JSON.stringify({ success: true, type, action: 'events', workflowId: id, events, raw: payload }));
+      else console.log(JSON.stringify(events, null, 2));
+      return;
+    }
+    const workflow = workflowFromPayload(payload);
+    if (options.json) console.log(JSON.stringify({ success: true, type, action: options.apiWorkflowAction, workflow, raw: payload }));
+    else printWorkflowSummary(workflow);
+    return;
+  }
+
+  const kind = options.apiWorkflowKind || 'image_to_video';
+  const input = kind === 'hosted_tool_sequence'
+    ? buildHostedToolSequenceWorkflowInput()
+    : buildImageToVideoWorkflowInput();
+
+  payload = await fetchApiJson('/v1/creative-agent/workflows', {
+    apiKey,
+    method: 'POST',
+    body: {
+      kind,
+      input,
+      token_type: tokenType
+    }
+  });
+  const workflow = workflowFromPayload(payload);
+  const workflowId = workflow?.workflowId || workflow?.id;
+  if (options.json) {
+    console.log(JSON.stringify({ success: true, type, action: 'start', workflow, raw: payload }));
+  } else {
+    printWorkflowSummary(workflow);
+  }
+  if (options.apiWorkflowWatch && workflowId) {
+    await streamApiWorkflowEvents(apiKey, workflowId);
   }
 }
 
@@ -2567,6 +3210,20 @@ async function fetchMediaBuffer(pathOrUrl) {
     err.details = { path: pathOrUrl, cause: e?.message || String(e) };
     throw err;
   }
+}
+
+async function appendSafeSeedanceReferenceUrl(target, pathOrUrl, label) {
+  if (!isHttpsUrl(pathOrUrl)) return false;
+  try {
+    await assertSafeUrl(pathOrUrl, { allowedProtocols: ['https:'] });
+  } catch (error) {
+    const err = new Error(`${label} URL is not safe to forward: ${error?.message || String(error)}`);
+    err.code = 'INVALID_URL';
+    err.details = { url: pathOrUrl, label };
+    throw err;
+  }
+  target.push(pathOrUrl);
+  return true;
 }
 
 function resolveMultiAngleOutputConfig(outputPath, outputFormat) {
@@ -3448,6 +4105,16 @@ async function main() {
       }
     }
 
+    if (options.apiChat) {
+      await runApiChat(log);
+      return;
+    }
+
+    if (options.apiWorkflowAction) {
+      await runApiWorkflow(log);
+      return;
+    }
+
     if (options.extractLastFrame) {
       const videoPath = sanitizePath(options.extractLastFrame, '--extract-last-frame video');
       const outputPath = sanitizePath(options.extractLastFrameOutput, '--extract-last-frame output');
@@ -3730,14 +4397,10 @@ async function main() {
       const seedanceReferenceImageUrls = [];
       const seedanceReferenceVideoUrls = [];
       const seedanceReferenceAudioUrls = [];
-      const useRefImageUrl = isSeedanceVideo && isHttpsUrl(options.refImage);
-      const useRefImageEndUrl = isSeedanceVideo && isHttpsUrl(options.refImageEnd);
-      const useRefAudioUrl = isSeedanceVideo && isHttpsUrl(options.refAudio);
-      const useRefVideoUrl = isSeedanceVideo && isHttpsUrl(options.refVideo);
-      if (useRefImageUrl) seedanceReferenceImageUrls.push(options.refImage);
-      if (useRefImageEndUrl) seedanceReferenceImageUrls.push(options.refImageEnd);
-      if (useRefAudioUrl) seedanceReferenceAudioUrls.push(options.refAudio);
-      if (useRefVideoUrl) seedanceReferenceVideoUrls.push(options.refVideo);
+      const useRefImageUrl = isSeedanceVideo && await appendSafeSeedanceReferenceUrl(seedanceReferenceImageUrls, options.refImage, 'Reference image');
+      const useRefImageEndUrl = isSeedanceVideo && await appendSafeSeedanceReferenceUrl(seedanceReferenceImageUrls, options.refImageEnd, 'End reference image');
+      const useRefAudioUrl = isSeedanceVideo && await appendSafeSeedanceReferenceUrl(seedanceReferenceAudioUrls, options.refAudio, 'Reference audio');
+      const useRefVideoUrl = isSeedanceVideo && await appendSafeSeedanceReferenceUrl(seedanceReferenceVideoUrls, options.refVideo, 'Reference video');
 
       let imageBuffer = options.refImage && !useRefImageUrl ? await fetchMediaBuffer(options.refImage) : undefined;
       let endImageBuffer = options.refImageEnd && !useRefImageEndUrl ? await fetchMediaBuffer(options.refImageEnd) : undefined;
