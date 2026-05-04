@@ -793,6 +793,24 @@ test('reference audio identity uses LTX native voice identity instead of ref-aud
   assert.ok(state.lastVideoProject.positivePrompt.includes('[SPEECH]'));
 });
 
+test('LTX 2.3 i2v forwards first frame and audio identity together', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    '--ref', SCREENSHOT_FIXTURE,
+    '--reference-audio-identity', SCREENSHOT_FIXTURE,
+    '--first-frame-strength', '0.82',
+    'a presenter looks at the camera and says "this is my voice identity"'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastVideoProject, 'createVideoProject was called');
+  assert.equal(state.lastVideoProject.modelId, 'ltx23-22b-fp8_i2v_distilled');
+  assert.equal(state.lastVideoProject.referenceImage != null, true);
+  assert.equal(state.lastVideoProject.referenceAudioIdentity != null, true);
+  assert.equal(state.lastVideoProject.referenceAudio == null, true);
+  assert.equal(state.lastVideoProject.firstFrameStrength, 0.82);
+  assert.ok(state.lastVideoProject.positivePrompt.includes('[SPEECH]'));
+});
+
 test('api key auth is accepted when username/password are absent', () => {
   const { exitCode, state } = runCli(
     ['a cat wearing a hat'],

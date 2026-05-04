@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import JSON5 from 'json5';
@@ -41,7 +41,8 @@ const PROCESS_TIMEOUT_MS = Math.max(IMAGE_TIMEOUT_SEC, VIDEO_TIMEOUT_SEC) * 1000
 const TESTS = [
   { key: 't2i', name: 'Text-to-image 512x512' },
   { key: 't2v', name: 'Text-to-video 640x640' },
-  { key: 'i2v', name: 'Image-to-video 512x512' }
+  { key: 'i2v', name: 'Image-to-video 512x512' },
+  { key: 'ltx23-i2v-audio-id', name: 'LTX 2.3 first-frame + Audio ID' }
 ];
 
 function loadOpenClawPluginConfig() {
@@ -104,6 +105,79 @@ function formatNumber(value) {
 function resolveVideoModel(workflow) {
   if (!workflow) return null;
   return selectDefaultVideoModel(workflow, {}, openclawConfig);
+}
+
+function writeTestVoiceIdentityWav(filePath) {
+  const sampleRate = 22050;
+  const durationSeconds = 2.4;
+  const sampleCount = Math.floor(sampleRate * durationSeconds);
+  const dataBytes = sampleCount * 2;
+  const buffer = Buffer.alloc(44 + dataBytes);
+
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataBytes, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataBytes, 40);
+
+  for (let i = 0; i < sampleCount; i += 1) {
+    const t = i / sampleRate;
+    const envelope = Math.min(1, t / 0.12, (durationSeconds - t) / 0.18);
+    const syllable = 0.55 + 0.45 * Math.sin(2 * Math.PI * 4.2 * t);
+    const carrier =
+      Math.sin(2 * Math.PI * 170 * t) * 0.55 +
+      Math.sin(2 * Math.PI * 245 * t) * 0.25 +
+      Math.sin(2 * Math.PI * 510 * t) * 0.12;
+    const sample = Math.max(-1, Math.min(1, carrier * syllable * envelope * 0.65));
+    buffer.writeInt16LE(Math.round(sample * 32767), 44 + i * 2);
+  }
+
+  writeFileSync(filePath, buffer);
+}
+
+function encodeAudioToWav(inputPath, outputPath) {
+  const ffmpeg = spawnSync('ffmpeg', [
+    '-hide_banner',
+    '-loglevel', 'error',
+    '-y',
+    '-i', inputPath,
+    '-ac', '1',
+    '-ar', '22050',
+    '-c:a', 'pcm_s16le',
+    outputPath
+  ], { stdio: 'ignore' });
+  if (ffmpeg.status === 0 && existsSync(outputPath)) return true;
+
+  const afconvert = spawnSync('afconvert', [
+    '-f', 'WAVE',
+    '-d', 'LEI16@22050',
+    inputPath,
+    outputPath
+  ], { stdio: 'ignore' });
+  return afconvert.status === 0 && existsSync(outputPath);
+}
+
+function createTestVoiceIdentityAudio(workDir) {
+  const spokenPath = join(workDir, 'voice-identity-source.aiff');
+  const wavPath = join(workDir, 'voice-identity.wav');
+  const say = spawnSync('say', [
+    '-o', spokenPath,
+    'This is a short voice identity sample for Sogni integration testing.'
+  ], { stdio: 'ignore' });
+  if (say.status === 0 && existsSync(spokenPath) && encodeAudioToWav(spokenPath, wavPath)) {
+    return wavPath;
+  }
+
+  writeTestVoiceIdentityWav(wavPath);
+  return wavPath;
 }
 
 function parseCostEstimate(estimate, tokenType) {
@@ -234,13 +308,13 @@ async function logAccountInfo() {
   }
 }
 
-async function checkVideoBudget({ workflow, label, width, height, fps, duration, frames, count }) {
+async function checkVideoBudget({ workflow, modelId: explicitModelId, label, width, height, fps, duration, frames, count }) {
   const creds = loadCredentials();
   if (!creds) {
     return { ok: false, reason: 'Missing credentials' };
   }
 
-  const modelId = resolveVideoModel(workflow);
+  const modelId = explicitModelId || resolveVideoModel(workflow);
   if (!modelId) {
     return { ok: true };
   }
@@ -359,9 +433,18 @@ function runCli(args, label) {
         reject(new Error(`CLI returned no JSON output. STDERR:\n${stderr}`));
         return;
       }
+      const jsonText = trimmed
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .reverse()
+        .find(line => line.startsWith('{') && line.endsWith('}'));
+      if (!jsonText) {
+        reject(new Error(`CLI returned no JSON object. STDOUT:\n${stdout}\nSTDERR:\n${stderr}`));
+        return;
+      }
       let json;
       try {
-        json = JSON.parse(trimmed);
+        json = JSON.parse(jsonText);
       } catch (err) {
         reject(new Error(`Failed to parse JSON output.\nSTDOUT:\n${stdout}\nSTDERR:\n${stderr}`));
         return;
@@ -406,6 +489,7 @@ if (!shouldRun) {
 
     const workDir = mkdtempSync(join(tmpdir(), 'sogni-agent-int-'));
     const imagePath = join(workDir, 't2i-512.png');
+    const voicePath = createTestVoiceIdentityAudio(workDir);
     const total = TESTS.length;
 
     try {
@@ -492,6 +576,51 @@ if (!shouldRun) {
           assert.equal(json.width, 512);
           assert.equal(json.height, 512);
           assert.equal(json.refImage, imagePath);
+          assert.ok(Array.isArray(json.urls) && json.urls.length > 0, 'video url missing');
+        });
+      }
+
+      const ltx23I2vAudioIdBudget = await checkVideoBudget({
+        workflow: 'i2v',
+        modelId: 'ltx23-22b-fp8_i2v_distilled',
+        label: 'LTX 2.3 first-frame + Audio ID',
+        width: 640,
+        height: 640,
+        fps: 24,
+        duration: 5,
+        count: 1
+      });
+      if (!ltx23I2vAudioIdBudget.ok) {
+        const reason = ltx23I2vAudioIdBudget.reason || 'Insufficient balance for LTX 2.3 video render';
+        status.setSkip('ltx23-i2v-audio-id');
+        await t.test('LTX 2.3 first-frame + Audio ID', { skip: reason }, () => {});
+      } else {
+        await runSubtest(t, status, 'ltx23-i2v-audio-id', 'LTX 2.3 first-frame + Audio ID', async () => {
+          console.log(`Running test 4/${total}: LTX 2.3 first-frame + Audio ID`);
+          const json = await runCli([
+            '--json',
+            '--video',
+            '--workflow', 'i2v',
+            '-m', 'ltx23-22b-fp8_i2v_distilled',
+            '--ref', imagePath,
+            '--reference-audio-identity', voicePath,
+            '--first-frame-strength', '0.82',
+            '--width', '640',
+            '--height', '640',
+            '--fps', '24',
+            '--duration', '5',
+            '--timeout', String(VIDEO_TIMEOUT_SEC),
+            'A presenter holds the mug, looks at the camera, and says "This is a live voice identity test."'
+          ], 'LTX 2.3 first-frame + Audio ID');
+
+          assert.equal(json.success, true);
+          assert.equal(json.type, 'video');
+          assert.equal(json.workflow, 'i2v');
+          assert.equal(json.model, 'ltx23-22b-fp8_i2v_distilled');
+          assert.equal(json.width, 640);
+          assert.equal(json.height, 640);
+          assert.equal(json.refImage, imagePath);
+          assert.equal(json.referenceAudioIdentity, voicePath);
           assert.ok(Array.isArray(json.urls) && json.urls.length > 0, 'video url missing');
         });
       }

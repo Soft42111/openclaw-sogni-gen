@@ -68,6 +68,9 @@ Hosted API modes require `SOGNI_API_KEY`: use `sogni-agent --api-chat "prompt"`
 for `/v1/chat/completions` with rich creative-agent tools, or
 `sogni-agent --api-workflow image-to-video --video-prompt "motion" "image prompt"`
 for durable `/v1/creative-agent/workflows` execution.
+Use the direct CLI path for uploaded media (`-c`, `--ref`, `--ref-audio`,
+`--ref-video`); hosted API modes do not accept those media flags for server-side
+tool execution.
 
 ## Repo
 

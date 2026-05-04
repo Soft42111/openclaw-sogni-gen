@@ -1655,7 +1655,7 @@ Recommended LTX 2.3 Video Models:
   ltx23-22b-fp8_a2v_distilled     Audio-to-video
   ltx23-22b-fp8_v2v_distilled     Video-to-video with ControlNet
 
-Seedance 2.0 Video Aliases:
+Seedance 2.0 Video Model Selectors:
   seedance2                         Text-to-video, 4-15s, native audio, HTTPS multimodal refs
   seedance2-fast                    Fast 720p-capped text-to-video
   seedance2-ia2v                    Image+audio-to-video

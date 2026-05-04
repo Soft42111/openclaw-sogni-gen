@@ -176,6 +176,8 @@ record under `/v1/creative-agent/workflows`. Uploaded-media execution still
 belongs on the direct CLI path (`-c`, `--ref`, `--ref-audio`, `--ref-video`)
 until the hosted rich API and durable workflow endpoint support uploaded
 negative-index media references through CLI media flags.
+Hosted API modes require `SOGNI_API_KEY`; username/password credentials are only
+for the direct client-wrapper path.
 
 ## Options
 
@@ -256,6 +258,9 @@ negative-index media references through CLI media flags.
 | `--workflow-input <json\|path\|@path>` | Workflow input JSON for hosted tool sequences/custom starts | - |
 | `--workflow-title <text>` | Title for hosted-tool-sequence workflow input | - |
 | `--video-prompt <text>` | Motion prompt for durable image-to-video workflow | - |
+| `--negative-prompt <text>` | Negative prompt for durable image-to-video workflow | - |
+| `--generate-audio`, `--no-generate-audio` | Toggle audio generation for durable image-to-video | - |
+| `--expand-prompt`, `--no-expand-prompt` | Toggle prompt expansion for durable image-to-video | - |
 | `--watch-workflow` | Stream durable workflow events after start | - |
 | `--list-workflows`, `--get-workflow <id>`, `--workflow-events <id>`, `--stream-workflow <id>`, `--cancel-workflow <id>` | Durable workflow management helpers | - |
 | `--api-base-url <url>` | Sogni API base for hosted API modes | https://api.sogni.ai |
@@ -304,6 +309,9 @@ When installed as an OpenClaw plugin, Sogni Creative Agent Skill will read defau
           "defaultVideoWorkflow": "t2v",
           "defaultNetwork": "fast",
           "defaultTokenType": "spark",
+          "apiBaseUrl": "https://api.sogni.ai",
+          "defaultLlmModel": "qwen3.6-35b-a3b-gguf-iq4xs",
+          "defaultApiToolMode": "creative-agent",
           "seedStrategy": "prompt-hash",
           "modelDefaults": {
             "flux1-schnell-fp8": { "steps": 4, "guidance": 3.5 },
@@ -344,7 +352,7 @@ Seed strategies: `prompt-hash` (deterministic) or `random`.
 
 ## Video Models
 
-### WAN 2.2 Models
+### Current Video Model Selectors
 
 | Model | Speed | Use Case |
 |-------|-------|----------|
@@ -353,10 +361,10 @@ Seed strategies: `prompt-hash` (deterministic) or `random`.
 | `ltx23-22b-fp8_ia2v_distilled` | Fast (~2-3min) | Image+audio-to-video |
 | `ltx23-22b-fp8_a2v_distilled` | Fast (~2-3min) | Audio-to-video |
 | `ltx23-22b-fp8_v2v_distilled` | Fast (~3min) | Video-to-video with ControlNet |
-| `seedance2` | Variable | Seedance 2.0 text-to-video alias, 4-15s, native audio |
-| `seedance2-fast` | Variable | Fast Seedance 2.0 text-to-video alias |
-| `seedance2-ia2v` | Variable | Seedance 2.0 image+audio-to-video alias |
-| `seedance2-v2v` | Variable | Seedance 2.0 video-to-video alias, no ControlNet |
+| `seedance2` | Variable | Seedance 2.0 text-to-video, 4-15s, native audio |
+| `seedance2-fast` | Variable | Fast Seedance 2.0 text-to-video |
+| `seedance2-ia2v` | Variable | Seedance 2.0 image+audio-to-video |
+| `seedance2-v2v` | Variable | Seedance 2.0 video-to-video, no ControlNet |
 | `wan_v2.2-14b-fp8_i2v_lightx2v` | Fast | Simple image-to-video |
 | `wan_v2.2-14b-fp8_i2v` | Slow | Higher quality video |
 | `wan_v2.2-14b-fp8_t2v_lightx2v` | Fast | Text-to-video |
@@ -504,7 +512,11 @@ node sogni-agent.mjs --video --ref scene.png --duration 10 --fps 24 "zoom out sl
 node sogni-agent.mjs --video --target-resolution 768 \
   "A calm cinematic shot of lanterns drifting across a night lake"
 
-# Seedance 2.0 explicit text-to-video alias
+# Natural-language aspect and resolution inference
+node sogni-agent.mjs --video \
+  "Make a 720p 9:16 video of ocean waves at sunset"
+
+# Seedance 2.0 text-to-video
 node sogni-agent.mjs --video -m seedance2 --duration 8 \
   "A polished product reveal with native ambient sound"
 
@@ -564,7 +576,7 @@ node sogni-agent.mjs --video --workflow v2v --ref-video scene.mp4 \
 ```
 
 ControlNet types: `canny` (edge detection), `pose` (body pose), `depth` (depth map), `detailer` (detail enhancement).
-Default V2V strengths are tuned from Sogni Chat: `canny`/`pose`/`depth` use `0.85` plus detailer assist, while `detailer` uses `1.0` for preservation. For Seedance V2V, use `-m seedance2-v2v` and omit ControlNet. Seedance accepts public HTTPS image, video, and audio references as URL context; audio references must be paired with an image or video reference.
+Default V2V strengths are tuned from Sogni Chat: `canny`/`pose`/`depth` use `0.85` plus detailer assist, while `detailer` uses `1.0` for preservation. For Seedance V2V, use `-m seedance2-v2v` and omit ControlNet. Seedance accepts public HTTPS image, video, and audio references as URL context when they pass the CLI URL safety checks; localhost and private-network URLs are rejected before forwarding. Audio references must be paired with an image or video reference.
 
 ```bash
 # Seedance V2V without ControlNet
@@ -736,6 +748,7 @@ When the user asks for video in **"hd"**, **"1080p"**, **"4k"**, **"uhd"**, or *
 - For **image-to-video**, use `-m ltx23-22b-fp8_i2v_distilled`.
 - Prefer LTX-sized dimensions such as `-w 1920 -h 1088`.
 - For bare named resolutions such as "720p" without orientation or exact pixels, prefer `--target-resolution 768` or the closest requested short side instead of forcing landscape dimensions.
+- When the prompt combines a named resolution with an aspect ratio, such as "720p 9:16", let the CLI infer both instead of forcing manual `-w`/`-h` unless the user gave exact pixels.
 - If the user explicitly asks for `vertical`, `portrait`, `story`, `reel`, `tiktok`, `square`, or `4:3`, apply the matching dimensions from the **Orientation Mapping** rules instead of defaulting to 16:9.
 - Rewrite the user's request using the **LTX-2.3 Prompt Rule** before invoking the command. Do not send short slogan-style prompts to LTX.
 - Treat "4k" as a signal to use the highest practical LTX path exposed by this skill, even though the current wrapper caps non-WAN video dimensions at 2048px on the long side.

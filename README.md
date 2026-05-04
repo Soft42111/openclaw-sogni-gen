@@ -228,7 +228,7 @@ For local multi-clip workflows, prefer the built-in FFmpeg wrappers over raw she
 
 Hosted API modes require `SOGNI_API_KEY`. `--api-chat` targets
 `/v1/chat/completions` with rich creative-agent tools and is best for text-first
-natural-language workflows. Use `--api-tools creative-agent|hosted|none`,
+natural-language workflows. Use `--api-tools creative-agent|rich|hosted|none`,
 `--no-api-tool-execution`, `--llm-model`, and `--system` to control the chat
 request. `--api-workflow` targets `/v1/creative-agent/workflows` for durable
 async workflow records, event streaming, cancellation, and explicit hosted tool
