@@ -561,6 +561,11 @@ function isWanAnimateVideoModelId(modelId) {
   );
 }
 
+function isGptImage2ModelSelection(modelId) {
+  const normalized = String(modelId || '').trim().toLowerCase();
+  return ['gpt-image-2', 'gptimage2', 'gpt-image', 'gpt_image_2'].includes(normalized);
+}
+
 function videoDurationLimitsLikeWrapper(modelId) {
   if (isSeedanceModel(modelId)) return { min: 4, max: 15 };
   if (isLtx2Model(modelId) || isWanAnimateVideoModelId(modelId)) return { min: 1, max: 20 };
@@ -1536,7 +1541,7 @@ Image Options:
   --distance <key>      close-up|medium|wide
   --angle-strength <n>  LoRA strength for multiple_angles (default: 0.9)
   --angle-description <text>  Optional subject description
-  --output-format <f>   Image output format: png|jpg
+  --output-format <f>   Image output format: png|jpg (webp for gpt-image-2)
   --sampler <name>      Sampler (model-dependent)
   --scheduler <name>    Scheduler (model-dependent)
   --lora <id>           LoRA id (repeatable, edit only)
@@ -1643,6 +1648,7 @@ Personas (named people with reference photos):
 
 Image Models:
   z_image_turbo_bf16              Fast, general purpose (default)
+  gpt-image-2                     OpenAI GPT Image 2 text-to-image
   flux1-schnell-fp8               Very fast
   flux2_dev_fp8                   High quality (slow)
   qwen_image_edit_2511_fp8        Image editing with context (up to 3 images)
@@ -1961,8 +1967,8 @@ if (options.outputFormat) {
         details: { outputFormat: options.outputFormat }
       });
     }
-  } else if (!['png', 'jpg'].includes(options.outputFormat)) {
-    fatalCliError('Image output format must be "png" or "jpg".', {
+  } else if (!['png', 'jpg', ...(isGptImage2ModelSelection(options.model) ? ['webp'] : [])].includes(options.outputFormat)) {
+    fatalCliError(isGptImage2ModelSelection(options.model) ? 'GPT Image 2 output format must be "png", "jpg", or "webp".' : 'Image output format must be "png" or "jpg".', {
       code: 'INVALID_ARGUMENT',
       details: { outputFormat: options.outputFormat }
     });
@@ -4655,6 +4661,13 @@ async function main() {
       const modelDefaults = getModelDefaults(options.model, openclawConfig);
       const guidance = options.guidance ?? modelDefaults?.guidance ?? 1.0;
       const steps = options.steps ?? modelDefaults?.steps;
+      const gptImageQuality = isGptImage2ModelSelection(options.model)
+        ? options.quality === 'pro'
+          ? 'high'
+          : options.quality === 'fast'
+            ? 'low'
+            : 'medium'
+        : null;
 
       const useVariations = options.count > 1 && hasPromptVariations(options.prompt);
       const variationCount = useVariations ? options.count : 1;
@@ -4686,6 +4699,9 @@ async function main() {
         };
         if (options.outputFormat) {
           projectConfig.outputFormat = options.outputFormat;
+        }
+        if (gptImageQuality) {
+          projectConfig.gptImageQuality = gptImageQuality;
         }
         if (options.sampler) {
           projectConfig.sampler = options.sampler;

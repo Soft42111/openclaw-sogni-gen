@@ -203,7 +203,7 @@ for the direct client-wrapper path.
 | `--angle-description <text>` | Optional subject description | - |
 | `--steps <num>` | Override steps (model-dependent) | - |
 | `--guidance <num>` | Override guidance (model-dependent) | - |
-| `--output-format <f>` | Image output format: png\|jpg | png |
+| `--output-format <f>` | Image output format: png\|jpg, or webp for gpt-image-2 | png |
 | `--sampler <name>` | Sampler (model-dependent) | - |
 | `--scheduler <name>` | Scheduler (model-dependent) | - |
 | `--lora <id>` | LoRA id (repeatable, edit only) | - |
@@ -343,12 +343,15 @@ Seed strategies: `prompt-hash` (deterministic) or `random`.
 | Model | Speed | Use Case |
 |-------|-------|----------|
 | `z_image_turbo_bf16` | Fast (~5-10s) | General purpose, default |
+| `gpt-image-2` | Variable | OpenAI GPT Image 2 text-to-image, strong prompt and text rendering |
 | `flux1-schnell-fp8` | Very fast | Quick iterations |
 | `flux2_dev_fp8` | Slow (~2min) | High quality |
 | `chroma-v.46-flash_fp8` | Medium | Balanced |
 | `qwen_image_edit_2511_fp8` | Medium | Image editing with context (up to 3) |
 | `qwen_image_edit_2511_fp8_lightning` | Fast | Quick image editing |
 | `coreml-sogniXLturbo_alpha1_ad` | Fast | Photobooth face transfer (SDXL Turbo) |
+
+`gpt-image-2` supports flexible OpenAI image sizes up to `3840px` on either edge, max `3:1` aspect ratio, and total pixels from `655,360` through `8,294,400`; the API snaps dimensions to valid multiples of 16.
 
 ## Video Models
 
