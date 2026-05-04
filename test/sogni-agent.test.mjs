@@ -37,8 +37,7 @@ function prepareCliRun(envOverrides = {}) {
     USERPROFILE: tempHome,
     OPENCLAW_CONFIG_PATH: join(tempHome, 'openclaw.json'),
     OPENCLAW_PLUGIN_CONFIG: '',
-    SOGNI_USERNAME: 'test-user',
-    SOGNI_PASSWORD: 'test-pass',
+    SOGNI_API_KEY: 'test-api-key',
     SOGNI_AGENT_TEST_STATE_PATH: statePath,
     NODE_NO_WARNINGS: '1'
   };
@@ -1098,6 +1097,22 @@ test('api key auth is accepted when username/password are absent', () => {
   );
   assert.equal(exitCode, 0);
   assert.ok(state?.lastImageProject, 'createImageProject was called');
+});
+
+test('username/password auth is not accepted without an api key', () => {
+  const { exitCode, stdout } = runCli(
+    ['--json', 'a cat wearing a hat'],
+    {
+      SOGNI_API_KEY: '',
+      SOGNI_USERNAME: 'test-user',
+      SOGNI_PASSWORD: 'test-pass'
+    }
+  );
+  assert.equal(exitCode, 1);
+  const payload = JSON.parse(stdout.trim());
+  assert.equal(payload.errorCode, 'MISSING_CREDENTIALS');
+  assert.match(payload.hint, /SOGNI_API_KEY/);
+  assert.doesNotMatch(payload.hint, /SOGNI_USERNAME|SOGNI_PASSWORD/);
 });
 
 test('json error: i2v rejects mismatched explicit size and suggests a compatible 16-multiple aspect', () => {

@@ -151,7 +151,7 @@
       "credentialsPath": {
         "type": "string",
         "default": "~/.config/sogni/credentials",
-        "description": "Optional path to Sogni credentials file (can also set SOGNI_CREDENTIALS_PATH)."
+        "description": "Optional path to Sogni API key credentials file (can also set SOGNI_CREDENTIALS_PATH)."
       },
       "lastRenderPath": {
         "type": "string",

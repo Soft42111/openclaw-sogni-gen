@@ -45,24 +45,22 @@ bootstrap scripts with `set -e`, `bash -c`, `sh -c`, or inline repository URLs.
 Use the npm upgrade command above, update an existing checkout with `git -C`, or
 ask before cloning.
 
-## Configure Sogni credentials
+## Configure Sogni API key
 
 Once-only setup, used by every integration above:
+
+The API key can always be found by logging into https://dashboard.sogni.ai and
+clicking your username.
 
 ```bash
 mkdir -p ~/.config/sogni
 cat > ~/.config/sogni/credentials << 'EOF'
 SOGNI_API_KEY=your_api_key
-# or:
-# SOGNI_USERNAME=your_username
-# SOGNI_PASSWORD=your_password
 EOF
 chmod 600 ~/.config/sogni/credentials
 ```
 
-You can also export `SOGNI_API_KEY`, or `SOGNI_USERNAME` + `SOGNI_PASSWORD`,
-instead of writing the file. Sign up at https://app.sogni.ai/ if you do not
-have an account.
+You can also export `SOGNI_API_KEY` instead of writing the file.
 
 Hosted API modes require `SOGNI_API_KEY`: use `sogni-agent --api-chat "prompt"`
 for `/v1/chat/completions` with rich creative-agent tools, or

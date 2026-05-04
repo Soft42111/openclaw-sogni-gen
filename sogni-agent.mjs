@@ -917,7 +917,7 @@ const openclawConfig = loadOpenClawPluginConfig();
 const CREDENTIALS_PATH = resolveConfiguredPath(
   getEnv('SOGNI_CREDENTIALS_PATH') || openclawConfig?.credentialsPath,
   DEFAULT_CREDENTIALS_PATH,
-  'SOGNI credentials path'
+  'SOGNI API key credentials path'
 );
 const LAST_RENDER_PATH = resolveConfiguredPath(
   getEnv('SOGNI_LAST_RENDER_PATH') || openclawConfig?.lastRenderPath,
@@ -2899,9 +2899,6 @@ function loadCredentials() {
         SOGNI_API_KEY: creds.SOGNI_API_KEY
       };
     }
-    if (creds.SOGNI_USERNAME && creds.SOGNI_PASSWORD) {
-      return creds;
-    }
   }
 
   if (hasEnv('SOGNI_API_KEY')) {
@@ -2909,19 +2906,12 @@ function loadCredentials() {
       SOGNI_API_KEY: getEnv('SOGNI_API_KEY')
     };
   }
-  
-  if (hasEnv('SOGNI_USERNAME') && hasEnv('SOGNI_PASSWORD')) {
-    return {
-      SOGNI_USERNAME: getEnv('SOGNI_USERNAME'),
-      SOGNI_PASSWORD: getEnv('SOGNI_PASSWORD')
-    };
-  }
 
-  const err = new Error('No Sogni credentials found.');
+  const err = new Error('No Sogni API key found.');
   err.code = 'MISSING_CREDENTIALS';
-  err.hint = 'Set SOGNI_API_KEY or SOGNI_USERNAME/SOGNI_PASSWORD, or configure SOGNI_CREDENTIALS_PATH.';
+  err.hint = 'Set SOGNI_API_KEY, or configure SOGNI_CREDENTIALS_PATH with SOGNI_API_KEY. You can find your API key by logging into https://dashboard.sogni.ai and clicking your username.';
   err.details = {
-    triedEnv: ['SOGNI_API_KEY', 'SOGNI_USERNAME', 'SOGNI_PASSWORD'],
+    triedEnv: ['SOGNI_API_KEY'],
     triedFile: CREDENTIALS_PATH
   };
   throw err;
@@ -4893,13 +4883,8 @@ async function main() {
       appSource: SOGNI_APP_SOURCE,
       network: openclawConfig?.defaultNetwork || 'fast',
       autoConnect: false,
-      ...(creds.SOGNI_API_KEY
-        ? { apiKey: creds.SOGNI_API_KEY, authType: 'apiKey' }
-        : {
-            username: creds.SOGNI_USERNAME,
-            password: creds.SOGNI_PASSWORD,
-            authType: 'token'
-          })
+      apiKey: creds.SOGNI_API_KEY,
+      authType: 'apiKey'
     });
 
     await client.connect();
@@ -5601,13 +5586,8 @@ async function main() {
             appSource: SOGNI_APP_SOURCE,
             network: openclawConfig?.defaultNetwork || 'fast',
             autoConnect: false,
-            ...(creds.SOGNI_API_KEY
-              ? { apiKey: creds.SOGNI_API_KEY, authType: 'apiKey' }
-              : {
-                  username: creds.SOGNI_USERNAME,
-                  password: creds.SOGNI_PASSWORD,
-                  authType: 'token'
-                })
+            apiKey: creds.SOGNI_API_KEY,
+            authType: 'apiKey'
           });
           await client2.connect();
 

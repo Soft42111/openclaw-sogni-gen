@@ -13,8 +13,6 @@ metadata:
       anyBins: ["ffmpeg"]
       env:
         - "SOGNI_API_KEY"
-        - "SOGNI_USERNAME"
-        - "SOGNI_PASSWORD"
         - "SOGNI_CREDENTIALS_PATH"
         - "SOGNI_LAST_RENDER_PATH"
         - "SOGNI_MEDIA_INBOUND_DIR"
@@ -72,20 +70,17 @@ If that checkout does not exist, prefer the npm-based local skill install below,
 
 ## Setup
 
-1. **Get Sogni credentials** at https://app.sogni.ai/
-2. **Create credentials file:**
+1. **Get your Sogni API key** by logging into https://dashboard.sogni.ai and clicking your username.
+2. **Create an API key credentials file:**
 ```bash
 mkdir -p ~/.config/sogni
 cat > ~/.config/sogni/credentials << 'EOF'
 SOGNI_API_KEY=your_api_key
-# or:
-# SOGNI_USERNAME=your_username
-# SOGNI_PASSWORD=your_password
 EOF
 chmod 600 ~/.config/sogni/credentials
 ```
 
-You can also export `SOGNI_API_KEY`, or `SOGNI_USERNAME` + `SOGNI_PASSWORD`, instead of writing the file.
+You can also export `SOGNI_API_KEY` instead of writing the file. The API key can always be found by logging into https://dashboard.sogni.ai and clicking your username.
 
 3. **Install the CLI and skill by default:**
 ```bash
@@ -115,7 +110,7 @@ When this skill is distributed via ClawHub, it bootstraps its local runtime depe
 
 Default file paths used by this skill:
 
-- Credentials file (read): `~/.config/sogni/credentials`
+- API key credentials file (read): `~/.config/sogni/credentials`
 - Last render metadata (read/write): `~/.config/sogni/last-render.json`
 - OpenClaw config (read): `~/.openclaw/openclaw.json`
 - Media listing for `--list-media` (read): `~/.clawdbot/media/inbound`
@@ -1045,7 +1040,7 @@ node {{skillDir}}/sogni-agent.mjs --angles-360 -c subject.jpg "same subject"
 
 ## Troubleshooting
 
-- **Auth errors**: Check `SOGNI_API_KEY` or the credentials in `~/.config/sogni/credentials`
+- **Auth errors**: Check `SOGNI_API_KEY` or the API key in `~/.config/sogni/credentials`
 - **i2v sizing gotchas**: Video sizes are model-specific. WAN uses min 480px, max 1536px, divisible by 16. LTX uses divisible-by-64 dimensions, and the current wrapper caps non-WAN video dimensions at 2048px on the long side. For i2v, the client wrapper resizes the reference (`fit: inside`) and uses the resized dimensions as the final video size. Because this uses rounding, a requested size can still yield an invalid final size.
 - **Auto-adjustment**: With a local `--ref`, the script will auto-adjust the requested size to avoid resized reference dimensions that miss the model divisor.
 - **If the script adjusts your size but you want to fail instead**: pass `--strict-size` and it will print a suggested `--width/--height`.

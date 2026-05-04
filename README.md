@@ -28,7 +28,7 @@ With Sogni Creative Agent Skill, an agent can:
 
 ## Quick Start
 
-1. Create Sogni credentials once. See [Setup](#setup).
+1. Create a Sogni API key once. See [Setup](#setup).
 2. Install the command-line tool:
 
 ```bash
@@ -148,21 +148,18 @@ The supported config shape is defined in [`openclaw.plugin.json`](./openclaw.plu
 
 ## Setup
 
-1. Create a Sogni account at https://app.sogni.ai/
-2. Create credentials file:
+1. Get your Sogni API key by logging into https://dashboard.sogni.ai and clicking your username.
+2. Create an API key credentials file:
 
 ```bash
 mkdir -p ~/.config/sogni
 cat > ~/.config/sogni/credentials << 'EOF'
 SOGNI_API_KEY=your_api_key
-# or:
-# SOGNI_USERNAME=your_username
-# SOGNI_PASSWORD=your_password
 EOF
 chmod 600 ~/.config/sogni/credentials
 ```
 
-You can also skip the file and set `SOGNI_API_KEY`, or `SOGNI_USERNAME` + `SOGNI_PASSWORD`, in your environment.
+You can also skip the file and set `SOGNI_API_KEY` in your environment. The API key can always be found by logging into https://dashboard.sogni.ai and clicking your username.
 
 ### Filesystem Paths and Overrides
 

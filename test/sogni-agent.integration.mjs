@@ -32,7 +32,7 @@ const shouldRun = integrationFlag === undefined
   : ['1', 'true', 'yes'].includes(integrationFlag.toLowerCase());
 const credentialsPath = join(homedir(), '.config', 'sogni', 'credentials');
 const openclawConfigPath = process.env.OPENCLAW_CONFIG_PATH || join(homedir(), '.openclaw', 'openclaw.json');
-const hasCreds = Boolean(process.env.SOGNI_API_KEY || (process.env.SOGNI_USERNAME && process.env.SOGNI_PASSWORD)) || existsSync(credentialsPath);
+const hasCreds = Boolean(loadCredentials());
 
 const IMAGE_TIMEOUT_SEC = Number(process.env.SOGNI_INTEGRATION_IMAGE_TIMEOUT_SEC || 60);
 const VIDEO_TIMEOUT_SEC = Number(process.env.SOGNI_INTEGRATION_VIDEO_TIMEOUT_SEC || 600);
@@ -77,12 +77,6 @@ function loadCredentials() {
       apiKey: process.env.SOGNI_API_KEY
     };
   }
-  if (process.env.SOGNI_USERNAME && process.env.SOGNI_PASSWORD) {
-    return {
-      username: process.env.SOGNI_USERNAME,
-      password: process.env.SOGNI_PASSWORD
-    };
-  }
   if (!existsSync(credentialsPath)) return null;
   const content = readFileSync(credentialsPath, 'utf8');
   const creds = {};
@@ -95,11 +89,7 @@ function loadCredentials() {
       apiKey: creds.SOGNI_API_KEY
     };
   }
-  if (!creds.SOGNI_USERNAME || !creds.SOGNI_PASSWORD) return null;
-  return {
-    username: creds.SOGNI_USERNAME,
-    password: creds.SOGNI_PASSWORD
-  };
+  return null;
 }
 
 function formatNumber(value) {
@@ -310,21 +300,16 @@ function createStickyHeader() {
 async function logAccountInfo() {
   const creds = loadCredentials();
   if (!creds) {
-    console.log('Sogni login: unknown (missing credentials)');
+    console.log('Sogni API key: missing');
     return;
   }
-  console.log(`Sogni login: ${creds.username}`);
+  console.log('Sogni API key: configured');
 
   const Wrapper = await getSogniClientWrapper();
   const client = new Wrapper({
     autoConnect: false,
-    ...(creds.apiKey
-      ? { apiKey: creds.apiKey, authType: 'apiKey' }
-      : {
-          username: creds.username,
-          password: creds.password,
-          authType: 'token'
-        })
+    apiKey: creds.apiKey,
+    authType: 'apiKey'
   });
 
   try {
@@ -345,7 +330,7 @@ async function logAccountInfo() {
 async function checkVideoBudget({ workflow, modelId: explicitModelId, label, width, height, fps, duration, frames, count }) {
   const creds = loadCredentials();
   if (!creds) {
-    return { ok: false, reason: 'Missing credentials' };
+    return { ok: false, reason: 'Missing API key' };
   }
 
   const modelId = explicitModelId || resolveVideoModel(workflow);
@@ -363,13 +348,8 @@ async function checkVideoBudget({ workflow, modelId: explicitModelId, label, wid
   const Wrapper = await getSogniClientWrapper();
   const client = new Wrapper({
     autoConnect: false,
-    ...(creds.apiKey
-      ? { apiKey: creds.apiKey, authType: 'apiKey' }
-      : {
-          username: creds.username,
-          password: creds.password,
-          authType: 'token'
-        })
+    apiKey: creds.apiKey,
+    authType: 'apiKey'
   });
 
   try {
@@ -513,7 +493,7 @@ async function runSubtest(t, status, key, name, fn) {
 if (!shouldRun) {
   test('integration: generate image + videos (skipped)', { skip: 'Set SOGNI_INTEGRATION=0 to skip integration tests.' }, () => {});
 } else if (!hasCreds) {
-  test('integration: generate image + videos (skipped)', { skip: 'Provide SOGNI_API_KEY, or SOGNI_USERNAME/SOGNI_PASSWORD, or ~/.config/sogni/credentials.' }, () => {});
+  test('integration: generate image + videos (skipped)', { skip: 'Provide SOGNI_API_KEY or a ~/.config/sogni/credentials file containing SOGNI_API_KEY.' }, () => {});
 } else {
   test('integration: text-to-image, text-to-video, image-to-video', async (t) => {
     const status = createStickyHeader();
