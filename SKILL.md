@@ -1,9 +1,9 @@
 ---
 name: sogni-creative-agent-skill
-version: "2.1.3"
-description: Sogni Creative Agent Skill: agent skill and CLI for image and video generation using Sogni AI's decentralized GPU network. Supports personas (named people with saved reference photos and voice clips), persistent memories (user preferences across sessions), custom personality, style transfer, angle synthesis, and multi-step creative workflows. Ask the agent to "draw", "generate", "create an image", "make a video/animate", "apply a style", or "generate me as a superhero".
-homepage: https://sogni.ai
+description: "Sogni Creative Agent Skill: agent skill and CLI for image and video generation using Sogni AI's decentralized GPU network. Supports personas (named people with saved reference photos and voice clips), persistent memories (user preferences across sessions), custom personality, style transfer, angle synthesis, and multi-step creative workflows. Ask the agent to \"draw\", \"generate\", \"create an image\", \"make a video/animate\", \"apply a style\", or \"generate me as a superhero\"."
 metadata:
+  version: "2.1.3"
+  homepage: https://sogni.ai
   clawdbot:
     emoji: "🎨"
     primaryEnv: "SOGNI_API_KEY"
