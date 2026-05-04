@@ -4,7 +4,7 @@
  * Usage: sogni-agent [options] "prompt"
  */
 
-import { SogniClientWrapper, ClientEvent, getMaxContextImages } from '@sogni-ai/sogni-client-wrapper';
+import { SogniClientWrapper, ClientEvent, getMaxContextImages as getWrapperMaxContextImages } from '@sogni-ai/sogni-client-wrapper';
 import JSON5 from 'json5';
 import { createHash, randomBytes } from 'crypto';
 import { createRequire } from 'module';
@@ -84,6 +84,7 @@ const DEFAULT_PERSONAS_DIR = join(homedir(), '.config', 'sogni', 'personas');
 const DEFAULT_PERSONAS_INDEX_PATH = join(homedir(), '.config', 'sogni', 'personas', 'index.json');
 const DEFAULT_API_BASE_URL = 'https://api.sogni.ai';
 const DEFAULT_LLM_MODEL = 'qwen3.6-35b-a3b-gguf-iq4xs';
+const SOGNI_APP_SOURCE = 'sogni-creative-agent-skill';
 const OPENCLAW_CONFIG_PATH = getEnv('OPENCLAW_CONFIG_PATH') || DEFAULT_OPENCLAW_CONFIG_PATH;
 const IS_OPENCLAW_INVOCATION = Boolean(getEnv('OPENCLAW_PLUGIN_CONFIG'));
 const RAW_ARGS = process.argv.slice(2);
@@ -564,6 +565,11 @@ function isWanAnimateVideoModelId(modelId) {
 function isGptImage2ModelSelection(modelId) {
   const normalized = String(modelId || '').trim().toLowerCase();
   return ['gpt-image-2', 'gptimage2', 'gpt-image', 'gpt_image_2'].includes(normalized);
+}
+
+function getMaxContextImages(modelId) {
+  if (isGptImage2ModelSelection(modelId)) return 16;
+  return getWrapperMaxContextImages(modelId);
 }
 
 function videoDurationLimitsLikeWrapper(modelId) {
@@ -1648,7 +1654,7 @@ Personas (named people with reference photos):
 
 Image Models:
   z_image_turbo_bf16              Fast, general purpose (default)
-  gpt-image-2                     OpenAI GPT Image 2 text-to-image
+  gpt-image-2                     OpenAI GPT Image 2 text-to-image and edit (up to 16 context images)
   flux1-schnell-fp8               Very fast
   flux2_dev_fp8                   High quality (slow)
   qwen_image_edit_2511_fp8        Image editing with context (up to 3 images)
@@ -2726,6 +2732,8 @@ async function runApiChat(log) {
     temperature: 0.4,
     max_tokens: 1600,
     token_type: options.tokenType || 'spark',
+    app_source: SOGNI_APP_SOURCE,
+    appSource: SOGNI_APP_SOURCE,
     sogni_tools: options.apiTools,
     sogni_tool_execution: options.apiToolExecution
   };
@@ -2960,7 +2968,9 @@ async function runApiWorkflow() {
     body: {
       kind,
       input,
-      token_type: tokenType
+      token_type: tokenType,
+      app_source: SOGNI_APP_SOURCE,
+      appSource: SOGNI_APP_SOURCE
     }
   });
   const workflow = workflowFromPayload(payload);
@@ -4247,6 +4257,7 @@ async function main() {
     const creds = loadCredentials();
     log('Connecting to Sogni...');
     client = new SogniClientWrapper({
+      appSource: SOGNI_APP_SOURCE,
       network: openclawConfig?.defaultNetwork || 'fast',
       autoConnect: false,
       ...(creds.SOGNI_API_KEY
@@ -4572,6 +4583,13 @@ async function main() {
       const modelDefaults = getModelDefaults(options.model, openclawConfig);
       const steps = options.steps ?? modelDefaults?.steps ?? (options.model.includes('lightning') ? 4 : 20);
       const guidance = options.guidance ?? modelDefaults?.guidance ?? (options.model.includes('lightning') ? 3.5 : 7.5);
+      const gptImageQuality = isGptImage2ModelSelection(options.model)
+        ? options.quality === 'pro'
+          ? 'high'
+          : options.quality === 'fast'
+            ? 'low'
+            : 'medium'
+        : null;
       
       const editConfig = {
         modelId: options.model,
@@ -4588,6 +4606,9 @@ async function main() {
 
       if (options.outputFormat) {
         editConfig.outputFormat = options.outputFormat;
+      }
+      if (gptImageQuality) {
+        editConfig.gptImageQuality = gptImageQuality;
       }
       if (options.sampler) {
         editConfig.sampler = options.sampler;
@@ -4606,7 +4627,11 @@ async function main() {
         editConfig.seed = options.seed;
       }
       
-      await client.createImageEditProject(editConfig);
+      if (isGptImage2ModelSelection(options.model)) {
+        await client.createImageProject(editConfig);
+      } else {
+        await client.createImageEditProject(editConfig);
+      }
     } else if (options.photobooth) {
       // Photobooth: face transfer with InstantID ControlNet
       log(`Photobooth with ${options.model}...`);
@@ -4861,6 +4886,7 @@ async function main() {
           // Create a new client for second clip to avoid event conflicts
           const creds = loadCredentials();
           const client2 = new SogniClientWrapper({
+            appSource: SOGNI_APP_SOURCE,
             network: openclawConfig?.defaultNetwork || 'fast',
             autoConnect: false,
             ...(creds.SOGNI_API_KEY

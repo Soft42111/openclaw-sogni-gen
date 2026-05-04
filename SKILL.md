@@ -343,7 +343,7 @@ Seed strategies: `prompt-hash` (deterministic) or `random`.
 | Model | Speed | Use Case |
 |-------|-------|----------|
 | `z_image_turbo_bf16` | Fast (~5-10s) | General purpose, default |
-| `gpt-image-2` | Variable | OpenAI GPT Image 2 text-to-image, strong prompt and text rendering |
+| `gpt-image-2` | Variable | OpenAI GPT Image 2 text-to-image and edit, strong prompt and text rendering |
 | `flux1-schnell-fp8` | Very fast | Quick iterations |
 | `flux2_dev_fp8` | Slow (~2min) | High quality |
 | `chroma-v.46-flash_fp8` | Medium | Balanced |
@@ -390,7 +390,7 @@ Seed strategies: `prompt-hash` (deterministic) or `random`.
 
 ## Image Editing with Context
 
-Edit images using reference images (Qwen models support up to 3):
+Edit images using reference images. Qwen models support up to 3 context images; GPT Image 2 edit supports up to 16 when selected with `-m gpt-image-2`:
 
 ```bash
 # Single context image
@@ -399,11 +399,14 @@ node sogni-agent.mjs -c photo.jpg "make the background a beach"
 # Multiple context images (subject + style)
 node sogni-agent.mjs -c subject.jpg -c style.jpg "apply the style to the subject"
 
+# GPT Image 2 multi-reference edit
+node sogni-agent.mjs -m gpt-image-2 -c subject.jpg -c outfit.jpg -c room.jpg "place the subject in the room wearing the outfit"
+
 # Use last generated image as context
 node sogni-agent.mjs --last-image "make it more vibrant"
 ```
 
-When context images are provided without `-m`, defaults to `qwen_image_edit_2511_fp8_lightning`.
+When context images are provided without `-m`, defaults to `qwen_image_edit_2511_fp8_lightning`. Select `-m gpt-image-2` for GPT Image 2's higher reference-image limit and OpenAI-backed image editing.
 
 ## Photobooth (Face Transfer)
 

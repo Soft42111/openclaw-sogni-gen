@@ -409,7 +409,7 @@ Prefer `-Q fast|hq|pro` for images and automatic workflow routing for video. Onl
 | Need | Recommended model selector |
 |------|----------------------------|
 | Default images | `z_image_turbo_bf16` |
-| OpenAI GPT Image generation or strong text rendering | `gpt-image-2` |
+| OpenAI GPT Image generation, editing, or strong text rendering | `gpt-image-2` |
 | Highest quality images | `flux2_dev_fp8` or `-Q pro` |
 | Image editing | `qwen_image_edit_2511_fp8_lightning` |
 | Photobooth face transfer | `coreml-sogniXLturbo_alpha1_ad` |
@@ -421,7 +421,7 @@ Prefer `-Q fast|hq|pro` for images and automatic workflow routing for video. Onl
 | Seedance video-to-video without ControlNet | `seedance2-v2v` |
 | Face lip-sync with uploaded audio | `wan_v2.2-14b-fp8_s2v_lightx2v` |
 
-`gpt-image-2` supports flexible OpenAI image sizes up to `3840px` on either edge, max `3:1` aspect ratio, and total pixels from `655,360` through `8,294,400`; the API snaps dimensions to valid multiples of 16.
+`gpt-image-2` supports flexible OpenAI image sizes up to `3840px` on either edge, max `3:1` aspect ratio, and total pixels from `655,360` through `8,294,400`; the API snaps dimensions to valid multiples of 16. For image editing, select `-m gpt-image-2` to use up to 16 context images.
 
 ## License
 

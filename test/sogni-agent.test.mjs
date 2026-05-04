@@ -535,6 +535,7 @@ test('--api-chat posts to /v1/chat/completions with rich creative-agent tools', 
     assert.equal(request.body.sogni_tools, 'creative-agent');
     assert.equal(request.body.sogni_tool_execution, true);
     assert.equal(request.body.token_type, 'spark');
+    assert.equal(request.body.appSource, 'sogni-creative-agent-skill');
     assert.equal(request.body.messages[1].content, 'Create a 4-shot product video concept for a red sneaker');
   });
 });
@@ -599,6 +600,7 @@ test('--api-workflow starts durable image-to-video workflow through /v1/creative
     assert.equal(request.method, 'POST');
     assert.equal(request.body.kind, 'image_to_video');
     assert.equal(request.body.token_type, 'spark');
+    assert.equal(request.body.appSource, 'sogni-creative-agent-skill');
     assert.equal(request.body.input.prompt, 'A graphite robot sketch on a drafting table');
     assert.equal(request.body.input.videoPrompt, 'The camera slowly pushes in as the sketch comes alive');
     assert.equal(request.body.input.width, 1024);
