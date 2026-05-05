@@ -3,9 +3,12 @@ import assert from 'node:assert/strict';
 
 import {
   SEEDANCE_STORYBOARD_REFERENCE_PROMPT,
+  compileVideoStoryboardImagePrompt,
   getVideoPromptGuardrailPlan,
   inferExplicitPixelDimensionsFromText,
   inferNamedVideoResolutionShortSideFromText,
+  inferStoryboardLayoutSpec,
+  lintStoryboardImagePrompt,
   planCliVideoBrain,
   planSeedanceStoryboardFallback,
   resolveVideoModelAlias,
@@ -136,4 +139,28 @@ test('runtime does not collapse storyboard image-stage or overlong video request
     storyboardDurationSeconds: 12,
     maxDurationSeconds: 15
   }), null);
+});
+
+test('runtime exposes reusable storyboard image prompt compiler', () => {
+  const userIntentText = 'Create a landscape 16:9 storyboard image with six portrait 9:16 video stills. Use attached image 1 as the host and attached image 2 as the end logo.';
+  const layout = inferStoryboardLayoutSpec(userIntentText, 6);
+  assert.deepEqual(layout, {
+    boardAspectRatio: '16:9',
+    cellAspectRatio: '9:16',
+    targetVideoAspectRatio: '9:16',
+    layoutKind: 'landscape_portrait_cells',
+    layoutDescription: '6 portrait video panels arranged cleanly inside a landscape board'
+  });
+
+  const prompt = compileVideoStoryboardImagePrompt({
+    prompt: 'Six beats for a vertical launch video.',
+    userIntentText,
+    frameCount: 6
+  });
+
+  assert.match(prompt, /Image 1: character\/source subject reference\./);
+  assert.match(prompt, /Image 2: logo\/brand reference\./);
+  assert.match(prompt, /Individual scene-cell\/frame aspect ratio: 9:16\./);
+  assert.doesNotMatch(prompt, /Render "Psych\." exactly|S-O-G-N-I/);
+  assert.equal(lintStoryboardImagePrompt(prompt, layout).ok, true);
 });

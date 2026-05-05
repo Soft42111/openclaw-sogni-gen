@@ -1138,6 +1138,330 @@ export function planCliVideoBrain(input) {
     }
     return plan;
 }
+function storyboardGcd(a, b) {
+    let x = Math.abs(a);
+    let y = Math.abs(b);
+    while (y > 0) {
+        const next = x % y;
+        x = y;
+        y = next;
+    }
+    return x || 1;
+}
+function formatStoryboardRatio(width, height) {
+    const divisor = storyboardGcd(width, height);
+    return `${width / divisor}:${height / divisor}`;
+}
+function ratioFromStoryboardAspectWords(value) {
+    if (/^(?:portrait|vertical|9\s*:\s*16)$/i.test(value.trim()))
+        return '9:16';
+    if (/^(?:landscape|horizontal|widescreen|16\s*:\s*9)$/i.test(value.trim()))
+        return '16:9';
+    const match = value.match(/(\d{1,4})\s*:\s*(\d{1,4})/);
+    return match ? `${Number(match[1])}:${Number(match[2])}` : value;
+}
+function inferStoryboardAspectNearUnit(text, unitPattern, rejectBetweenPattern) {
+    const aspectPattern = /\b(portrait|vertical|landscape|horizontal|widescreen|\d{1,4}\s*:\s*\d{1,4})\b/gi;
+    const unit = new RegExp(String.raw `\b(?:${unitPattern})\b`, 'i');
+    const candidates = [];
+    for (const match of text.matchAll(aspectPattern)) {
+        const aspect = match[1];
+        const start = match.index ?? 0;
+        const end = start + match[0].length;
+        const after = text.slice(end, Math.min(text.length, end + 80));
+        const afterUnit = after.match(unit);
+        if (afterUnit?.index !== undefined) {
+            const between = after.slice(0, afterUnit.index);
+            if (!rejectBetweenPattern.test(between)) {
+                candidates.push({ ratio: ratioFromStoryboardAspectWords(aspect), distance: between.length });
+            }
+        }
+        const before = text.slice(Math.max(0, start - 80), start);
+        const beforeUnitMatches = Array.from(before.matchAll(new RegExp(String.raw `\b(?:${unitPattern})\b`, 'gi')));
+        const beforeUnit = beforeUnitMatches[beforeUnitMatches.length - 1];
+        if (beforeUnit?.index !== undefined) {
+            const between = before.slice(beforeUnit.index + beforeUnit[0].length);
+            if (!rejectBetweenPattern.test(between)) {
+                candidates.push({ ratio: ratioFromStoryboardAspectWords(aspect), distance: between.length });
+            }
+        }
+    }
+    candidates.sort((a, b) => a.distance - b.distance);
+    return candidates[0]?.ratio ?? null;
+}
+function inferStoryboardBoardAspectRatio(text) {
+    const explicitPixels = inferExplicitPixelDimensionsFromText(text);
+    if (explicitPixels) {
+        return formatStoryboardRatio(explicitPixels.width, explicitPixels.height);
+    }
+    const boardAspect = inferStoryboardAspectNearUnit(text, String.raw `board|canvas|image|poster|sheet|layout|story\s*board|storyboard|output|format`, /\b(?:cell|cells|frame|frames|panel|panels|still|stills|thumbnail|thumbnails|shot|shots|video)\b/i);
+    if (boardAspect)
+        return boardAspect;
+    const explicitRatio = inferExplicitAspectRatioFromText(text);
+    if (explicitRatio)
+        return `${explicitRatio.width}:${explicitRatio.height}`;
+    if (/\b(?:tiktok|tik\s*tok|reels?|shorts?|story)\b/i.test(text))
+        return '9:16';
+    return '16:9';
+}
+function inferExplicitStoryboardTargetVideoAspectRatio(text) {
+    const explicitTarget = text.match(/\b(?:target|final|output|actual|seedance|video|clip|film|commercial|promo)\b[\s\S]{0,80}\b(\d{1,4})\s*:\s*(\d{1,4})\b/i);
+    if (explicitTarget) {
+        return `${Number(explicitTarget[1])}:${Number(explicitTarget[2])}`;
+    }
+    return null;
+}
+function inferStoryboardTargetVideoAspectRatio(text, boardAspectRatio) {
+    const explicitTarget = inferExplicitStoryboardTargetVideoAspectRatio(text);
+    if (explicitTarget)
+        return explicitTarget;
+    if (/\b(?:portrait|vertical|9\s*:\s*16|tiktok|tik\s*tok|reels?|shorts?|story)\b/i.test(text)) {
+        return '9:16';
+    }
+    if (/\b(?:landscape|horizontal|widescreen|16\s*:\s*9|youtube)\b/i.test(text)) {
+        return '16:9';
+    }
+    return boardAspectRatio;
+}
+function inferStoryboardCellAspectRatio(text, targetVideoAspectRatio) {
+    const explicitCell = inferStoryboardAspectNearUnit(text, String.raw `cell|cells|frame|frames|panel|panels|still|stills|thumbnail|thumbnails|shot|shots`, /\b(?:board|canvas|image|poster|sheet|layout|story\s*board|storyboard|output|format)\b/i);
+    if (explicitCell) {
+        return explicitCell;
+    }
+    if (/\b(?:portrait|vertical|9\s*:\s*16)\b[\s\S]{0,80}\b(?:cell|cells|frame|frames|panel|panels|still|stills|thumbnail|thumbnails|shot|shots)\b/i.test(text)) {
+        return '9:16';
+    }
+    if (/\b(?:cell|cells|frame|frames|panel|panels|still|stills|thumbnail|thumbnails|shot|shots)\b[\s\S]{0,80}\b(?:portrait|vertical|9\s*:\s*16)\b/i.test(text)) {
+        return '9:16';
+    }
+    if (/\b(?:landscape|horizontal|widescreen|letterbox|16\s*:\s*9)\b[\s\S]{0,80}\b(?:cell|cells|frame|frames|panel|panels|still|stills|thumbnail|thumbnails|shot|shots)\b/i.test(text)) {
+        return '16:9';
+    }
+    if (/\b(?:cell|cells|frame|frames|panel|panels|still|stills|thumbnail|thumbnails|shot|shots)\b[\s\S]{0,80}\b(?:landscape|horizontal|widescreen|letterbox|16\s*:\s*9)\b/i.test(text)) {
+        return '16:9';
+    }
+    return targetVideoAspectRatio;
+}
+function describeStoryboardLayout(boardAspectRatio, cellAspectRatio, frameCount) {
+    if (boardAspectRatio === '9:16' && cellAspectRatio === '16:9') {
+        return {
+            layoutKind: 'portrait_letterbox_cells',
+            layoutDescription: `${frameCount} stacked widescreen letterbox storyboard cells in a portrait sheet`,
+        };
+    }
+    if (boardAspectRatio === '16:9' && cellAspectRatio === '9:16') {
+        return {
+            layoutKind: 'landscape_portrait_cells',
+            layoutDescription: `${frameCount} portrait video panels arranged cleanly inside a landscape board`,
+        };
+    }
+    if (boardAspectRatio === '9:16') {
+        return {
+            layoutKind: 'portrait_grid',
+            layoutDescription: `${frameCount} true portrait storyboard frames in a clean vertical storyboard grid`,
+        };
+    }
+    return {
+        layoutKind: 'landscape_grid',
+        layoutDescription: frameCount === 6
+            ? '2 rows x 3 columns of true widescreen storyboard frames'
+            : `${frameCount} sequential storyboard frames in a balanced landscape grid`,
+    };
+}
+export function inferStoryboardLayoutSpec(userIntentText, frameCount) {
+    const explicitPixels = inferExplicitPixelDimensionsFromText(userIntentText);
+    const boardAspectRatio = inferStoryboardBoardAspectRatio(userIntentText);
+    const explicitTargetVideoAspectRatio = inferExplicitStoryboardTargetVideoAspectRatio(userIntentText);
+    const inferredTargetVideoAspectRatio = explicitTargetVideoAspectRatio
+        ?? inferStoryboardTargetVideoAspectRatio(userIntentText, boardAspectRatio);
+    const cellAspectRatio = inferStoryboardCellAspectRatio(userIntentText, inferredTargetVideoAspectRatio);
+    const targetVideoAspectRatio = explicitTargetVideoAspectRatio ?? cellAspectRatio;
+    const layout = describeStoryboardLayout(boardAspectRatio, cellAspectRatio, frameCount);
+    return {
+        boardAspectRatio,
+        cellAspectRatio,
+        targetVideoAspectRatio,
+        ...layout,
+        ...(explicitPixels ? { boardDimensions: `${explicitPixels.width}x${explicitPixels.height}` } : {}),
+    };
+}
+function inferReferencedStoryboardImageCount(text) {
+    let maxIndex = 0;
+    for (const match of text.matchAll(/\b(?:uploaded|attached|provided|reference|source|input)?\s*(?:image|photo|picture|asset)\s*(?:#|number\s*)?(\d{1,2})\b/gi)) {
+        maxIndex = Math.max(maxIndex, Number(match[1]));
+    }
+    return maxIndex;
+}
+function contextAroundStoryboardReference(text, index) {
+    const patterns = [
+        new RegExp(String.raw `\b(?:uploaded|attached|provided|reference|source|input)?\s*(?:image|photo|picture|asset)\s*(?:#|number\s*)?${index}\b`, 'i'),
+        new RegExp(String.raw `\b${index}\b`, 'i'),
+    ];
+    for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (!match || match.index === undefined)
+            continue;
+        const start = Math.max(0, match.index - 100);
+        let end = Math.min(text.length, match.index + match[0].length + 140);
+        const afterMatch = text.slice(match.index + match[0].length, end);
+        const nextReference = afterMatch.search(/\b(?:uploaded|attached|provided|reference|source|input)?\s*(?:image|photo|picture|asset)\s*(?:#|number\s*)?\d{1,2}\b/i);
+        if (nextReference >= 0) {
+            end = match.index + match[0].length + nextReference;
+        }
+        return text.slice(start, end);
+    }
+    return text;
+}
+function inferStoryboardReferenceRole(index, text) {
+    const context = contextAroundStoryboardReference(text, index);
+    const lower = context.toLowerCase();
+    if (/\b(?:logo|wordmark|brand|mark|icon)\b/.test(lower)) {
+        return {
+            index,
+            role: 'logo/brand reference',
+            usage: /\b(?:end|final|card|cta|tagline|logo\s+reveal|brand\s+reveal)\b/.test(lower)
+                ? 'end card only unless the approved script says otherwise'
+                : 'brand moments and any explicitly assigned scenes',
+            preserve: 'preserve the visible logo shape, typography, spacing, color relationships, and spelling as closely as possible',
+        };
+    }
+    if (/\b(?:character|mascot|person|people|face|actor|host|protagonist|subject|hero)\b/.test(lower)) {
+        return {
+            index,
+            role: 'character/source subject reference',
+            usage: 'all scenes where that subject appears',
+            preserve: 'preserve the visible identity, proportions, colors, outfit cues, expression, and recognizable silhouette',
+        };
+    }
+    if (/\b(?:product|package|device|object|item)\b/.test(lower)) {
+        return {
+            index,
+            role: 'product/object reference',
+            usage: 'all scenes where that product or object appears',
+            preserve: 'preserve the visible shape, materials, markings, proportions, and recognizable details',
+        };
+    }
+    if (/\b(?:style|mood|look|palette|lighting|texture|background|environment|setting)\b/.test(lower)) {
+        return {
+            index,
+            role: 'style/environment reference',
+            usage: 'style, lighting, palette, or environment guidance where the approved brief calls for it',
+            preserve: 'preserve the requested visual direction without copying unrelated content into every scene',
+        };
+    }
+    return {
+        index,
+        role: 'reference asset',
+        usage: 'use only where assigned by the approved brief',
+        preserve: 'preserve visible details that the brief identifies as important',
+    };
+}
+function compileStoryboardReferenceSection(userIntentText, prompt) {
+    const count = inferReferencedStoryboardImageCount(`${userIntentText}\n${prompt}`);
+    if (count <= 0) {
+        return [
+            'REFERENCE IMAGES:',
+            'No numbered reference images were explicitly identified. If uploaded references are present in the tool call, preserve their assigned subject, product, logo, style, or background role from the approved brief.',
+        ];
+    }
+    const roles = Array.from({ length: count }, (_, index) => inferStoryboardReferenceRole(index + 1, `${userIntentText}\n${prompt}`));
+    return [
+        'REFERENCE IMAGES:',
+        ...roles.map(role => (`Image ${role.index}: ${role.role}. Usage: ${role.usage}. Preserve: ${role.preserve}.`)),
+    ];
+}
+function compileStoryboardCriticalRequirements() {
+    return [
+        'Preserve user-provided jokes, slogans, dialogue, brand copy, timings, and scene order unless the source brief explicitly asks for a rewrite.',
+        'Use concise readable in-image labels. Do not place long paragraphs of production notes inside every cell.',
+        'Every scene cell must include compact fields for Time, Visual/Action, Camera/Motion, Lighting/Style, and Audio/SFX.',
+        'Keep character, product, logo, and style references bound to their assigned scenes. Do not replace referenced assets with invented substitutes.',
+    ];
+}
+function compileStoryboardAvoidSection(userIntentText) {
+    const avoidLines = [
+        'Avoid malformed text, misspelled brand words, inconsistent reference identities, missing scene cells, wrong timings, and mismatched board/cell aspect ratios.',
+    ];
+    const avoidMatch = userIntentText.match(/\b(?:avoid|do not include|don't include|without|less)\b[\s\S]{0,220}(?:\.|$)/i);
+    if (avoidMatch) {
+        avoidLines.push(`Preserve this user avoid-list constraint: ${avoidMatch[0].trim()}`);
+    }
+    return avoidLines;
+}
+export function compileVideoStoryboardImagePrompt(options) {
+    const prompt = options.prompt.trim();
+    const userIntentText = options.userIntentText.trim();
+    const layout = inferStoryboardLayoutSpec(userIntentText, options.frameCount);
+    const sourceBrief = [
+        prompt,
+        options.approvedScriptContext
+            ? `APPROVED STORYBOARD SCRIPT CONTEXT TO PRESERVE:\n${options.approvedScriptContext}`
+            : '',
+    ].filter(Boolean).join('\n\n');
+    const boardSizeLine = layout.boardDimensions
+        ? `Overall storyboard canvas: ${layout.boardDimensions} pixels (${layout.boardAspectRatio}).`
+        : `Overall storyboard canvas aspect ratio: ${layout.boardAspectRatio}.`;
+    return [
+        'CREATE:',
+        `Create exactly ${options.frameCount} sequential video storyboard frames as one composite storyboard image.`,
+        '',
+        ...compileStoryboardReferenceSection(userIntentText, prompt),
+        '',
+        'CANVAS / LAYOUT:',
+        boardSizeLine,
+        `Individual scene-cell/frame aspect ratio: ${layout.cellAspectRatio}.`,
+        `Target final video aspect ratio: ${layout.targetVideoAspectRatio}.`,
+        `Layout preset: ${layout.layoutKind} - ${layout.layoutDescription}.`,
+        'Keep margins, gutters, frame numbering, and typography consistent across the full board.',
+        '',
+        'GLOBAL STYLE:',
+        'Production-ready commercial storyboard sheet with cinematic shot language, coherent art direction, readable labels, and consistent reference usage.',
+        '',
+        'CRITICAL REQUIREMENTS:',
+        ...compileStoryboardCriticalRequirements().map((item, index) => `${index + 1}. ${item}`),
+        '',
+        'TEXT RENDERING:',
+        'Use short visible labels only: scene number, timing, scene title, one brief VO/dialogue line where needed, and compact production labels. Quote and spell any required visible text exactly.',
+        '',
+        'SOURCE BRIEF TO FOLLOW:',
+        sourceBrief,
+        '',
+        'NEGATIVE / AVOID:',
+        ...compileStoryboardAvoidSection(`${userIntentText}\n${prompt}`).map(item => `- ${item}`),
+    ].join('\n');
+}
+export function lintStoryboardImagePrompt(prompt, layout) {
+    const errors = [];
+    const warnings = [];
+    if (!/CREATE:/i.test(prompt))
+        errors.push('missing CREATE section');
+    if (!/REFERENCE IMAGES:/i.test(prompt))
+        errors.push('missing REFERENCE IMAGES section');
+    if (!/CANVAS \/ LAYOUT:/i.test(prompt))
+        errors.push('missing CANVAS / LAYOUT section');
+    if (!/TEXT RENDERING:/i.test(prompt))
+        errors.push('missing TEXT RENDERING section');
+    if (!prompt.includes(`Overall storyboard canvas aspect ratio: ${layout.boardAspectRatio}`)
+        && !prompt.includes(`(${layout.boardAspectRatio})`)) {
+        errors.push(`missing board aspect ratio ${layout.boardAspectRatio}`);
+    }
+    if (!prompt.includes(`Individual scene-cell/frame aspect ratio: ${layout.cellAspectRatio}`)) {
+        errors.push(`missing cell aspect ratio ${layout.cellAspectRatio}`);
+    }
+    if (!prompt.includes(`Target final video aspect ratio: ${layout.targetVideoAspectRatio}`)) {
+        errors.push(`missing target video aspect ratio ${layout.targetVideoAspectRatio}`);
+    }
+    if (!/\bAudio\/SFX\b/i.test(prompt))
+        warnings.push('missing explicit Audio/SFX field');
+    if (/\bparagraphs?\s+inside\s+each\s+(?:cell|frame|panel)\b/i.test(prompt)) {
+        warnings.push('prompt may encourage dense paragraphs inside storyboard cells');
+    }
+    return {
+        ok: errors.length === 0,
+        errors,
+        warnings,
+    };
+}
 export function inferDefaultVideoSteps(modelId) {
     const id = (modelId || '').toLowerCase();
     if (isSeedanceModel(id))
