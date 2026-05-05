@@ -4,8 +4,8 @@
 function isLtxWorkflow(workflow) {
     return workflow === 't2v' || workflow === 'i2v' || workflow === 'ia2v' || workflow === 'a2v' || workflow === 'v2v';
 }
-export const SKILL_RUNTIME_VERSION = '2026-05-04.1';
-export const SEEDANCE_STORYBOARD_REFERENCE_PROMPT = 'Turn the video storyboard in @Image1 into a video. Treat @Image1 as the controlling source and follow its ordered thumbnails, timecodes, captions, Dialogue/VO, Audio/SFX, camera/motion notes, transitions, visible text, and scene order. Do not invent a different script or substitute a loose summary.';
+export const SKILL_RUNTIME_VERSION = '2026-05-05.1';
+export const SEEDANCE_STORYBOARD_REFERENCE_PROMPT = 'Turn the video storyboard in @Image1 into a video. Treat @Image1 as the controlling source and follow its ordered thumbnails, timecodes, captions, Dialogue/VO, Audio/SFX, camera/motion notes, transitions, visible text, and scene order.';
 export const LTX23_WORKFLOW_MODELS = Object.freeze({
     t2v: 'ltx23-22b-fp8_t2v_distilled',
     i2v: 'ltx23-22b-fp8_i2v_distilled',
@@ -1797,6 +1797,8 @@ function normalizeStoryboardDialogue(value) {
     const compact = compactStoryboardLine(value);
     if (!compact)
         return '';
+    if (/^[-\u2013\u2014]\.?$/.test(compact))
+        return '';
     if (/^(?:none|no\s+(?:spoken\s+)?(?:dialogue|vo|voiceover|voice-over|speech)|n\/a|not\s+specified|text\s+only)\b/i.test(compact)) {
         return '';
     }
@@ -2296,8 +2298,11 @@ function compileStoryboardCriticalRequirements() {
     return [
         'Preserve user-provided jokes, slogans, dialogue, brand copy, timings, and scene order unless the source brief explicitly asks for a rewrite.',
         'Divide each scene cell into a clean video-frame artwork area plus a clearly associated note/header/footer area. Put Time, scene/frame numbers, Visual/Action, Camera/Motion, Lighting/Style, Dialogue/VO, and Audio/SFX outside the video frame artwork, never overlaid on top of the cinematic frame.',
+        'Every cinematic video-frame artwork area must preserve the requested Individual scene-cell/frame aspect ratio. Keep all frame artwork areas locked to the same W:H unless the source explicitly requests mixed ratios; do not make individual stills square or let one or two cells drift to a different crop.',
         'Use concise readable storyboard labels in the non-frame note areas. Do not place long paragraphs of production notes inside every cell.',
         'Every scene cell must include compact fields for Time, Visual/Action, Camera/Motion, Lighting/Style, Dialogue/VO, and Audio/SFX, attached to the correct frame but outside the video-frame artwork.',
+        'When a scene has no spoken dialogue or voiceover, write exactly [no dialogue] in the Dialogue/VO field; never use "-", None, N/A, or a blank field.',
+        'Keep generated SFX/action words such as whoosh, boom, impact, thud, slash, crack, pop, and similar motion callouts in Visual/Action or Audio/SFX note areas only. Do not render them inside the video-frame artwork unless the source explicitly requires that exact word as visible on-screen text.',
         'When audio is not explicitly supplied, propose scene-appropriate generated audio, ambience, music bed, and foley/SFX generically. Do not label a scene silent, muted, or "no audio" unless the source brief explicitly requests silence.',
         'Do not reference unattached songs, trending tracks, stock sound libraries, or external media. Treat Audio/SFX/Music notes as instructions for the downstream video model to generate the sound unless an audio reference asset is explicitly listed.',
         'Keep character, product, logo, and style references bound to their assigned scenes. Do not replace referenced assets with invented substitutes.',
@@ -2307,6 +2312,7 @@ function compileStoryboardAvoidSection(userIntentText) {
     const avoidLines = [
         'Avoid malformed text, misspelled brand words, inconsistent reference identities, missing scene cells, wrong timings, and mismatched board/cell aspect ratios.',
         'Avoid scene numbers, timing badges, timecodes, production tables, Dialogue/VO labels, Audio/SFX labels, or other production notes overlaid inside the video frame artwork.',
+        'Avoid in-frame comic-book SFX/action text such as Whoosh!, Impact!, Boom!, Thud!, Slash!, Crack!, or Pop! unless the source explicitly marks that word as required visible text.',
     ];
     for (const constraint of extractStoryboardAvoidConstraints(userIntentText)) {
         avoidLines.push(`Preserve this user avoid-list constraint: ${constraint}`);
@@ -2334,7 +2340,7 @@ function compileStoryboardScenesSection(project) {
         if (scene.transitionIn || scene.transitionOut) {
             lines.push(`Transition: ${[scene.transitionIn, scene.transitionOut].filter(Boolean).join(' / ')}`);
         }
-        lines.push(`Dialogue/VO: ${scene.dialogue || 'No spoken dialogue or VO specified.'}`);
+        lines.push(`Dialogue/VO: ${scene.dialogue || '[no dialogue]'}`);
         lines.push(`Audio/SFX: ${scene.audioSfx.length > 0 ? scene.audioSfx.join(', ') : defaultStoryboardAudioSfxLine()}`);
         if (scene.music)
             lines.push(`Music: ${scene.music}`);
@@ -2391,6 +2397,7 @@ export function compileVideoStoryboardImagePrompt(options) {
         `Individual scene-cell/frame aspect ratio: ${layout.cellAspectRatio}.`,
         `Target final video aspect ratio: ${layout.targetVideoAspectRatio}.`,
         `Layout preset: ${layout.layoutKind} - ${layout.layoutDescription}.`,
+        `Every cinematic frame artwork area inside every scene cell must preserve ${layout.cellAspectRatio}; do not let any individual frame drift to square, full-board, or a different portrait/landscape ratio.`,
         'Keep margins, gutters, outside-frame numbering, note strips, and typography consistent across the full board.',
         'Each scene cell must make the frame-to-notes relationship clear while keeping production labels outside the actual video-frame artwork.',
         '',
@@ -2407,7 +2414,7 @@ export function compileVideoStoryboardImagePrompt(options) {
         '',
         ...compileStoryboardScenesSection(project),
         'TEXT RENDERING:',
-        'Place scene number, timing, scene title, beat title, and compact production labels outside each video frame in a clearly associated header, footer strip, side rail, or table. Do not overlay scene numbers, timecodes, production notes, Dialogue/VO labels, or Audio/SFX text on top of the video-frame artwork. Also do not overlay scene/beat titles on top of the video-frame artwork. Project titles are metadata, not in-frame text, unless the source explicitly marks them as visible on-screen text. Only user-required diegetic or brand text belongs inside a frame. Quote and spell any required visible text exactly.',
+        'Place scene number, timing, scene title, beat title, and compact production labels outside each video frame in a clearly associated header, footer strip, side rail, or table. Do not overlay scene numbers, timecodes, production notes, Dialogue/VO labels, Audio/SFX text, or SFX/action callout words such as Whoosh!, Impact!, Boom!, Thud!, Slash!, Crack!, or Pop! on top of the video-frame artwork. Also do not overlay scene/beat titles on top of the video-frame artwork. Project titles are metadata, not in-frame text, unless the source explicitly marks them as visible on-screen text. Only user-required diegetic or brand text belongs inside a frame. Quote and spell any required visible text exactly.',
         ...project.endCard.requiredText.map(text => `Required exact visible text: "${text}".`),
         project.endCard.logoUsage ? `Logo usage: ${project.endCard.logoUsage}` : '',
         '',
