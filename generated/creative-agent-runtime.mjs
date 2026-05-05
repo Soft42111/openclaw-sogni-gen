@@ -798,6 +798,31 @@ export function extractLiteralVideoPrompt(text) {
 export function textMentionsStoryboardReference(text) {
     return /\b(?:story\s*board|storyboard|video\s+sequence|sequence\s+sheet|shot\s+sheet|thumbnail\s+sequence|panel\s+sequence)\b/i.test(text);
 }
+export function textExplicitlyRequestsSeedanceFastModel(text) {
+    const mentionsSeedance = /\bseedance(?:\s*2(?:\.0)?)?\b/i.test(text);
+    return /\bseedance(?:\s*2(?:\.0)?)?\s+fast\b/i.test(text)
+        || /\bfast\s+seedance(?:\s*2(?:\.0)?)?\b/i.test(text)
+        || /\b(?:seedance(?:\s*2(?:\.0)?)?\s+)?fast\s+(?:version|variant)\b/i.test(text)
+        || /\b(?:version|variant)\s+(?:should\s+be\s+|is\s+|as\s+)?(?:seedance(?:\s*2(?:\.0)?)?\s+)?fast\b/i.test(text)
+        || (mentionsSeedance && /\bdraft\b/i.test(text))
+        || (mentionsSeedance
+            && /\b(?:use|using|choose|select|set|switch\s+to|with|via)\b[\s\S]{0,40}\bfast\s+model\b/i.test(text));
+}
+export function seedanceRequestUsesStoryboardReferenceForModelDefault(input) {
+    if (input.storyboardDetected === true)
+        return true;
+    const promptText = typeof input.promptText === 'string'
+        ? input.promptText.trim()
+        : '';
+    if (promptText === SEEDANCE_STORYBOARD_REFERENCE_PROMPT)
+        return true;
+    if (!input.hasImageReference)
+        return false;
+    const combinedText = `${input.userIntentText}\n${promptText}`;
+    if (!textMentionsStoryboardReference(combinedText))
+        return false;
+    return /\b(?:seedance|videos?|clips?|animations?|movies?|films?|generate|create|make|render|produce|turn|animate|convert|transform)\b/i.test(combinedText);
+}
 export function textProvidesVideoScriptOrDetailedPrompt(text) {
     const normalized = text
         .replace(/[“”]/g, '"')
