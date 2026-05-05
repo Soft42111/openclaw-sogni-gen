@@ -122,3 +122,18 @@ test('runtime plans Seedance storyboard fallback for a single uploaded image', (
   assert.equal(plan.duration, 9);
   assert.equal(plan.storyboard.reason, 'text_mentions_storyboard');
 });
+
+test('runtime does not collapse storyboard image-stage or overlong video requests into fallback', () => {
+  assert.equal(planSeedanceStoryboardFallback({
+    userIntentText: 'Develop a 15s Seedance video storyboard sequence first, production ready with timing labels.',
+    uploadedImageCount: 1,
+    storyboardDetected: true
+  }), null);
+
+  assert.equal(planSeedanceStoryboardFallback({
+    userIntentText: 'Generate a 45s Seedance video using this storyboard',
+    uploadedImageCount: 1,
+    storyboardDurationSeconds: 12,
+    maxDurationSeconds: 15
+  }), null);
+});

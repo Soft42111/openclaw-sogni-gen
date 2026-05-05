@@ -792,12 +792,15 @@ export function textMentionsStoryboardReference(text) {
     return /\b(?:story\s*board|storyboard|video\s+sequence|sequence\s+sheet|shot\s+sheet|thumbnail\s+sequence|panel\s+sequence)\b/i.test(text);
 }
 export function textProvidesVideoScriptOrDetailedPrompt(text) {
-    const normalized = text.trim();
+    const normalized = text
+        .replace(/[“”]/g, '"')
+        .replace(/[’]/g, "'")
+        .trim();
     if (!normalized)
         return false;
     if (textProvidesLiteralVideoPrompt(normalized))
         return true;
-    if (/\[\s*\d{1,2}(?:[:.]\d{2})?\s*(?:-|to)\s*\d{1,2}(?:[:.]\d{2})?\s*\]/i.test(normalized))
+    if (/\[\s*\d{1,2}(?:[:.]\d{2})?\s*(?:-|–|—|to)\s*\d{1,2}(?:[:.]\d{2})?\s*\]/i.test(normalized))
         return true;
     if (/^\s*(?:style|shot|scene|segment|camera|motion|audio|vo|v\.o\.|voiceover|sfx|fx|music|dialogue)\s*:/im.test(normalized))
         return true;
@@ -887,6 +890,88 @@ function textRequestsAdjacentImageTransitions(text) {
     const mentionsVideoOutput = /\b(?:video|videos|clips?|segments?|stitch|stitched|stitching|montage)\b/.test(lower);
     return mentionsGeneratedSequence && mentionsVideoOutput;
 }
+export function textRequestsSingleCompositeImageOutput(text) {
+    const normalized = text
+        .replace(/[“”]/g, '"')
+        .replace(/[’]/g, "'")
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!normalized)
+        return false;
+    const generationVerbs = String.raw `(?:generate|create|make|render|produce|design|build|develop|draw)`;
+    const imageOutputNouns = String.raw `(?:images?|photos?|pictures?|portraits?|posters?|artwork|illustrations?)`;
+    const compositeNouns = String.raw `(?:story\s*board|storyboard|collage|contact\s+sheet|mood\s*board|moodboard|grid|board)`;
+    const adCreativeNouns = String.raw `(?:ads?|advertisements?|banners?|flyers?|posters?|social\s+posts?|campaign\s+creative|marketing\s+(?:creative|graphic)|promo\s+graphic|product\s+graphic)`;
+    const directVideoFromStoryboard = new RegExp(String.raw `\b(?:generate|create|make|render|produce|turn|animate|convert|transform)\b[\s\S]{0,100}\b(?:videos?|clips?|animations?|movies?|films?)\b[\s\S]{0,140}\b(?:using|with|from|based\s+on|as|following)\b[\s\S]{0,100}\b(?:story\s*board|storyboard)(?:\s+(?:image|photo|picture|reference))?\b`, 'i').test(normalized)
+        || /\b(?:turn|convert|transform|animate)\b[\s\S]{0,120}\b(?:story\s*board|storyboard)\b[\s\S]{0,80}\b(?:into|to|as)\s+(?:a\s+|the\s+)?(?:videos?|clips?|animations?|movies?|films?)\b/i.test(normalized);
+    if (directVideoFromStoryboard && !/\b(?:story\s*board|storyboard)\b[\s\S]{0,60}\bfirst\b/i.test(normalized)) {
+        return false;
+    }
+    const explicitImageOutput = new RegExp(String.raw `\b${generationVerbs}\b[\s\S]{0,180}\b(?:${imageOutputNouns}|${compositeNouns}\s+image|image\s+(?:story\s*board|storyboard|grid|collage|board))\b`, 'i').test(normalized)
+        || new RegExp(String.raw `\b(?:story\s*board|storyboard|grid|collage|contact\s+sheet|mood\s*board|moodboard)\s+${imageOutputNouns}\b`, 'i').test(normalized);
+    const storyboardImageStage = new RegExp(String.raw `\b${generationVerbs}\b[\s\S]{0,180}\b(?:video\s+)?(?:story\s*board|storyboard)(?:\s+(?:sequence|sheet|layout|panel|panels|board))?\b`, 'i').test(normalized)
+        || /\b(?:turn|convert|transform)\b[\s\S]{0,80}\binto\b[\s\S]{0,120}\b(?:video\s+)?(?:story\s*board|storyboard)(?:\s+(?:sequence|sheet|layout|panel|panels|board))?\b/i.test(normalized)
+        || /\b(?:story\s*board|storyboard)\b[\s\S]{0,80}\bfirst\b/i.test(normalized)
+        || /\bfirst\b[\s\S]{0,80}\b(?:story\s*board|storyboard)\b/i.test(normalized);
+    const referenceGuidedAdCreative = new RegExp(String.raw `\b${generationVerbs}\b[\s\S]{0,140}\b${adCreativeNouns}\b`, 'i').test(normalized)
+        && /\b(?:referenc(?:e|es|ed|ing)|use|using|include|incorporate|based\s+on|guided\s+by|with)\b[\s\S]{0,120}\b(?:uploaded|attached|provided|reference|source|input|assets?|images?|photos?|pictures?)\b/i.test(normalized)
+        && !/\b(?:videos?|clips?|animations?|movies?|films?|commercials?)\b/i.test(normalized);
+    if (!explicitImageOutput && !storyboardImageStage && !referenceGuidedAdCreative)
+        return false;
+    if (!referenceGuidedAdCreative
+        && !/\b(?:story\s*board|storyboard|panels?|grid|rows?|columns?|collage|contact\s+sheet|mood\s*board|moodboard|layout|board)\b/i.test(normalized)) {
+        return false;
+    }
+    if (new RegExp(String.raw `\b${generationVerbs}\b[\s\S]{0,100}\b(?:videos?|clips?|animations?|movies?|films?)\b[\s\S]{0,140}\b(?:using|with|from|based\s+on|as)\b[\s\S]{0,100}\b(?:story\s*board|storyboard)(?:\s+(?:image|photo|picture|reference))?\b`, 'i').test(normalized)) {
+        return false;
+    }
+    const explicitSeparateOutputs = new RegExp(String.raw `\b${generationVerbs}\b[\s\S]{0,180}\b(?:separate|individual|distinct|different|multiple)\s+(?:images|photos|pictures|keyframes|frames|versions|variations|variants)\b`, 'i').test(normalized)
+        || /\b(?:images|photos|pictures|keyframes|frames|versions|variations|variants)\b[\s\S]{0,100}\b(?:then|after|before|animate|animation|video|stitch|transition)\b/i.test(normalized);
+    return !explicitSeparateOutputs;
+}
+export function textRequestsDirectMediaAfterPreproduction(text) {
+    const normalized = text
+        .replace(/[“”]/g, '"')
+        .replace(/[’]/g, "'")
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!normalized)
+        return false;
+    return /\b(?:do\s+not|don't|dont|without|no\s+need\s+to)\b[\s\S]{0,80}\b(?:wait|ask|confirm|review|feedback|approval|approve)\b/i.test(normalized)
+        || /\b(?:skip|bypass)\b[\s\S]{0,80}\b(?:review|approval|confirmation|feedback)\b/i.test(normalized)
+        || /\b(?:generate|render|make|create|produce|complete|build|run)\b[\s\S]{0,140}\b(?:everything|all\s+stages|all\s+the\s+way|end\s*-?\s*to\s*-?\s*end|full\s+workflow|complete\s+workflow|the\s+(?:entire|whole)\s+(?:workflow|project|pipeline|thing))\b/i.test(normalized)
+        || /\b(?:go\s+ahead|proceed|run\s+it|do\s+it\s+now|generate\s+directly|render\s+directly|start\s+rendering|send\s+it)\b/i.test(normalized)
+        || /\b(?:after|then|next)\b[\s\S]{0,120}\b(?:immediately|directly|right\s+away|without\s+waiting|without\s+asking)\b[\s\S]{0,120}\b(?:generate|render|make|create|animate|produce)\b/i.test(normalized)
+        || /\b(?:generate|render|make|create|animate|produce)\b[\s\S]{0,120}\b(?:immediately|directly|right\s+away|without\s+waiting|without\s+asking)\b/i.test(normalized);
+}
+export function textRequestsPreproductionScriptStage(text) {
+    const normalized = text
+        .replace(/[“”]/g, '"')
+        .replace(/[’]/g, "'")
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!normalized)
+        return false;
+    const suppliedScript = /\b(?:here\s+is|here's|below\s+is|following\s+is|provided|supplied|existing|approved|final)\b[\s\S]{0,80}\b(?:script|screenplay|story\s*board|storyboard|shot\s*list|beat\s*sheet|treatment)\b/i.test(normalized)
+        || /\b(?:use|send|turn|convert|animate|generate|render|make|create)\b[\s\S]{0,120}\b(?:this|that|existing|approved|final|provided|supplied)\b[\s\S]{0,80}\b(?:script|screenplay|story\s*board|storyboard|shot\s*list|beat\s*sheet|treatment|storyboard\s+image)\b/i.test(normalized);
+    if (suppliedScript)
+        return false;
+    const explicitStoryboardImageOutput = /\b(?:story\s*board|storyboard)\s+(?:image|sheet|grid|layout|poster|board)\b/i.test(normalized)
+        || /\b(?:image|sheet|grid|layout|poster|board)\s+(?:story\s*board|storyboard)\b/i.test(normalized);
+    const mentionsWrittenPlanning = /\b(?:script|screenplay|shot\s*list|beat\s*sheet|treatment|story\s+beats?|video\s+plan|creative\s+brief)\b/i.test(normalized);
+    if (explicitStoryboardImageOutput && !mentionsWrittenPlanning)
+        return false;
+    const planningNoun = String.raw `(?:script|screenplay|story\s*board|storyboard|shot\s*list|beat\s*sheet|treatment|story\s+beats?|video\s+plan|creative\s+brief)`;
+    const planningVerb = String.raw `(?:write|draft|develop|create|make|generate|build|design|outline|plan|map\s*out|break\s*down)`;
+    const asksForPlanning = new RegExp(String.raw `\b${planningVerb}\b[\s\S]{0,140}\b${planningNoun}\b`, 'i').test(normalized)
+        || new RegExp(String.raw `\b${planningNoun}\b[\s\S]{0,120}\b(?:to\s+develop|for\s+review|for\s+approval|before|first|then|next|subsequent|subsequently|later)\b`, 'i').test(normalized)
+        || /\bnew\s+script\s+to\s+develop\b/i.test(normalized);
+    if (!asksForPlanning)
+        return false;
+    const downstreamMediaContext = /\b(?:video|clip|animation|movie|film|seedance|ltx|image|keyframe|storyboard\s+image|storyboard\s+sheet|model|generation|generate|render|animate)\b/i.test(normalized)
+        || /\b(?:used\s+by|enough\s+details?|production\s+ready|prompt-ready|model-ready)\b/i.test(normalized);
+    return downstreamMediaContext;
+}
 export function planSeedanceStoryboardFallback(input) {
     const userIntentText = input.userIntentText;
     const providesLiteralPrompt = input.providesLiteralPrompt
@@ -902,6 +987,8 @@ export function planSeedanceStoryboardFallback(input) {
     if (textExplicitlyRequestsMultipleVideoRenders(userIntentText))
         return null;
     if (textExplicitlyRequestsGeneratedImageStage(userIntentText))
+        return null;
+    if (textRequestsSingleCompositeImageOutput(userIntentText))
         return null;
     if (textRequestsAdjacentImageTransitions(userIntentText))
         return null;
@@ -919,9 +1006,12 @@ export function planSeedanceStoryboardFallback(input) {
     const defaultDuration = input.defaultDurationSeconds ?? 5;
     const maxDuration = input.maxDurationSeconds ?? 15;
     const minDuration = input.minDurationSeconds ?? 4;
-    const intendedDuration = requestedDuration !== null && requestedDuration !== undefined
+    const userProvidedDuration = requestedDuration !== null && requestedDuration !== undefined;
+    const intendedDuration = userProvidedDuration
         ? requestedDuration
         : storyboardDuration ?? defaultDuration;
+    if (userProvidedDuration && intendedDuration > maxDuration)
+        return null;
     return {
         prompt: SEEDANCE_STORYBOARD_REFERENCE_PROMPT,
         duration: Math.max(minDuration, Math.min(maxDuration, intendedDuration)),
