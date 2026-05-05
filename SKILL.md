@@ -179,6 +179,11 @@ negative-index media references through CLI media flags.
 Hosted API modes require `SOGNI_API_KEY`; username/password credentials are only
 for the direct client-wrapper path.
 
+When changing hosted API chat/workflow behavior, keep reusable validation,
+workflow compilation, repair-control, and guard telemetry logic in
+`../sogni-creative-agent` first. The public skill should consume generated or
+copied shared contracts instead of adding skill-local regex guards.
+
 ## Options
 
 | Flag | Description | Default |

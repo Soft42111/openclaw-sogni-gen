@@ -134,6 +134,10 @@ npm run sync:creative-agent-runtime
 
 The generated file is committed at [`generated/creative-agent-runtime.mjs`](./generated/creative-agent-runtime.mjs) so public installs do not need access to the private repo.
 
+Reusable workflow rules should be added to `../sogni-creative-agent` first, then synced here. Keep storyboard planning, tool argument validation, prompt linting, and typed repair/control semantics aligned with `sogni-chat`, `sogni-client`, and `sogni-api` hosted chat/workflow endpoints rather than recreating skill-only regex guards.
+
+Prefer generated or copied shared helpers for hosted workflow compilation, schema argument validation, repair-control decisions, and guard telemetry summaries over skill-local guard code. This keeps public-agent behavior close to `/v1/chat/completions` and `/v1/creative-agent/workflows`.
+
 ### Advanced OpenClaw Config
 
 When loaded through OpenClaw, Sogni Creative Agent Skill reads plugin defaults from OpenClaw config. CLI flags always override those defaults.
