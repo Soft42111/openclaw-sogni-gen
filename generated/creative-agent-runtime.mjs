@@ -5,7 +5,7 @@ function isLtxWorkflow(workflow) {
     return workflow === 't2v' || workflow === 'i2v' || workflow === 'ia2v' || workflow === 'a2v' || workflow === 'v2v';
 }
 export const SKILL_RUNTIME_VERSION = '2026-05-04.1';
-export const SEEDANCE_STORYBOARD_REFERENCE_PROMPT = 'Turn the video storyboard in @Image1 into a video by following the thumbnails and script for each segment in the image.';
+export const SEEDANCE_STORYBOARD_REFERENCE_PROMPT = 'Turn the video storyboard in @Image1 into a video. Treat @Image1 as the controlling source and follow its ordered thumbnails, timecodes, captions, Dialogue/VO, Audio/SFX, camera/motion notes, transitions, visible text, and scene order. Do not invent a different script or substitute a loose summary.';
 export const LTX23_WORKFLOW_MODELS = Object.freeze({
     t2v: 'ltx23-22b-fp8_t2v_distilled',
     i2v: 'ltx23-22b-fp8_i2v_distilled',
@@ -1138,6 +1138,14 @@ export function planCliVideoBrain(input) {
     }
     return plan;
 }
+const DEFAULT_STORYBOARD_TIMING_RULES = {
+    normalWordsPerSecondMin: 2.0,
+    normalWordsPerSecondMax: 3.3,
+    fastWordsPerSecondMax: 4.0,
+    minEndCardHoldSec: 1.4,
+    minPunchlineSec: 0.5,
+    toleranceSec: 0.25,
+};
 function storyboardGcd(a, b) {
     let x = Math.abs(a);
     let y = Math.abs(b);
@@ -1158,7 +1166,14 @@ function ratioFromStoryboardAspectWords(value) {
     if (/^(?:landscape|horizontal|widescreen|16\s*:\s*9)$/i.test(value.trim()))
         return '16:9';
     const match = value.match(/(\d{1,4})\s*:\s*(\d{1,4})/);
-    return match ? `${Number(match[1])}:${Number(match[2])}` : value;
+    if (!match)
+        return value;
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+        return '';
+    }
+    return `${width}:${height}`;
 }
 function inferStoryboardAspectNearUnit(text, unitPattern, rejectBetweenPattern) {
     const aspectPattern = /\b(portrait|vertical|landscape|horizontal|widescreen|\d{1,4}\s*:\s*\d{1,4})\b/gi;
@@ -1166,6 +1181,9 @@ function inferStoryboardAspectNearUnit(text, unitPattern, rejectBetweenPattern) 
     const candidates = [];
     for (const match of text.matchAll(aspectPattern)) {
         const aspect = match[1];
+        const ratio = ratioFromStoryboardAspectWords(aspect);
+        if (!ratio)
+            continue;
         const start = match.index ?? 0;
         const end = start + match[0].length;
         const after = text.slice(end, Math.min(text.length, end + 80));
@@ -1173,7 +1191,7 @@ function inferStoryboardAspectNearUnit(text, unitPattern, rejectBetweenPattern) 
         if (afterUnit?.index !== undefined) {
             const between = after.slice(0, afterUnit.index);
             if (!rejectBetweenPattern.test(between)) {
-                candidates.push({ ratio: ratioFromStoryboardAspectWords(aspect), distance: between.length });
+                candidates.push({ ratio, distance: between.length });
             }
         }
         const before = text.slice(Math.max(0, start - 80), start);
@@ -1182,7 +1200,7 @@ function inferStoryboardAspectNearUnit(text, unitPattern, rejectBetweenPattern) 
         if (beforeUnit?.index !== undefined) {
             const between = before.slice(beforeUnit.index + beforeUnit[0].length);
             if (!rejectBetweenPattern.test(between)) {
-                candidates.push({ ratio: ratioFromStoryboardAspectWords(aspect), distance: between.length });
+                candidates.push({ ratio, distance: between.length });
             }
         }
     }
@@ -1207,7 +1225,10 @@ function inferStoryboardBoardAspectRatio(text) {
 function inferExplicitStoryboardTargetVideoAspectRatio(text) {
     const explicitTarget = text.match(/\b(?:target|final|output|actual|seedance|video|clip|film|commercial|promo)\b[\s\S]{0,80}\b(\d{1,4})\s*:\s*(\d{1,4})\b/i);
     if (explicitTarget) {
-        return `${Number(explicitTarget[1])}:${Number(explicitTarget[2])}`;
+        const width = Number(explicitTarget[1]);
+        const height = Number(explicitTarget[2]);
+        if (width > 0 && height > 0)
+            return `${width}:${height}`;
     }
     return null;
 }
@@ -1308,6 +1329,11 @@ function contextAroundStoryboardReference(text, index) {
         if (nextReference >= 0) {
             end = match.index + match[0].length + nextReference;
         }
+        const afterCurrentReference = text.slice(match.index + match[0].length, end);
+        const nextSentence = afterCurrentReference.search(/[.!?]\s+\S/);
+        if (nextSentence >= 0) {
+            end = Math.min(end, match.index + match[0].length + nextSentence + 1);
+        }
         return text.slice(start, end);
     }
     return text;
@@ -1325,7 +1351,7 @@ function inferStoryboardReferenceRole(index, text) {
             preserve: 'preserve the visible logo shape, typography, spacing, color relationships, and spelling as closely as possible',
         };
     }
-    if (/\b(?:character|mascot|person|people|face|actor|host|protagonist|subject|hero)\b/.test(lower)) {
+    if (/\b(?:character|mascot|person|people|face|actor|host|protagonist|subject|hero|doll|toy|figure|avatar)\b/.test(lower)) {
         return {
             index,
             role: 'character/source subject reference',
@@ -1356,81 +1382,828 @@ function inferStoryboardReferenceRole(index, text) {
         preserve: 'preserve visible details that the brief identifies as important',
     };
 }
-function compileStoryboardReferenceSection(userIntentText, prompt) {
-    const count = inferReferencedStoryboardImageCount(`${userIntentText}\n${prompt}`);
-    if (count <= 0) {
+function storyboardReferenceKindFromRole(role) {
+    const lower = role.role.toLowerCase();
+    if (lower.includes('character') || lower.includes('subject'))
+        return 'character';
+    if (lower.includes('logo') || lower.includes('brand'))
+        return 'logo';
+    if (lower.includes('product') || lower.includes('object'))
+        return 'product';
+    if (lower.includes('style'))
+        return 'style';
+    if (lower.includes('environment') || lower.includes('background'))
+        return 'background';
+    return 'other';
+}
+function storyboardUsageScopeFromRole(role) {
+    const usage = role.usage.toLowerCase();
+    if (/\b(?:end|final|card|cta)\b/.test(usage))
+        return 'end_card_only';
+    if (/\b(?:assigned|specific|explicit)\b/.test(usage))
+        return 'specific_scenes';
+    return 'global';
+}
+function storyboardPreservePriorityFromRole(role) {
+    const kind = storyboardReferenceKindFromRole(role);
+    if (kind === 'logo' || kind === 'character' || kind === 'product')
+        return 'critical';
+    if (kind === 'style' || kind === 'background')
+        return 'high';
+    return 'medium';
+}
+function inferStoryboardReferenceRoles(text) {
+    const count = inferReferencedStoryboardImageCount(text);
+    return Array.from({ length: count }, (_, index) => inferStoryboardReferenceRole(index + 1, text));
+}
+function buildStoryboardReferenceAssets(userIntentText, prompt) {
+    return inferStoryboardReferenceRoles(`${userIntentText}\n${prompt}`).map(role => ({
+        id: `image_${role.index}`,
+        index: role.index,
+        kind: storyboardReferenceKindFromRole(role),
+        description: `${role.role}. Usage: ${role.usage}. Preserve: ${role.preserve}.`,
+        usageScope: storyboardUsageScopeFromRole(role),
+        preservePriority: storyboardPreservePriorityFromRole(role),
+    }));
+}
+function compileStoryboardReferenceSection(project) {
+    const refs = project.references;
+    if (refs.length <= 0) {
         return [
             'REFERENCE IMAGES:',
             'No numbered reference images were explicitly identified. If uploaded references are present in the tool call, preserve their assigned subject, product, logo, style, or background role from the approved brief.',
         ];
     }
-    const roles = Array.from({ length: count }, (_, index) => inferStoryboardReferenceRole(index + 1, `${userIntentText}\n${prompt}`));
     return [
         'REFERENCE IMAGES:',
-        ...roles.map(role => (`Image ${role.index}: ${role.role}. Usage: ${role.usage}. Preserve: ${role.preserve}.`)),
+        ...refs.map(ref => (`${ref.index ? `Image ${ref.index}` : ref.id}: ${ref.description} Usage scope: ${ref.usageScope}. Preserve priority: ${ref.preservePriority}.`)),
     ];
+}
+function extractStoryboardAvoidConstraints(text) {
+    const constraints = [];
+    for (const match of text.matchAll(/\b(?:avoid|do not include|don't include|without|less)\b[\s\S]{0,220}(?:\.|$)/gi)) {
+        const value = match[0].trim();
+        if (value && !constraints.includes(value))
+            constraints.push(value);
+    }
+    return constraints;
+}
+function extractStoryboardRequiredText(text) {
+    const required = new Set();
+    const addRequiredText = (rawValue) => {
+        const value = compactStoryboardLine(rawValue)
+            .replace(/\\"/g, '"')
+            .replace(/^["“”'`]+|["“”'`]+$/g, '')
+            .trim();
+        if (value)
+            required.add(value);
+    };
+    const exactTextPattern = /\b(?:render|show|include|text|copy|cta|tagline|headline|title|brand|logo|wordmark|words?|say(?:s)?|spell(?:ed)?)\b[^"“`\n]{0,120}(?:"([^"]{1,160})"|“([^”]{1,160})”|`([^`]{1,160})`)/gi;
+    for (const match of text.matchAll(exactTextPattern)) {
+        addRequiredText(match[1] ?? match[2] ?? match[3]);
+    }
+    const labeledTextPattern = /\b(?:on[-\s]?screen\s+text|visible\s+text|text\s+only|text|end\s+card\s+text|final\s+text|tagline|cta|headline|title\s+card|copy)\s*:\s*([^\n]{1,260})/gi;
+    for (const match of text.matchAll(labeledTextPattern)) {
+        const value = match[1] || '';
+        for (const quote of value.matchAll(/"([^"]{1,160})"|“([^”]{1,160})”|`([^`]{1,160})`/g)) {
+            addRequiredText(quote[1] ?? quote[2] ?? quote[3]);
+        }
+    }
+    const renderThesePattern = /\b(?:exact words|exact text|required text|final cta|end card text)\b[\s\S]{0,320}/gi;
+    for (const block of text.matchAll(renderThesePattern)) {
+        for (const quote of extractQuotedDialogueSegments(block[0])) {
+            addRequiredText(quote);
+        }
+    }
+    return [...required];
+}
+function inferStoryboardTitle(text) {
+    const titleMatch = text.match(/\b(?:title|working title)\s*:\s*([^\n]{1,120})/i);
+    if (titleMatch?.[1]?.trim())
+        return titleMatch[1].trim().replace(/^["']|["']$/g, '');
+    const quotedTitle = text.match(/\b(?:titled|called)\s+"([^"]{1,120})"/i);
+    if (quotedTitle?.[1]?.trim())
+        return quotedTitle[1].trim();
+    return 'Video Storyboard';
+}
+function compactStoryboardLine(value, fallback = '') {
+    return String(value || fallback).replace(/\s+/g, ' ').trim();
+}
+function stripStoryboardExpansionInstruction(value) {
+    return value
+        .replace(/\s*If the source text contains fewer (?:panel|frame) descriptions, expand those beats into exactly \d{1,2} timecoded frames; do not create (?:a\s+)?(?:\d{1,2}|four|six)[^.]*?or split the storyboard into separate images\./gi, '')
+        .replace(/[ \t]+/g, ' ')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+function normalizeStoryboardBriefKey(value) {
+    return stripStoryboardExpansionInstruction(value)
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}:]+/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+function textHasStoryboardBriefSubstance(value) {
+    const text = stripStoryboardExpansionInstruction(value);
+    if (text.length < 40)
+        return false;
+    return /\b(?:story\s*board|storyboard|video|seedance|commercial|promo|teaser|ad|scene|shot|beat|panel|frame|duration|logo|reference|audio|sfx|foley)\b/i.test(text)
+        || extractStoryboardTiming(text) !== null;
+}
+function isTerseStoryboardRetryInstruction(value) {
+    const text = stripStoryboardExpansionInstruction(value)
+        .toLowerCase()
+        .replace(/[.!?]+$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!text || text.length > 90)
+        return false;
+    return /^(?:try again|retry|redo|rerun|run it again|do it again|go ahead|do it|continue|looks good|approved|approve|yes|yeah|yep|ok|okay|sure|please do|make it)$/.test(text)
+        || /\b(?:try again|retry|redo|do it again)\b/i.test(text);
+}
+function latestSubstantiveStoryboardUserBrief(userIntentText, promptCore) {
+    const promptKey = normalizeStoryboardBriefKey(promptCore);
+    const chunks = userIntentText
+        .split(/\n{1,}/)
+        .map(chunk => chunk.trim())
+        .filter(Boolean)
+        .filter(chunk => normalizeStoryboardBriefKey(chunk) !== promptKey)
+        .filter(textHasStoryboardBriefSubstance);
+    return chunks[chunks.length - 1] || '';
+}
+function selectStoryboardSourceBrief(prompt, userIntentText) {
+    const promptCore = stripStoryboardExpansionInstruction(prompt);
+    const priorBrief = latestSubstantiveStoryboardUserBrief(userIntentText, promptCore);
+    if (priorBrief && (!textHasStoryboardBriefSubstance(promptCore) || isTerseStoryboardRetryInstruction(promptCore))) {
+        return priorBrief;
+    }
+    return promptCore || priorBrief || userIntentText.trim();
+}
+function storyboardBriefContains(haystack, needle) {
+    const haystackKey = normalizeStoryboardBriefKey(haystack);
+    const needleKey = normalizeStoryboardBriefKey(needle);
+    return !!needleKey && haystackKey.includes(needleKey);
+}
+function buildStoryboardSourceBriefForPrompt(prompt, userIntentText, approvedScriptContext) {
+    const selectedBrief = selectStoryboardSourceBrief(prompt, userIntentText);
+    const originalBrief = latestSubstantiveStoryboardUserBrief(userIntentText, selectedBrief);
+    const parts = [];
+    if (originalBrief && !storyboardBriefContains(selectedBrief, originalBrief)) {
+        parts.push(`ORIGINAL USER INTENT:\n${originalBrief}`);
+    }
+    if (selectedBrief) {
+        parts.push(parts.length > 0 ? `STORYBOARD BRIEF:\n${selectedBrief}` : selectedBrief);
+    }
+    if (approvedScriptContext) {
+        parts.push(`APPROVED STORYBOARD SCRIPT CONTEXT TO PRESERVE:\n${approvedScriptContext}`);
+    }
+    return parts.filter(Boolean).join('\n\n');
+}
+function buildStoryboardUserConstraintSource(userIntentText, primarySourceBrief, options) {
+    return [
+        userIntentText,
+        options.approvedScriptContext || '',
+        options.promptAuthorship === 'assistant' ? '' : primarySourceBrief,
+    ].filter(Boolean).join('\n\n');
+}
+function stripStoryboardMarkup(value) {
+    return value
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/?[^>]+>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&quot;/gi, '"')
+        .replace(/\*\*([^*]+)\*\*/g, '$1')
+        .replace(/__([^_]+)__/g, '$1')
+        .replace(/\*([^*]+)\*/g, '$1')
+        .replace(/`([^`]+)`/g, '$1')
+        .split(/\r?\n/)
+        .map(line => line.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '').trim())
+        .filter(Boolean)
+        .join('\n')
+        .trim();
+}
+function storyboardFieldLabelPattern(label) {
+    return label
+        .trim()
+        .split('/')
+        .map(part => part.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join(String.raw `\s*/\s*`);
+}
+function extractStoryboardField(section, labels) {
+    const normalizedSection = stripStoryboardMarkup(section)
+        .split(/\r?\n/)
+        .map(line => line.replace(/^\s*#{1,6}\s*/, '').trim())
+        .filter(Boolean)
+        .join('\n');
+    const labelPattern = labels.map(storyboardFieldLabelPattern).join('|');
+    const match = normalizedSection.match(new RegExp(String.raw `^\s*(?:${labelPattern})\s*:\s*(.+)$`, 'im'));
+    return compactStoryboardLine(match?.[1]);
+}
+function removeStoryboardTimingText(value) {
+    return value
+        .replace(/\b\d{1,2}:\d{2}(?:\.\d+)?\s*(?:-|to|\u2013|\u2014)\s*\d{1,2}:\d{2}(?:\.\d+)?\b/gi, ' ')
+        .replace(/\b\d{1,3}(?:\.\d+)?\s*(?:s|sec|secs|seconds?)?\s*(?:-|to|\u2013|\u2014)\s*\d{1,3}(?:\.\d+)?\s*(?:s|sec|secs|seconds?)?\b/gi, ' ')
+        .replace(/\s*[|]\s*/g, ' ')
+        .replace(/^[-:.)\s|]+|[-:.)\s|]+$/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+function normalizeStoryboardDialogue(value) {
+    const compact = compactStoryboardLine(value);
+    if (!compact)
+        return '';
+    if (/^(?:none|no\s+(?:spoken\s+)?(?:dialogue|vo|voiceover|voice-over|speech)|n\/a|not\s+specified|text\s+only)\b/i.test(compact)) {
+        return '';
+    }
+    const quoted = extractQuotedDialogueSegments(compact)
+        .map(line => compactStoryboardLine(line))
+        .filter(Boolean);
+    if (quoted.length > 0)
+        return quoted.join(' ');
+    const nestedVo = compact.match(/\b(?:VO|V\.O\.|Voiceover|Voice-over|Dialogue|Speech|Narration)\b(?:\s*\([^)]*\))?\s*:\s*(.+)$/i)?.[1];
+    if (nestedVo && !/^(?:none|no\s+(?:spoken\s+)?(?:dialogue|vo|voiceover|voice-over|speech)|n\/a|not\s+specified|text\s+only)\b/i.test(nestedVo)) {
+        return compactStoryboardLine(nestedVo);
+    }
+    return compact;
+}
+function parseStoryboardTimeValue(value) {
+    const trimmed = value.trim();
+    const timecode = trimmed.match(/^(\d{1,2}):(\d{2})(?:\.(\d+))?$/);
+    if (timecode) {
+        const minutes = Number(timecode[1]);
+        const seconds = Number(timecode[2]);
+        const fraction = timecode[3] ? Number(`0.${timecode[3]}`) : 0;
+        if (!Number.isFinite(minutes) || !Number.isFinite(seconds) || seconds >= 60)
+            return null;
+        return Math.round((minutes * 60 + seconds + fraction) * 100) / 100;
+    }
+    const numeric = Number(trimmed);
+    return Number.isFinite(numeric) ? numeric : null;
+}
+function extractStoryboardTiming(text) {
+    const match = text.match(/(\d{1,2}:\d{2}(?:\.\d+)?|\d{1,3}(?:\.\d+)?)\s*(?:s|sec|secs|seconds?)?\s*(?:-|to|\u2013|\u2014)\s*(\d{1,2}:\d{2}(?:\.\d+)?|\d{1,3}(?:\.\d+)?)\s*(?:s|sec|secs|seconds?)?/i);
+    if (!match)
+        return null;
+    const startSec = parseStoryboardTimeValue(match[1]);
+    const endSec = parseStoryboardTimeValue(match[2]);
+    if (startSec === null || endSec === null)
+        return null;
+    if (!Number.isFinite(startSec) || !Number.isFinite(endSec) || endSec <= startSec)
+        return null;
+    return {
+        startSec,
+        endSec,
+        durationSec: Math.round((endSec - startSec) * 100) / 100,
+    };
+}
+function storyboardMarkdownTableCells(line) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('|'))
+        return [];
+    const cells = trimmed
+        .replace(/^\|/, '')
+        .replace(/\|$/, '')
+        .split('|')
+        .map(cell => stripStoryboardMarkup(cell))
+        .map(cell => compactStoryboardLine(cell))
+        .filter(cell => cell.length > 0);
+    if (cells.length < 2)
+        return [];
+    if (cells.every(cell => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, ''))))
+        return [];
+    return cells;
+}
+function splitStoryboardTitleDescription(value) {
+    const cleaned = stripStoryboardMarkup(value);
+    const match = cleaned.match(/^([^:\n]{1,100})\s*:\s*([\s\S]+)$/);
+    if (!match) {
+        return {
+            title: compactStoryboardLine(cleaned.slice(0, 80), 'Storyboard Beat'),
+            description: compactStoryboardLine(cleaned),
+        };
+    }
+    return {
+        title: compactStoryboardLine(match[1], 'Storyboard Beat'),
+        description: compactStoryboardLine(match[2], cleaned),
+    };
+}
+function splitStoryboardTableSections(text) {
+    const sections = [];
+    for (const line of text.split(/\r?\n/)) {
+        const cells = storyboardMarkdownTableCells(line);
+        if (cells.length < 3)
+            continue;
+        const timing = extractStoryboardTiming(cells[0]);
+        if (!timing)
+            continue;
+        const visual = splitStoryboardTitleDescription(cells[1] || '');
+        const cameraLighting = stripStoryboardMarkup(cells[2] || '')
+            .replace(/\s+\b(Lighting|Style|Lighting\/Style|Look)\s*:/gi, '\n$1:');
+        const audioCell = stripStoryboardMarkup(cells[3] || '');
+        const camera = extractStoryboardField(cameraLighting, ['Camera', 'Camera/Motion', 'Framing', 'Shot type']);
+        const lighting = extractStoryboardField(cameraLighting, ['Lighting', 'Style', 'Lighting/Style', 'Look']);
+        const audio = extractStoryboardField(audioCell, ['Audio/SFX', 'Audio', 'SFX', 'FX', 'Foley', 'Sound', 'Sounds'])
+            || compactStoryboardLine(audioCell);
+        const number = sections.length + 1;
+        sections.push({
+            number,
+            heading: `Scene ${number} - ${visual.title} - ${formatStoryboardSeconds(timing.startSec)}-${formatStoryboardSeconds(timing.endSec)}`,
+            body: [
+                `Visual: ${visual.description || visual.title}`,
+                camera ? `Camera: ${camera}` : cameraLighting ? `Camera: ${compactStoryboardLine(cameraLighting)}` : '',
+                lighting ? `Lighting: ${lighting}` : '',
+                audio ? `Audio/SFX: ${audio}` : '',
+            ].filter(Boolean).join('\n'),
+        });
+    }
+    return sections;
+}
+function splitStoryboardSceneSections(text) {
+    const matches = Array.from(text.matchAll(/^\s*(?:#{1,4}\s*)?(?:Scene|Shot|Beat|Panel|Frame)\s*(\d{1,2})\b\s*(?:[-:.)]\s*)?([^\n]*)/gim));
+    if (matches.length === 0)
+        return [];
+    return matches.map((match, index) => {
+        const start = match.index ?? 0;
+        const nextStart = index + 1 < matches.length ? matches[index + 1].index ?? text.length : text.length;
+        return {
+            number: Number(match[1]),
+            heading: compactStoryboardLine(match[0]),
+            body: text.slice(start, nextStart).trim(),
+        };
+    }).filter(section => Number.isInteger(section.number) && section.number > 0);
+}
+function splitStoryboardSections(text) {
+    const sectionHeadings = splitStoryboardSceneSections(text);
+    return sectionHeadings.length > 0 ? sectionHeadings : splitStoryboardTableSections(text);
+}
+function sceneReferencesFromSection(section, references) {
+    const used = references
+        .filter(ref => ref.index && new RegExp(String.raw `\b(?:image|photo|picture|asset)\s*(?:#|number\s*)?${ref.index}\b`, 'i').test(section))
+        .map(ref => ref.id);
+    return used.length > 0 ? used : [];
+}
+function sceneTextRequirementsFromSection(section) {
+    return extractStoryboardRequiredText(section);
+}
+function isNoAudioPlaceholder(value) {
+    return /^(?:no\s+(?:audio|sound|sfx|audio\/sfx)(?:\s+specified)?|none|n\/a|not\s+specified)\.?$/i.test(value.trim());
+}
+function normalizeStoryboardAudioSfx(value) {
+    const compact = compactStoryboardLine(value);
+    if (!compact || isNoAudioPlaceholder(compact))
+        return [];
+    return compact
+        .split(/\s*,\s*|\s*;\s*/)
+        .map(item => item.trim())
+        .filter(Boolean);
+}
+function buildSceneFromSection(section, references, fallbackTiming) {
+    const combined = `${section.heading}\n${section.body}`;
+    const timing = extractStoryboardTiming(combined) ?? fallbackTiming;
+    const title = compactStoryboardLine(removeStoryboardTimingText(section.heading
+        .replace(/^\s*(?:#{1,4}\s*)?(?:Scene|Shot|Beat|Panel|Frame)\s*\d{1,2}\b\s*(?:[-:.)]\s*)?/i, '')), `Scene ${String(section.number).padStart(2, '0')}`);
+    const dialogueField = extractStoryboardField(combined, [
+        'Dialogue/VO',
+        'VO/Dialogue',
+        'Dialogue',
+        'VO',
+        'V.O.',
+        'Voiceover',
+        'Voice-over',
+        'Speech',
+        'Narration',
+    ]);
+    const dialogue = dialogueField
+        ? normalizeStoryboardDialogue(dialogueField)
+        : /\b(?:VO|V\.O\.|voiceover|voice-over|dialogue|speech|narration|says?|speaks?|whispers?|shouts?)\b/i.test(combined)
+            ? extractQuotedDialogueSegments(combined)[0] || ''
+            : '';
+    const audio = extractStoryboardField(combined, ['Audio/SFX', 'Audio/Foley', 'Foley/SFX', 'Audio', 'SFX', 'FX', 'Foley', 'Sound', 'Sounds']);
+    const audioSfx = normalizeStoryboardAudioSfx(audio);
+    return {
+        id: `scene_${String(section.number).padStart(2, '0')}`,
+        title,
+        startSec: timing?.startSec ?? null,
+        endSec: timing?.endSec ?? null,
+        durationSec: timing?.durationSec ?? null,
+        visual: extractStoryboardField(combined, ['Visual/Action', 'Visual Frame', 'Visual', 'Frame', 'Image', 'Shot']) || compactStoryboardLine(section.body.slice(0, 240)),
+        action: extractStoryboardField(combined, ['Action/Motion', 'Action', 'Motion', 'Performance', 'Beat']),
+        camera: extractStoryboardField(combined, ['Camera/Motion', 'Camera', 'Framing', 'Shot type']),
+        lighting: extractStoryboardField(combined, ['Lighting/Style', 'Lighting', 'Style', 'Look']),
+        transitionIn: extractStoryboardField(combined, ['Transition in', 'Transition-in', 'In']),
+        transitionOut: extractStoryboardField(combined, ['Transition', 'Transition out', 'Transition-out', 'Edit']),
+        dialogue,
+        audioSfx,
+        music: extractStoryboardField(combined, ['Music', 'Score', 'Underscore']),
+        referenceUsage: sceneReferencesFromSection(combined, references),
+        textInImage: sceneTextRequirementsFromSection(combined),
+        mustAvoid: extractStoryboardAvoidConstraints(combined),
+    };
+}
+function buildFallbackScenes(frameCount, durationSec, sourceText) {
+    const sceneDuration = durationSec && frameCount > 0
+        ? Math.round((durationSec / frameCount) * 100) / 100
+        : null;
+    return Array.from({ length: frameCount }, (_, index) => {
+        const startSec = sceneDuration !== null ? Math.round(index * sceneDuration * 100) / 100 : null;
+        const endSec = sceneDuration !== null
+            ? index === frameCount - 1 && durationSec !== null
+                ? durationSec
+                : Math.round(((index + 1) * sceneDuration) * 100) / 100
+            : null;
+        return {
+            id: `scene_${String(index + 1).padStart(2, '0')}`,
+            title: `Frame ${String(index + 1).padStart(2, '0')}`,
+            startSec,
+            endSec,
+            durationSec: startSec !== null && endSec !== null ? Math.round((endSec - startSec) * 100) / 100 : null,
+            visual: index === 0 ? compactStoryboardLine(sourceText.slice(0, 260)) : 'Follow the approved source brief for this sequential storyboard beat.',
+            action: '',
+            camera: '',
+            lighting: '',
+            transitionIn: '',
+            transitionOut: '',
+            dialogue: '',
+            audioSfx: [],
+            music: '',
+            referenceUsage: [],
+            textInImage: [],
+            mustAvoid: [],
+        };
+    });
+}
+function assignVoiceLinesToScenes(scenes, sourceText) {
+    const sceneLines = scenes.flatMap(scene => {
+        const dialogue = scene.dialogue.trim();
+        if (!dialogue)
+            return [];
+        const quoted = extractQuotedDialogueSegments(dialogue);
+        const lines = quoted.length > 0 ? quoted : [dialogue];
+        return lines.map((text) => ({
+            text,
+            sceneId: scene.id,
+            startSec: scene.startSec,
+            endSec: scene.endSec,
+            delivery: '',
+            priority: 'required',
+        }));
+    });
+    if (sceneLines.length > 0)
+        return sceneLines;
+    const quoted = extractQuotedDialogueSegments(sourceText);
+    return quoted.map((text, index) => {
+        const scene = scenes[Math.min(index, Math.max(0, scenes.length - 1))];
+        return {
+            text,
+            sceneId: scene?.id ?? 'scene_01',
+            startSec: scene?.startSec ?? null,
+            endSec: scene?.endSec ?? null,
+            delivery: '',
+            priority: 'required',
+        };
+    });
+}
+function inferStoryboardToneProgression(text) {
+    const progression = text.match(/\b(?:tone progression|progression|arc)\s*:\s*([^\n]{1,240})/i)?.[1];
+    if (!progression)
+        return [];
+    return progression.split(/\s*(?:->|,|;|\|)\s*/).map(item => item.trim()).filter(Boolean);
+}
+function inferEndCard(projectText, references, requiredText) {
+    const logo = references.find(ref => ref.kind === 'logo');
+    const endBlock = projectText.match(/\b(?:end card|cta|final card|brand resolve|logo reveal)\b[\s\S]{0,420}/i)?.[0] ?? '';
+    return {
+        requiredText,
+        logoUsage: logo
+            ? `${logo.id} should be used according to its ${logo.usageScope} usage scope.`
+            : 'Use any approved logo or brand reference only where the source brief assigns it.',
+        backgroundStyle: extractStoryboardField(endBlock, ['Background', 'Background style', 'Visual', 'Style']),
+        composition: extractStoryboardField(endBlock, ['Composition', 'Layout', 'Camera']) || compactStoryboardLine(endBlock.slice(0, 180)),
+    };
+}
+export function buildStoryboardProject(options) {
+    const prompt = options.prompt.trim();
+    const userIntentText = options.userIntentText.trim();
+    const primarySourceBrief = selectStoryboardSourceBrief(prompt, userIntentText);
+    const sourceText = [
+        primarySourceBrief,
+        options.approvedScriptContext
+            ? `APPROVED STORYBOARD SCRIPT CONTEXT TO PRESERVE:\n${options.approvedScriptContext}`
+            : '',
+    ].filter(Boolean).join('\n\n');
+    const allText = `${userIntentText}\n${sourceText}`;
+    const layout = inferStoryboardLayoutSpec(userIntentText, options.frameCount);
+    const durationSec = inferRequestedTotalVideoDurationSeconds(allText);
+    const references = buildStoryboardReferenceAssets(userIntentText, prompt);
+    const approvedSections = options.approvedScriptContext
+        ? splitStoryboardSections(options.approvedScriptContext)
+        : [];
+    const sections = approvedSections.length > 0
+        ? approvedSections
+        : splitStoryboardSections(sourceText);
+    const sceneCountForTiming = sections.length > 0 ? sections.length : options.frameCount;
+    const equalDuration = durationSec && sceneCountForTiming > 0
+        ? Math.round((durationSec / sceneCountForTiming) * 100) / 100
+        : null;
+    const scenes = sections.length > 0
+        ? sections.map((section, index) => {
+            const fallbackTiming = equalDuration !== null
+                ? {
+                    startSec: Math.round(index * equalDuration * 100) / 100,
+                    endSec: index === sceneCountForTiming - 1 && durationSec !== null
+                        ? durationSec
+                        : Math.round((index + 1) * equalDuration * 100) / 100,
+                    durationSec: index === sceneCountForTiming - 1 && durationSec !== null
+                        ? Math.round((durationSec - index * equalDuration) * 100) / 100
+                        : equalDuration,
+                }
+                : null;
+            return buildSceneFromSection(section, references, fallbackTiming);
+        })
+        : buildFallbackScenes(options.frameCount, durationSec, sourceText);
+    const userConstraintSource = buildStoryboardUserConstraintSource(userIntentText, primarySourceBrief, options);
+    const requiredText = extractStoryboardRequiredText(userConstraintSource);
+    const voiceLines = assignVoiceLinesToScenes(scenes, sourceText);
+    return {
+        title: inferStoryboardTitle(allText),
+        durationSec,
+        outputAspectRatio: layout.boardAspectRatio,
+        frameAspectRatio: layout.cellAspectRatio,
+        targetVideoAspectRatio: layout.targetVideoAspectRatio,
+        boardLayout: layout.layoutKind,
+        intendedUse: /commercial|ad|promo|launch/i.test(allText) ? 'commercial storyboard' : 'video storyboard',
+        references,
+        creativeBrief: {
+            concept: compactStoryboardLine(primarySourceBrief || prompt || userIntentText),
+            toneProgression: inferStoryboardToneProgression(allText),
+            mustInclude: requiredText,
+            mustAvoid: extractStoryboardAvoidConstraints(userConstraintSource),
+            brandRules: requiredText.length > 0 ? requiredText.map(text => `Preserve exact visible text: "${text}"`) : [],
+            visualQualityBar: /production[-\s]?ready|premium|commercial|cinematic|high[-\s]?end/i.test(allText)
+                ? 'production-ready commercial storyboard sheet'
+                : 'clean readable storyboard sheet',
+        },
+        voiceover: {
+            fullScript: voiceLines.map(line => line.text).join('\n'),
+            lines: voiceLines,
+        },
+        scenes,
+        endCard: inferEndCard(allText, references, requiredText),
+    };
+}
+export function validateStoryboardProjectTiming(project, rules = DEFAULT_STORYBOARD_TIMING_RULES) {
+    const issues = [];
+    const timedScenes = project.scenes
+        .filter(scene => scene.startSec !== null && scene.endSec !== null && scene.durationSec !== null)
+        .slice()
+        .sort((a, b) => (a.startSec ?? 0) - (b.startSec ?? 0));
+    if (project.durationSec === null) {
+        issues.push({
+            severity: 'warning',
+            code: 'missing_target_duration',
+            message: 'No target video duration was detected; timing checks are limited to scene-local ranges.',
+            repair: 'Add an explicit total duration such as 15 seconds when this storyboard is meant to drive a video.',
+        });
+    }
+    if (timedScenes.length < project.scenes.length) {
+        issues.push({
+            severity: 'warning',
+            code: 'missing_scene_timing',
+            message: `${project.scenes.length - timedScenes.length} scene(s) do not have explicit start/end/duration timing.`,
+            repair: 'Add start and end seconds for every storyboard scene before video generation.',
+        });
+    }
+    for (const scene of timedScenes) {
+        const start = scene.startSec ?? 0;
+        const end = scene.endSec ?? 0;
+        const duration = scene.durationSec ?? 0;
+        if (end <= start || duration <= 0) {
+            issues.push({
+                severity: 'error',
+                code: 'invalid_scene_range',
+                sceneId: scene.id,
+                message: `${scene.id} has an invalid timing range.`,
+                repair: 'Set startSec < endSec and durationSec to the range length.',
+            });
+            continue;
+        }
+        const dialogueWords = countWords(scene.dialogue);
+        if (dialogueWords > 0) {
+            const wordsPerSecond = dialogueWords / duration;
+            if (wordsPerSecond > rules.fastWordsPerSecondMax) {
+                issues.push({
+                    severity: 'error',
+                    code: 'dialogue_too_dense',
+                    sceneId: scene.id,
+                    message: `${scene.id} has about ${dialogueWords} spoken words in ${duration}s (${wordsPerSecond.toFixed(1)} words/sec).`,
+                    repair: 'Shorten the line, increase the scene duration, or split the dialogue into another scene.',
+                });
+            }
+            else if (wordsPerSecond > rules.normalWordsPerSecondMax) {
+                issues.push({
+                    severity: 'warning',
+                    code: 'dialogue_fast',
+                    sceneId: scene.id,
+                    message: `${scene.id} dialogue is fast at ${wordsPerSecond.toFixed(1)} words/sec.`,
+                    repair: 'Prefer less dialogue or more time for cleaner delivery.',
+                });
+            }
+        }
+        const isPunchline = dialogueWords > 0
+            && dialogueWords <= 3
+            && /\b(?:punchline|reveal|joke|twist|tag)\b/i.test(`${scene.title}\n${scene.dialogue}`);
+        if (isPunchline && duration < rules.minPunchlineSec) {
+            issues.push({
+                severity: 'warning',
+                code: 'punchline_hold_too_short',
+                sceneId: scene.id,
+                message: `${scene.id} punchline/reveal hold is only ${duration}s.`,
+                repair: `Hold punchline/reveal scenes for at least ${rules.minPunchlineSec}s.`,
+            });
+        }
+        const isEndCard = /\b(?:end card|cta|final|logo|brand resolve)\b/i.test(`${scene.title}\n${scene.visual}`);
+        if (isEndCard && duration < rules.minEndCardHoldSec) {
+            issues.push({
+                severity: 'warning',
+                code: 'end_card_hold_too_short',
+                sceneId: scene.id,
+                message: `${scene.id} end-card hold is only ${duration}s.`,
+                repair: `Hold the CTA/end card for at least ${rules.minEndCardHoldSec}s when the user requested brand text or logo readability.`,
+            });
+        }
+    }
+    for (let index = 1; index < timedScenes.length; index += 1) {
+        const previous = timedScenes[index - 1];
+        const current = timedScenes[index];
+        const previousEnd = previous.endSec ?? 0;
+        const currentStart = current.startSec ?? 0;
+        const delta = Math.round((currentStart - previousEnd) * 100) / 100;
+        if (delta < -rules.toleranceSec) {
+            issues.push({
+                severity: 'error',
+                code: 'overlapping_scene_ranges',
+                sceneId: current.id,
+                message: `${current.id} overlaps the previous scene by ${Math.abs(delta).toFixed(2)}s.`,
+                repair: 'Adjust scene start/end ranges so they do not overlap.',
+            });
+        }
+        else if (delta > rules.toleranceSec) {
+            issues.push({
+                severity: 'warning',
+                code: 'scene_timing_gap',
+                sceneId: current.id,
+                message: `${current.id} starts ${delta.toFixed(2)}s after the previous scene ends.`,
+                repair: 'Remove unintentional gaps or mark them as intentional holds.',
+            });
+        }
+    }
+    const totalSceneDurationSec = timedScenes.length > 0
+        ? Math.round(timedScenes.reduce((sum, scene) => sum + (scene.durationSec ?? 0), 0) * 100) / 100
+        : null;
+    if (project.durationSec !== null && totalSceneDurationSec !== null) {
+        const diff = Math.abs(totalSceneDurationSec - project.durationSec);
+        if (diff > rules.toleranceSec) {
+            issues.push({
+                severity: 'error',
+                code: 'scene_total_duration_mismatch',
+                message: `Timed scenes add up to ${totalSceneDurationSec}s but the target duration is ${project.durationSec}s.`,
+                repair: 'Repair scene durations so their total matches the requested video duration.',
+            });
+        }
+    }
+    return {
+        ok: issues.every(issue => issue.severity !== 'error'),
+        issues,
+        totalSceneDurationSec,
+        timedSceneCount: timedScenes.length,
+    };
 }
 function compileStoryboardCriticalRequirements() {
     return [
         'Preserve user-provided jokes, slogans, dialogue, brand copy, timings, and scene order unless the source brief explicitly asks for a rewrite.',
-        'Use concise readable in-image labels. Do not place long paragraphs of production notes inside every cell.',
-        'Every scene cell must include compact fields for Time, Visual/Action, Camera/Motion, Lighting/Style, and Audio/SFX.',
+        'Divide each scene cell into a clean video-frame artwork area plus a clearly associated note/header/footer area. Put Time, scene/frame numbers, Visual/Action, Camera/Motion, Lighting/Style, Dialogue/VO, and Audio/SFX outside the video frame artwork, never overlaid on top of the cinematic frame.',
+        'Use concise readable storyboard labels in the non-frame note areas. Do not place long paragraphs of production notes inside every cell.',
+        'Every scene cell must include compact fields for Time, Visual/Action, Camera/Motion, Lighting/Style, Dialogue/VO, and Audio/SFX, attached to the correct frame but outside the video-frame artwork.',
+        'When audio is not explicitly supplied, propose scene-appropriate audio, ambience, music bed, and foley/SFX generically. Do not label a scene silent, muted, or "no audio" unless the source brief explicitly requests silence.',
         'Keep character, product, logo, and style references bound to their assigned scenes. Do not replace referenced assets with invented substitutes.',
     ];
 }
 function compileStoryboardAvoidSection(userIntentText) {
     const avoidLines = [
         'Avoid malformed text, misspelled brand words, inconsistent reference identities, missing scene cells, wrong timings, and mismatched board/cell aspect ratios.',
+        'Avoid scene numbers, timing badges, timecodes, production tables, Dialogue/VO labels, Audio/SFX labels, or other production notes overlaid inside the video frame artwork.',
     ];
-    const avoidMatch = userIntentText.match(/\b(?:avoid|do not include|don't include|without|less)\b[\s\S]{0,220}(?:\.|$)/i);
-    if (avoidMatch) {
-        avoidLines.push(`Preserve this user avoid-list constraint: ${avoidMatch[0].trim()}`);
+    for (const constraint of extractStoryboardAvoidConstraints(userIntentText)) {
+        avoidLines.push(`Preserve this user avoid-list constraint: ${constraint}`);
     }
     return avoidLines;
 }
+function formatStoryboardSeconds(value) {
+    return value === null ? 'unspecified' : `${Number(value.toFixed(2))}s`;
+}
+function defaultStoryboardAudioSfxLine() {
+    return 'Scene-appropriate audio bed, ambience, and foley/SFX matching the action; do not mark silent/no audio unless the source brief explicitly requests silence.';
+}
+function compileStoryboardScenesSection(project) {
+    if (project.scenes.length === 0)
+        return [];
+    const lines = ['SCENES:'];
+    for (const scene of project.scenes) {
+        const timing = scene.startSec !== null && scene.endSec !== null
+            ? `${formatStoryboardSeconds(scene.startSec)}-${formatStoryboardSeconds(scene.endSec)}`
+            : 'timing unspecified';
+        lines.push(`${scene.id.toUpperCase()} - ${scene.title} - ${timing}`);
+        lines.push(`Visual/Action: ${[scene.visual, scene.action].filter(Boolean).join(' ') || 'Follow the approved storyboard beat.'}`);
+        lines.push(`Camera/Motion: ${scene.camera || 'Use the approved storyboard framing and motion notes.'}`);
+        lines.push(`Lighting/Style: ${scene.lighting || 'Use the approved storyboard lighting and style notes.'}`);
+        if (scene.transitionIn || scene.transitionOut) {
+            lines.push(`Transition: ${[scene.transitionIn, scene.transitionOut].filter(Boolean).join(' / ')}`);
+        }
+        lines.push(`Dialogue/VO: ${scene.dialogue || 'No spoken dialogue or VO specified.'}`);
+        lines.push(`Audio/SFX: ${scene.audioSfx.length > 0 ? scene.audioSfx.join(', ') : defaultStoryboardAudioSfxLine()}`);
+        if (scene.music)
+            lines.push(`Music: ${scene.music}`);
+        if (scene.referenceUsage.length > 0)
+            lines.push(`Reference usage: ${scene.referenceUsage.join(', ')}`);
+        if (scene.textInImage.length > 0)
+            lines.push(`Visible text: ${scene.textInImage.map(text => `"${text}"`).join(', ')}`);
+        if (scene.mustAvoid.length > 0)
+            lines.push(`Avoid: ${scene.mustAvoid.join('; ')}`);
+        lines.push('');
+    }
+    return lines;
+}
+function compileStoryboardTimingValidationSection(project) {
+    const validation = validateStoryboardProjectTiming(project);
+    if (validation.issues.length === 0) {
+        return [
+            'TIMING VALIDATION:',
+            `Passed deterministic timing validation for ${validation.timedSceneCount} timed scene(s).`,
+        ];
+    }
+    return [
+        'TIMING VALIDATION:',
+        ...validation.issues.map(issue => {
+            const prefix = issue.severity === 'error' ? 'ERROR' : 'WARNING';
+            const repair = issue.repair ? ` Repair: ${issue.repair}` : '';
+            return `${prefix} ${issue.code}: ${issue.message}${repair}`;
+        }),
+        'Resolve any ERROR items before treating this as video-model-ready; WARNING items should be preserved as visible timing notes or repaired if possible.',
+    ];
+}
 export function compileVideoStoryboardImagePrompt(options) {
-    const prompt = options.prompt.trim();
     const userIntentText = options.userIntentText.trim();
-    const layout = inferStoryboardLayoutSpec(userIntentText, options.frameCount);
-    const sourceBrief = [
-        prompt,
-        options.approvedScriptContext
-            ? `APPROVED STORYBOARD SCRIPT CONTEXT TO PRESERVE:\n${options.approvedScriptContext}`
-            : '',
-    ].filter(Boolean).join('\n\n');
+    const project = buildStoryboardProject(options);
+    const compiledFrameCount = project.scenes.length || options.frameCount;
+    const layout = inferStoryboardLayoutSpec(userIntentText, compiledFrameCount);
+    const sourceBrief = buildStoryboardSourceBriefForPrompt(options.prompt.trim(), userIntentText, options.approvedScriptContext);
+    const selectedBrief = selectStoryboardSourceBrief(options.prompt.trim(), userIntentText);
+    const avoidSource = buildStoryboardUserConstraintSource(userIntentText, selectedBrief, options);
     const boardSizeLine = layout.boardDimensions
         ? `Overall storyboard canvas: ${layout.boardDimensions} pixels (${layout.boardAspectRatio}).`
         : `Overall storyboard canvas aspect ratio: ${layout.boardAspectRatio}.`;
     return [
         'CREATE:',
-        `Create exactly ${options.frameCount} sequential video storyboard frames as one composite storyboard image.`,
+        `Create exactly ${compiledFrameCount} sequential video storyboard frames as one composite storyboard image.`,
+        `Project title: ${project.title}.`,
+        project.durationSec !== null ? `Target duration: ${project.durationSec} seconds.` : 'Target duration: unspecified in source brief.',
         '',
-        ...compileStoryboardReferenceSection(userIntentText, prompt),
+        ...compileStoryboardReferenceSection(project),
         '',
         'CANVAS / LAYOUT:',
         boardSizeLine,
         `Individual scene-cell/frame aspect ratio: ${layout.cellAspectRatio}.`,
         `Target final video aspect ratio: ${layout.targetVideoAspectRatio}.`,
         `Layout preset: ${layout.layoutKind} - ${layout.layoutDescription}.`,
-        'Keep margins, gutters, frame numbering, and typography consistent across the full board.',
+        'Keep margins, gutters, outside-frame numbering, note strips, and typography consistent across the full board.',
+        'Each scene cell must make the frame-to-notes relationship clear while keeping production labels outside the actual video-frame artwork.',
         '',
         'GLOBAL STYLE:',
-        'Production-ready commercial storyboard sheet with cinematic shot language, coherent art direction, readable labels, and consistent reference usage.',
+        `${project.creativeBrief.visualQualityBar} with cinematic shot language, coherent art direction, readable labels, and consistent reference usage.`,
         '',
         'CRITICAL REQUIREMENTS:',
         ...compileStoryboardCriticalRequirements().map((item, index) => `${index + 1}. ${item}`),
+        ...project.references
+            .filter(ref => ref.preservePriority === 'critical')
+            .map((ref, index) => `${compileStoryboardCriticalRequirements().length + index + 1}. Critical reference lock: ${ref.id} (${ref.kind}) must remain bound to its assigned usage scope: ${ref.usageScope}.`),
         '',
+        ...compileStoryboardTimingValidationSection(project),
+        '',
+        ...compileStoryboardScenesSection(project),
         'TEXT RENDERING:',
-        'Use short visible labels only: scene number, timing, scene title, one brief VO/dialogue line where needed, and compact production labels. Quote and spell any required visible text exactly.',
+        'Place scene number, timing, scene title, and compact production labels outside each video frame in a clearly associated header, footer strip, side rail, or table. Do not overlay scene numbers, timecodes, production notes, Dialogue/VO labels, or Audio/SFX text on top of the video-frame artwork. Only user-required diegetic or brand text belongs inside a frame. Quote and spell any required visible text exactly.',
+        ...project.endCard.requiredText.map(text => `Required exact visible text: "${text}".`),
+        project.endCard.logoUsage ? `Logo usage: ${project.endCard.logoUsage}` : '',
         '',
         'SOURCE BRIEF TO FOLLOW:',
         sourceBrief,
         '',
         'NEGATIVE / AVOID:',
-        ...compileStoryboardAvoidSection(`${userIntentText}\n${prompt}`).map(item => `- ${item}`),
+        ...compileStoryboardAvoidSection(avoidSource).map(item => `- ${item}`),
     ].join('\n');
 }
-export function lintStoryboardImagePrompt(prompt, layout) {
+export function lintStoryboardImagePrompt(prompt, layout, project) {
     const errors = [];
     const warnings = [];
     if (!/CREATE:/i.test(prompt))
@@ -1451,10 +2224,39 @@ export function lintStoryboardImagePrompt(prompt, layout) {
     if (!prompt.includes(`Target final video aspect ratio: ${layout.targetVideoAspectRatio}`)) {
         errors.push(`missing target video aspect ratio ${layout.targetVideoAspectRatio}`);
     }
+    if (!/\bDialogue\/VO\b/i.test(prompt))
+        warnings.push('missing explicit Dialogue/VO field');
     if (!/\bAudio\/SFX\b/i.test(prompt))
         warnings.push('missing explicit Audio/SFX field');
     if (/\bparagraphs?\s+inside\s+each\s+(?:cell|frame|panel)\b/i.test(prompt)) {
         warnings.push('prompt may encourage dense paragraphs inside storyboard cells');
+    }
+    if (project) {
+        const sceneCount = project.scenes.length;
+        if (sceneCount > 0 && !new RegExp(String.raw `Create exactly\s+${sceneCount}\s+sequential video storyboard frames`, 'i').test(prompt)) {
+            errors.push(`missing exact scene count ${sceneCount}`);
+        }
+        for (const ref of project.references.filter(item => item.preservePriority === 'critical')) {
+            const refPattern = ref.index
+                ? new RegExp(String.raw `\bImage\s+${ref.index}\b`, 'i')
+                : new RegExp(String.raw `\b${ref.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\b`, 'i');
+            if (!refPattern.test(prompt)) {
+                errors.push(`missing critical reference ${ref.id}`);
+            }
+        }
+        for (const requiredText of [
+            ...project.creativeBrief.mustInclude,
+            ...project.endCard.requiredText,
+        ]) {
+            if (requiredText && !prompt.includes(requiredText)) {
+                errors.push(`missing required text "${requiredText}"`);
+            }
+        }
+        const timing = validateStoryboardProjectTiming(project);
+        for (const issue of timing.issues) {
+            const target = issue.severity === 'error' ? errors : warnings;
+            target.push(`timing ${issue.code}: ${issue.message}`);
+        }
     }
     return {
         ok: errors.length === 0,
