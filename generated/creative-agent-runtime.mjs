@@ -940,7 +940,12 @@ export function textRequestsSingleCompositeImageOutput(text) {
         return false;
     const directVideoFromStoryboard = new RegExp(String.raw `\b(?:generate|create|make|render|produce|turn|animate|convert|transform)\b[\s\S]{0,100}\b(?:videos?|clips?|animations?|movies?|films?)\b[\s\S]{0,140}\b(?:using|with|from|based\s+on|as|following)\b[\s\S]{0,100}\b(?:story\s*board|storyboard)(?:\s+(?:image|photo|picture|reference))?\b`, 'i').test(normalized)
         || /\b(?:turn|convert|transform|animate)\b[\s\S]{0,120}\b(?:story\s*board|storyboard)\b[\s\S]{0,80}\b(?:into|to|as)\s+(?:a\s+|the\s+)?(?:videos?|clips?|animations?|movies?|films?)\b/i.test(normalized);
-    if (directVideoFromStoryboard && !/\b(?:story\s*board|storyboard)\b[\s\S]{0,60}\bfirst\b/i.test(normalized)) {
+    const noReferenceConnectorBeforeStoryboard = String.raw `(?:(?!\b(?:using|with|from|based\s+on|as|following)\b)[\s\S])`;
+    const explicitStoryboardImageOrSheetRequest = new RegExp(String.raw `\b(?:generate|create|make|render|produce|design|build|develop|draw)\b${noReferenceConnectorBeforeStoryboard}{0,180}\b(?:video\s+)?(?:story\s*board|storyboard)\s+(?:image|sheet|grid|layout|page|board)\b`, 'i').test(normalized)
+        || /\b(?:story\s*board|storyboard)\s+(?:image|sheet|grid|layout|page|board)\b[\s\S]{0,120}\b(?:for|of)\s+(?:a\s+|the\s+)?(?:videos?|clips?|animations?|movies?|films?|social\s+media\s+video)\b/i.test(normalized);
+    if (directVideoFromStoryboard
+        && !explicitStoryboardImageOrSheetRequest
+        && !/\b(?:story\s*board|storyboard)\b[\s\S]{0,60}\bfirst\b/i.test(normalized)) {
         return false;
     }
     const explicitImageOutput = new RegExp(String.raw `\b${generationVerbs}\b[\s\S]{0,180}\b(?:${imageOutputNouns}|${compositeNouns}\s+image|image\s+(?:story\s*board|storyboard|grid|collage|board))\b`, 'i').test(normalized)
@@ -958,7 +963,8 @@ export function textRequestsSingleCompositeImageOutput(text) {
         && !/\b(?:story\s*board|storyboard|panels?|grid|rows?|columns?|collage|contact\s+sheet|mood\s*board|moodboard|layout|board)\b/i.test(normalized)) {
         return false;
     }
-    if (new RegExp(String.raw `\b${generationVerbs}\b[\s\S]{0,100}\b(?:videos?|clips?|animations?|movies?|films?)\b[\s\S]{0,140}\b(?:using|with|from|based\s+on|as)\b[\s\S]{0,100}\b(?:story\s*board|storyboard)(?:\s+(?:image|photo|picture|reference))?\b`, 'i').test(normalized)) {
+    const directVideoStoryboardReference = new RegExp(String.raw `\b${generationVerbs}\b[\s\S]{0,100}\b(?:videos?|clips?|animations?|movies?|films?)\b[\s\S]{0,140}\b(?:using|with|from|based\s+on|as)\b[\s\S]{0,100}\b(?:story\s*board|storyboard)(?:\s+(?:image|photo|picture|reference))?\b`, 'i').test(normalized);
+    if (directVideoStoryboardReference && !explicitStoryboardImageOrSheetRequest) {
         return false;
     }
     const explicitSeparateOutputs = new RegExp(String.raw `\b${generationVerbs}\b[\s\S]{0,180}\b(?:separate|individual|distinct|different|multiple)\s+(?:images|photos|pictures|keyframes|frames|versions|variations|variants)\b`, 'i').test(normalized)
@@ -1679,8 +1685,17 @@ function extractStoryboardRequiredText(text) {
         const lineEnd = nextLineBreak >= 0 ? nextLineBreak : text.length;
         const line = text.slice(lineStart, lineEnd);
         const looksLikeAssetHandle = /\.\.\.|(?:^|[./_-])(?:png|jpe?g|webp|gif|svg)$|[a-f0-9]{8}-[a-f0-9-]{8,}/i.test(value);
+        const fieldLabel = line.match(/^\s*(?:[-*+]\s*)?(?:[*_]{1,3})?\s*([^:\n]{1,60})\s*:/)?.[1] ?? '';
+        const isProductionDirectionField = /\b(?:action|motion|camera|transition|audio|sfx|fx|foley|sound|music|lighting|style|performance|beat)\b/i.test(fieldLabel)
+            && !/\b(?:visible|on[-\s]?screen|in[-\s]?frame|text|copy|cta|tagline|headline|title\s+card|caption|subtitle|super|wordmark|spell(?:ed)?|read(?:s)?)\b/i.test(fieldLabel);
+        const hasExplicitVisibleTextContext = /\b(?:visible|on[-\s]?screen|in[-\s]?frame|text|copy|cta|tagline|headline|title\s+card|caption|subtitle|super|wordmark|spell(?:ed)?|read(?:s)?|slogan)\b/i.test(line);
+        const looksLikeActionOrSfxCallout = /^[a-z][a-z-]{1,24}$/i.test(value.trim())
+            && /\b(?:action|motion|transition|audio|sfx|fx|foley|sound|music|camera|performance|beat|pop(?:s|ped|ping)?|snap(?:s|ped|ping)?|whoosh(?:es)?|thud(?:s|ded|ding)?|ding(?:s|ed|ing)?|boom(?:s|ed|ing)?|impact(?:s|ed|ing)?|hit(?:s|ting)?|slam(?:s|med|ming)?|wipe(?:s|d|ing)?|glitch(?:es|ed|ing)?|morph(?:s|ed|ing)?|bounce(?:s|d|ing)?|zoom(?:s|ed|ing)?)\b/i.test(line);
         if (/\b(?:working\s+title|project\s+title)\b/i.test(line)
             && !/\b(?:title\s+card|on[-\s]?screen|visible|text|copy|cta|headline|tagline)\b/i.test(line)) {
+            return true;
+        }
+        if ((isProductionDirectionField || looksLikeActionOrSfxCallout) && !hasExplicitVisibleTextContext) {
             return true;
         }
         if (looksLikeAssetHandle
@@ -2131,6 +2146,25 @@ function buildFallbackScenes(frameCount, durationSec, sourceText) {
         };
     });
 }
+function quotedStoryboardVoiceLinesFromText(text) {
+    const lines = [];
+    for (const rawLine of text.split(/\r?\n/)) {
+        const line = compactStoryboardLine(stripStoryboardMarkup(rawLine));
+        if (!line || !/"[^"]{1,800}"/.test(line))
+            continue;
+        const fieldLabel = line.match(/^\s*(?:[-*+]\s*)?(?:[*_]{1,3})?\s*([^:\n]{1,60})\s*:/)?.[1] ?? '';
+        const isExplicitVoiceField = /\b(?:dialogue|vo|v\.o\.|voiceover|voice-over|speech|narration|spoken)\b/i.test(fieldLabel);
+        const isNonVoiceProductionField = /\b(?:audio|sfx|fx|foley|sound|music|action|motion|transition|camera|lighting|style|visual|visible|text|copy|cta|tagline|headline|title\s+card|caption|subtitle|super)\b/i.test(fieldLabel)
+            && !isExplicitVoiceField;
+        const hasSpeechVerb = /\b(?:says?|speaks?|speaking|asks?|replies?|responds?|whispers?|shouts?|yells?|sings?|narrates?|voiceover|voice-over)\b/i.test(line);
+        if (isNonVoiceProductionField && !hasSpeechVerb)
+            continue;
+        if (!isExplicitVoiceField && !hasSpeechVerb)
+            continue;
+        lines.push(...extractQuotedDialogueSegments(line).map(item => compactStoryboardLine(item)).filter(Boolean));
+    }
+    return lines;
+}
 function assignVoiceLinesToScenes(scenes, sourceText) {
     const sceneLines = scenes.flatMap(scene => {
         const dialogue = scene.dialogue.trim();
@@ -2149,7 +2183,7 @@ function assignVoiceLinesToScenes(scenes, sourceText) {
     });
     if (sceneLines.length > 0)
         return sceneLines;
-    const quoted = extractQuotedDialogueSegments(sourceText);
+    const quoted = quotedStoryboardVoiceLinesFromText(sourceText);
     return quoted.map((text, index) => {
         const scene = scenes[Math.min(index, Math.max(0, scenes.length - 1))];
         return {
@@ -2216,7 +2250,8 @@ export function buildStoryboardProject(options) {
     ].filter(Boolean).join('\n\n'));
     const allText = `${userIntentText}\n${sourceText}`;
     const layout = inferStoryboardLayoutSpec(userIntentText, options.frameCount);
-    const durationSec = inferRequestedTotalVideoDurationSeconds(allText);
+    const requestedDurationSec = inferRequestedTotalVideoDurationSeconds(userIntentText);
+    const durationSec = requestedDurationSec ?? inferRequestedTotalVideoDurationSeconds(sourceText);
     const references = buildStoryboardReferenceAssets(userIntentText, prompt);
     const approvedSections = approvedScriptContext
         ? splitStoryboardSections(approvedScriptContext)
