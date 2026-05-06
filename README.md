@@ -28,6 +28,8 @@ With Sogni Creative Agent Skill, an agent can:
 
 ## Quick Start
 
+**The fastest way to install this skill it to just paste the github URL to your agent and say "install this skill".**
+
 1. Create a Sogni API key once. See [Setup](#setup).
 2. Install the command-line tool:
 
