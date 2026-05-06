@@ -934,6 +934,10 @@ export function textRequestsSingleCompositeImageOutput(text) {
     const imageOutputNouns = String.raw `(?:images?|photos?|pictures?|portraits?|posters?|artwork|illustrations?)`;
     const compositeNouns = String.raw `(?:story\s*board|storyboard|collage|contact\s+sheet|mood\s*board|moodboard|grid|board)`;
     const adCreativeNouns = String.raw `(?:ads?|advertisements?|banners?|flyers?|posters?|social\s+posts?|campaign\s+creative|marketing\s+(?:creative|graphic)|promo\s+graphic|product\s+graphic)`;
+    const directSeedanceVersionFromStoryboard = /\b(?:generate|create|make|render|produce|turn|animate|convert|transform)\b[\s\S]{0,120}\bseedance(?:\s*2(?:\.0)?)?(?:\s+\w+){0,3}\s+(?:version|variant)\b[\s\S]{0,120}\b(?:story\s*board|storyboard)\b/i.test(normalized)
+        || /\b(?:generate|create|make|render|produce|turn|animate|convert|transform)\b[\s\S]{0,120}\b(?:version|variant)(?:\s+\w+){0,3}\s+seedance(?:\s*2(?:\.0)?)?\b[\s\S]{0,120}\b(?:story\s*board|storyboard)\b/i.test(normalized);
+    if (directSeedanceVersionFromStoryboard)
+        return false;
     const directVideoFromStoryboard = new RegExp(String.raw `\b(?:generate|create|make|render|produce|turn|animate|convert|transform)\b[\s\S]{0,100}\b(?:videos?|clips?|animations?|movies?|films?)\b[\s\S]{0,140}\b(?:using|with|from|based\s+on|as|following)\b[\s\S]{0,100}\b(?:story\s*board|storyboard)(?:\s+(?:image|photo|picture|reference))?\b`, 'i').test(normalized)
         || /\b(?:turn|convert|transform|animate)\b[\s\S]{0,120}\b(?:story\s*board|storyboard)\b[\s\S]{0,80}\b(?:into|to|as)\s+(?:a\s+|the\s+)?(?:videos?|clips?|animations?|movies?|films?)\b/i.test(normalized);
     if (directVideoFromStoryboard && !/\b(?:story\s*board|storyboard)\b[\s\S]{0,60}\bfirst\b/i.test(normalized)) {
@@ -2217,9 +2221,16 @@ export function buildStoryboardProject(options) {
     const approvedSections = approvedScriptContext
         ? splitStoryboardSections(approvedScriptContext)
         : [];
+    const sourceSections = splitStoryboardSections(sourceText);
+    const assistantDraftUndercounted = options.promptAuthorship === 'assistant'
+        && !approvedScriptContext
+        && sourceSections.length > 0
+        && sourceSections.length < options.frameCount;
     const sections = approvedSections.length > 0
         ? approvedSections
-        : splitStoryboardSections(sourceText);
+        : assistantDraftUndercounted
+            ? []
+            : sourceSections;
     const sceneCountForTiming = sections.length > 0 ? sections.length : options.frameCount;
     const equalDuration = durationSec && sceneCountForTiming > 0
         ? Math.round((durationSec / sceneCountForTiming) * 100) / 100
