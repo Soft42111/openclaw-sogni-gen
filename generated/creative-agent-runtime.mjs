@@ -4,8 +4,8 @@
 function isLtxWorkflow(workflow) {
     return workflow === 't2v' || workflow === 'i2v' || workflow === 'ia2v' || workflow === 'a2v' || workflow === 'v2v';
 }
-export const SKILL_RUNTIME_VERSION = '2026-05-05.1';
-export const SEEDANCE_STORYBOARD_REFERENCE_PROMPT = 'Turn the video storyboard in @Image1 into a video. Treat @Image1 as the controlling source and follow its ordered thumbnails, timecodes, captions, Dialogue/VO, Audio/SFX, camera/motion notes, transitions, visible text, and scene order.';
+export const SKILL_RUNTIME_VERSION = '2026-05-05.2';
+export const SEEDANCE_STORYBOARD_REFERENCE_PROMPT = 'Turn the video storyboard in @Image1 into a cohesive video. Treat @Image1 as the controlling source and follow its ordered thumbnails, timecodes, captions, Dialogue/VO, Audio/SFX, camera/motion notes, transitions, visible text, and scene order. Preserve the story spine, character/product/reference continuity, and cause-and-effect progression between beats. Treat transitions as motion instructions, not unrelated hard cuts unless the storyboard explicitly asks for hard cuts. Keep critical CTA or brand text large, centered, legible, and held long enough to read. Use a generated music/SFX arc that builds, peaks, resolves, and lands the final logo/CTA hit. Do not add unrelated logos, random UI, tiny microtext, or extra scenes.';
 export const LTX23_WORKFLOW_MODELS = Object.freeze({
     t2v: 'ltx23-22b-fp8_t2v_distilled',
     i2v: 'ltx23-22b-fp8_i2v_distilled',
@@ -1202,7 +1202,7 @@ const DEFAULT_STORYBOARD_TIMING_RULES = {
     normalWordsPerSecondMin: 2.0,
     normalWordsPerSecondMax: 3.3,
     fastWordsPerSecondMax: 4.0,
-    minEndCardHoldSec: 1.4,
+    minEndCardHoldSec: 2.0,
     minPunchlineSec: 0.5,
     toleranceSec: 0.25,
 };
@@ -1234,6 +1234,23 @@ function ratioFromStoryboardAspectWords(value) {
         return '';
     }
     return `${width}:${height}`;
+}
+function inferStoryboardBoardAspectDirective(text) {
+    const patterns = [
+        /\bStoryboard layout target\s*:\s*board\s+([^\n;,]+)/i,
+        /\bStoryboard layout\s*:[^\n]*\bboard\s+([^\n;,]+)/i,
+        /\bDEFAULT STORYBOARD PAGE LAYOUT\s*:\s*Use a\s+([^\n.]+?)\s+storyboard\s+canvas\/page\b/i,
+        /\bOverall storyboard canvas(?:\s+aspect ratio)?\s*:\s*(?:\d{3,5}\s*x\s*\d{3,5}\s+pixels\s*\()?([^\n.)]+)/i,
+    ];
+    for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (!match)
+            continue;
+        const ratio = ratioFromStoryboardAspectWords(match[1]);
+        if (ratio)
+            return ratio;
+    }
+    return null;
 }
 function inferStoryboardAspectNearUnit(text, unitPattern, rejectBetweenPattern) {
     const aspectPattern = /\b(portrait|vertical|landscape|horizontal|widescreen|\d{1,4}\s*:\s*\d{1,4})\b/gi;
@@ -1268,11 +1285,14 @@ function inferStoryboardAspectNearUnit(text, unitPattern, rejectBetweenPattern) 
     return candidates[0]?.ratio ?? null;
 }
 function inferStoryboardBoardAspectRatio(text) {
+    const boardDirective = inferStoryboardBoardAspectDirective(text);
+    if (boardDirective)
+        return boardDirective;
     const explicitPixels = inferExplicitPixelDimensionsFromText(text);
     if (explicitPixels) {
         return formatStoryboardRatio(explicitPixels.width, explicitPixels.height);
     }
-    const boardAspect = inferStoryboardAspectNearUnit(text, String.raw `board|canvas|image|poster|sheet|layout|story\s*board|storyboard|output|format`, /\b(?:cell|cells|frame|frames|panel|panels|still|stills|thumbnail|thumbnails|shot|shots|video)\b/i);
+    const boardAspect = inferStoryboardAspectNearUnit(text, String.raw `board|canvas|image|poster|sheet|layout|story\s*board|storyboard|output`, /\b(?:cell|cells|frame|frames|panel|panels|still|stills|thumbnail|thumbnails|shot|shots|video)\b/i);
     if (boardAspect)
         return boardAspect;
     const explicitRatio = inferExplicitAspectRatioFromText(text);
@@ -1492,9 +1512,18 @@ export function inferDefaultStoryboardFrameCountFromText(text) {
 function inferReferencedStoryboardImageCount(text) {
     let maxIndex = 0;
     for (const match of text.matchAll(/\b(?:uploaded|attached|provided|reference|source|input)?\s*(?:image|photo|picture|asset)\s*(?:#|number\s*)?(\d{1,2})\b/gi)) {
+        if (match.index !== undefined && isStoryboardModelNameReference(text, match.index, match.index + match[0].length)) {
+            continue;
+        }
         maxIndex = Math.max(maxIndex, Number(match[1]));
     }
     return maxIndex;
+}
+function isStoryboardModelNameReference(text, start, end) {
+    const context = text.slice(Math.max(0, start - 32), Math.min(text.length, end + 48)).toLowerCase();
+    return /\bgpt\s+image\s*2\b/.test(context)
+        || /\b(?:gpt[-\s]*)?image\s*2\s+(?:image\s+)?models?\b/.test(context)
+        || /\bimage\s*2\s+image[-\s]?to[-\s]?image\b/.test(context);
 }
 function contextAroundStoryboardReference(text, index) {
     const patterns = [
@@ -1502,22 +1531,29 @@ function contextAroundStoryboardReference(text, index) {
         new RegExp(String.raw `\b${index}\b`, 'i'),
     ];
     for (const pattern of patterns) {
-        const match = text.match(pattern);
-        if (!match || match.index === undefined)
-            continue;
-        const start = Math.max(0, match.index - 100);
-        let end = Math.min(text.length, match.index + match[0].length + 140);
-        const afterMatch = text.slice(match.index + match[0].length, end);
-        const nextReference = afterMatch.search(/\b(?:uploaded|attached|provided|reference|source|input)?\s*(?:image|photo|picture|asset)\s*(?:#|number\s*)?\d{1,2}\b/i);
-        if (nextReference >= 0) {
-            end = match.index + match[0].length + nextReference;
+        const matches = Array.from(text.matchAll(new RegExp(pattern.source, 'gi')));
+        for (const match of matches) {
+            if (match.index === undefined)
+                continue;
+            if (isStoryboardModelNameReference(text, match.index, match.index + match[0].length))
+                continue;
+            const lineStart = text.lastIndexOf('\n', match.index) + 1;
+            const nextLineBreak = text.indexOf('\n', match.index);
+            const lineEnd = nextLineBreak >= 0 ? nextLineBreak : text.length;
+            const start = Math.max(0, lineStart);
+            let end = Math.min(lineEnd, match.index + match[0].length + 140);
+            const afterMatch = text.slice(match.index + match[0].length, end);
+            const nextReference = afterMatch.search(/\b(?:uploaded|attached|provided|reference|source|input)?\s*(?:image|photo|picture|asset)\s*(?:#|number\s*)?\d{1,2}\b/i);
+            if (nextReference >= 0) {
+                end = match.index + match[0].length + nextReference;
+            }
+            const afterCurrentReference = text.slice(match.index + match[0].length, end);
+            const nextSentence = afterCurrentReference.search(/[.!?]\s+\S/);
+            if (nextSentence >= 0) {
+                end = Math.min(end, match.index + match[0].length + nextSentence + 1);
+            }
+            return text.slice(start, end);
         }
-        const afterCurrentReference = text.slice(match.index + match[0].length, end);
-        const nextSentence = afterCurrentReference.search(/[.!?]\s+\S/);
-        if (nextSentence >= 0) {
-            end = Math.min(end, match.index + match[0].length + nextSentence + 1);
-        }
-        return text.slice(start, end);
     }
     return text;
 }
@@ -1805,7 +1841,7 @@ function extractStoryboardField(section, labels) {
         .filter(Boolean)
         .join('\n');
     const labelPattern = labels.map(storyboardFieldLabelPattern).join('|');
-    const match = normalizedSection.match(new RegExp(String.raw `^\s*(?:${labelPattern})\s*:\s*(.+)$`, 'im'));
+    const match = normalizedSection.match(new RegExp(String.raw `^\s*(?:${labelPattern})(?:\s*\([^)\n]{0,80}\))?\s*:\s*(.+)$`, 'im'));
     return compactStoryboardLine(match?.[1]);
 }
 function removeStoryboardTimingText(value) {
@@ -1965,7 +2001,21 @@ function sceneReferencesFromSection(section, references) {
     const used = references
         .filter(ref => ref.index && new RegExp(String.raw `\b(?:image|photo|picture|asset)\s*(?:#|number\s*)?${ref.index}\b`, 'i').test(section))
         .map(ref => ref.id);
-    return used.length > 0 ? used : [];
+    if (used.length > 0)
+        return used;
+    const lower = section.toLowerCase();
+    return references
+        .filter(ref => ref.usageScope === 'global')
+        .filter(ref => {
+        if (ref.kind === 'character') {
+            return /\b(?:character|mascot|person|people|face|actor|host|protagonist|subject|hero|doll|toy|figure|avatar|girl|boy|woman|man|she|he|they|her|him)\b/i.test(lower);
+        }
+        if (ref.kind === 'product') {
+            return /\b(?:product|package|device|object|item|prototype|model|tool|app|platform|integration|feature)\b/i.test(lower);
+        }
+        return false;
+    })
+        .map(ref => ref.id);
 }
 function sceneTextRequirementsFromSection(section) {
     return extractStoryboardRequiredText(section);
@@ -2025,6 +2075,8 @@ function buildSceneFromSection(section, references, fallbackTiming) {
         startSec: timing?.startSec ?? null,
         endSec: timing?.endSec ?? null,
         durationSec: timing?.durationSec ?? null,
+        purpose: extractStoryboardField(combined, ['Purpose', 'Story purpose', 'Narrative purpose', 'Beat purpose', 'Scene purpose', 'Why this beat exists']),
+        productFeature: extractStoryboardField(combined, ['Product/Feature', 'Product feature', 'Feature mapping', 'Product meaning', 'Product idea', 'Feature', 'Capability']),
         visual: extractStoryboardField(combined, ['Visual/Action', 'Visual Frame', 'Visual', 'Frame', 'Image', 'Shot']) || compactStoryboardLine(section.body.slice(0, 240)),
         action: extractStoryboardField(combined, ['Action/Motion', 'Action', 'Motion', 'Performance', 'Beat']),
         camera: extractStoryboardField(combined, ['Camera/Motion', 'Camera', 'Framing', 'Shot type']),
@@ -2056,6 +2108,10 @@ function buildFallbackScenes(frameCount, durationSec, sourceText) {
             startSec,
             endSec,
             durationSec: startSec !== null && endSec !== null ? Math.round((endSec - startSec) * 100) / 100 : null,
+            purpose: index === 0
+                ? 'Establish the hook and the first clear story beat from the source brief.'
+                : 'Advance the same story spine with a distinct sequential beat.',
+            productFeature: '',
             visual: index === 0 ? compactStoryboardLine(sourceText.slice(0, 260)) : 'Follow the approved source brief for this sequential storyboard beat.',
             action: '',
             camera: '',
@@ -2107,6 +2163,28 @@ function inferStoryboardToneProgression(text) {
     if (!progression)
         return [];
     return progression.split(/\s*(?:->|,|;|\|)\s*/).map(item => item.trim()).filter(Boolean);
+}
+function inferStoryboardStorySpine(text, fallbackBrief) {
+    const explicit = text.match(/\b(?:story\s+spine|narrative\s+spine|throughline|story\s+arc|creative\s+intent)\s*:\s*([^\n]{1,360})/i)?.[1];
+    if (explicit?.trim())
+        return sanitizeStoryboardExternalAudioReferences(compactStoryboardLine(explicit));
+    const compactFallback = sanitizeStoryboardExternalAudioReferences(compactStoryboardLine(fallbackBrief || text));
+    if (compactFallback) {
+        return `One continuous progression from the source brief: ${compactFallback.slice(0, 260)}`;
+    }
+    return 'A coherent sequence where every scene follows from the previous beat and supports the requested final video outcome.';
+}
+function inferStoryboardProductFeatureMap(text, scenes) {
+    const explicitLines = text
+        .split(/\r?\n/)
+        .map(line => compactStoryboardLine(stripStoryboardMarkup(line)))
+        .filter(line => /\b(?:product\/feature|product feature|feature mapping|product meaning|capability)\b\s*:/i.test(line))
+        .map(line => line.replace(/^[^:]{1,80}:\s*/, '').trim())
+        .filter(Boolean);
+    const sceneFeatures = scenes
+        .map(scene => scene.productFeature)
+        .filter(Boolean);
+    return [...new Set([...explicitLines, ...sceneFeatures])];
 }
 function inferEndCard(projectText, references, requiredText) {
     const logo = references.find(ref => ref.kind === 'logo');
@@ -2165,6 +2243,12 @@ export function buildStoryboardProject(options) {
     const userConstraintSource = buildStoryboardUserConstraintSource(userIntentText, primarySourceBrief, options);
     const requiredText = extractStoryboardRequiredText(userConstraintSource);
     const voiceLines = assignVoiceLinesToScenes(scenes, sourceText);
+    const storySpineFallback = approvedScriptContext
+        || (options.promptAuthorship === 'assistant' ? userIntentText : primarySourceBrief)
+        || prompt
+        || userIntentText;
+    const storySpine = inferStoryboardStorySpine(allText, storySpineFallback);
+    const productFeatureMap = inferStoryboardProductFeatureMap(allText, scenes);
     return {
         title: inferStoryboardTitle(allText),
         durationSec,
@@ -2176,7 +2260,9 @@ export function buildStoryboardProject(options) {
         references,
         creativeBrief: {
             concept: compactStoryboardLine(primarySourceBrief || prompt || userIntentText),
+            storySpine,
             toneProgression: inferStoryboardToneProgression(allText),
+            productFeatureMap,
             mustInclude: requiredText,
             mustAvoid: extractStoryboardAvoidConstraints(userConstraintSource),
             brandRules: requiredText.length > 0 ? requiredText.map(text => `Preserve exact visible text: "${text}"`) : [],
@@ -2321,7 +2407,12 @@ export function validateStoryboardProjectTiming(project, rules = DEFAULT_STORYBO
 }
 function compileStoryboardCriticalRequirements() {
     return [
+        'This must read as production logic, not a concept collage or mood board. Every panel needs a narrative job and a clear reason to exist in sequence.',
         'Preserve user-provided jokes, slogans, dialogue, brand copy, timings, and scene order unless the source brief explicitly asks for a rewrite.',
+        'Preserve the story spine across the full board. Each scene should visibly cause, motivate, reveal, or set up the next scene.',
+        'When a product, feature, brand, capability, or CTA is part of the brief, keep its scene-level purpose legible in the non-frame notes without inventing unsupported product claims.',
+        'Use explicit transition logic between adjacent beats: object motion, light/color handoff, match cut, camera move, wipe, reaction, or another concrete edit idea.',
+        'Use shaped pacing when timings are flexible: fast hook, escalating middle, readable reveal, and a final CTA/end card held long enough for critical text/logo recognition.',
         'Divide each scene cell into a clean video-frame artwork area plus a clearly associated note/header/footer area. Put Time, scene/frame numbers, Visual/Action, Camera/Motion, Lighting/Style, Dialogue/VO, and Audio/SFX outside the video frame artwork, never overlaid on top of the cinematic frame.',
         'Every cinematic video-frame artwork area must preserve the requested Individual scene-cell/frame aspect ratio. Keep all frame artwork areas locked to the same W:H unless the source explicitly requests mixed ratios; do not make individual stills square or let one or two cells drift to a different crop.',
         'Use concise readable storyboard labels in the non-frame note areas. Do not place long paragraphs of production notes inside every cell.',
@@ -2330,6 +2421,7 @@ function compileStoryboardCriticalRequirements() {
         'Keep generated SFX/action words such as whoosh, boom, impact, thud, slash, crack, pop, and similar motion callouts in Visual/Action or Audio/SFX note areas only. Do not render them inside the video-frame artwork unless the source explicitly requires that exact word as visible on-screen text.',
         'When audio is not explicitly supplied, propose scene-appropriate generated audio, ambience, music bed, and foley/SFX generically. Do not label a scene silent, muted, or "no audio" unless the source brief explicitly requests silence.',
         'Do not reference unattached songs, trending tracks, stock sound libraries, or external media. Treat Audio/SFX/Music notes as instructions for the downstream video model to generate the sound unless an audio reference asset is explicitly listed.',
+        'Give the audio direction an arc when the final asset is video: build, peak, resolve, transition accents, and final logo/CTA hit.',
         'Keep character, product, logo, and style references bound to their assigned scenes. Do not replace referenced assets with invented substitutes.',
     ];
 }
@@ -2350,6 +2442,21 @@ function formatStoryboardSeconds(value) {
 function defaultStoryboardAudioSfxLine() {
     return 'Scene-appropriate generated audio bed, ambience, and foley/SFX matching the action; do not mark silent/no audio unless the source brief explicitly requests silence.';
 }
+function compileStoryboardStoryContinuitySection(project) {
+    return [
+        'STORY / CONTINUITY:',
+        `Story spine: ${project.creativeBrief.storySpine}`,
+        'Every panel must feel like the next beat in one continuous sequence, not an unrelated feature card, contact sheet, or mood board.',
+        'Use visible cause-and-effect between beats through action, object motion, eyeline, lighting/color handoff, match cut, wipe, camera movement, or another concrete transition idea.',
+        'Keep product/feature/brand meaning in the associated notes. Do not force long product explanations or the whole script into tiny in-frame text.',
+        ...(project.creativeBrief.productFeatureMap.length > 0
+            ? [
+                'Product/feature mapping to preserve:',
+                ...project.creativeBrief.productFeatureMap.map(item => `- ${item}`),
+            ]
+            : []),
+    ];
+}
 function compileStoryboardScenesSection(project) {
     if (project.scenes.length === 0)
         return [];
@@ -2359,6 +2466,10 @@ function compileStoryboardScenesSection(project) {
             ? `${formatStoryboardSeconds(scene.startSec)}-${formatStoryboardSeconds(scene.endSec)}`
             : 'timing unspecified';
         lines.push(`${scene.id.toUpperCase()} - ${scene.title} - ${timing}`);
+        if (scene.purpose)
+            lines.push(`Scene purpose: ${scene.purpose}`);
+        if (scene.productFeature)
+            lines.push(`Product/feature mapping: ${scene.productFeature}`);
         lines.push(`Visual/Action: ${[scene.visual, scene.action].filter(Boolean).join(' ') || 'Follow the approved storyboard beat.'}`);
         lines.push(`Camera/Motion: ${scene.camera || 'Use the approved storyboard framing and motion notes.'}`);
         lines.push(`Lighting/Style: ${scene.lighting || 'Use the approved storyboard lighting and style notes.'}`);
@@ -2425,6 +2536,8 @@ export function compileVideoStoryboardImagePrompt(options) {
         `Every cinematic frame artwork area inside every scene cell must preserve ${layout.cellAspectRatio}; do not let any individual frame drift to square, full-board, or a different portrait/landscape ratio.`,
         'Keep margins, gutters, outside-frame numbering, note strips, and typography consistent across the full board.',
         'Each scene cell must make the frame-to-notes relationship clear while keeping production labels outside the actual video-frame artwork.',
+        '',
+        ...compileStoryboardStoryContinuitySection(project),
         '',
         'GLOBAL STYLE:',
         `${project.creativeBrief.visualQualityBar} with cinematic shot language, coherent art direction, readable labels, and consistent reference usage.`,
