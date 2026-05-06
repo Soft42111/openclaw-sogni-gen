@@ -567,6 +567,10 @@ function isGptImage2ModelSelection(modelId) {
   return ['gpt-image-2', 'gptimage2', 'gpt-image', 'gpt_image_2'].includes(normalized);
 }
 
+function requiresSparkOnlyToken(modelId) {
+  return isGptImage2ModelSelection(modelId) || isSeedanceModel(modelId);
+}
+
 function getMaxContextImages(modelId) {
   if (isGptImage2ModelSelection(modelId)) return 16;
   return getWrapperMaxContextImages(modelId);
@@ -3488,7 +3492,7 @@ async function runImageEditProjectWithEvents(client, editConfig, expectedCount, 
     if (!projectId) projectId = data.projectId;
     const jobData = data.job?.data || {};
     results.push({
-      imageUrl: data.imageUrl,
+      resultUrl: data.resultUrl || data.imageUrl,
       seed: jobData.seed,
       jobIndex: data.jobIndex,
       projectId: data.projectId
@@ -3639,7 +3643,7 @@ async function runMultiAngleFlow(client, log) {
       options.timeout,
       azimuth
     );
-    const urls = results.map((r) => r.imageUrl).filter(Boolean);
+    const urls = results.map((r) => r.resultUrl).filter(Boolean);
     const seeds = results.map((r) => r.seed ?? options.seed);
 
     if (outputConfig) {
@@ -3957,12 +3961,21 @@ async function ensureSufficientVideoBalance(client, log) {
 
 // ---------------------------------------------------------------------------
 // Token auto-fallback: resolve 'auto' to 'spark', retry with 'sogni' on
-// insufficient balance errors.
+// insufficient balance errors for native Sogni models. External API-backed
+// models are Spark-only and must not silently fall back to SOGNI tokens.
 // ---------------------------------------------------------------------------
+const _requiresSparkOnlyToken = requiresSparkOnlyToken(options.model);
+if (_requiresSparkOnlyToken && options.tokenType === 'sogni') {
+  if (!options.quiet) {
+    console.error(`${options.model} requires SPARK tokens; using --token-type spark.`);
+  }
+  options.tokenType = 'spark';
+}
 const _isAutoToken = options.tokenType === 'auto';
 if (_isAutoToken) {
   options.tokenType = 'spark';
 }
+const _allowAutoTokenFallback = _isAutoToken && !_requiresSparkOnlyToken;
 
 async function main() {
   let exitCode = 0;
@@ -4351,8 +4364,7 @@ async function main() {
       client.on(ClientEvent.JOB_COMPLETED, (data) => {
         const jobData = data.job?.data || {};
         results.push({
-          imageUrl: data.imageUrl,
-          videoUrl: data.videoUrl,
+          resultUrl: data.resultUrl || (options.video ? data.videoUrl : data.imageUrl),
           seed: jobData.seed,
           jobIndex: data.jobIndex,
           projectId: data.projectId
@@ -4750,7 +4762,7 @@ async function main() {
     await completionPromise;
     
     if (results.length > 0) {
-      const urls = results.map(r => options.video ? r.videoUrl : r.imageUrl).filter(Boolean);
+      const urls = results.map(r => r.resultUrl).filter(Boolean);
       const firstResult = results[0];
       
       // Save last render info
@@ -4908,7 +4920,7 @@ async function main() {
             client2.on(ClientEvent.JOB_COMPLETED, async (data) => {
               try {
                 clearTimeout(timeout);
-                const clip2Url = data.videoUrl;
+                const clip2Url = data.resultUrl || data.videoUrl;
                 if (!clip2Url) {
                   reject(new Error('No video URL returned for second clip.'));
                   return;
@@ -5066,7 +5078,7 @@ async function main() {
   } catch (error) {
     // Token auto-fallback: if using auto mode and got insufficient balance, retry with the other token
     const isBalanceError = error.code === 'INSUFFICIENT_BALANCE' || /insufficient/i.test(error.message);
-    if (_isAutoToken && isBalanceError && options.tokenType === 'spark') {
+    if (_allowAutoTokenFallback && isBalanceError && options.tokenType === 'spark') {
       log('Insufficient SPARK balance — retrying with SOGNI tokens...');
       options.tokenType = 'sogni';
       try {

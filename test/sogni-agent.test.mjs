@@ -213,6 +213,18 @@ test('invalid token type returns a validation error', () => {
   expectCliError(['--token-type', 'gold', 'a cat'], '--token-type must be "spark", "sogni", or "auto".');
 });
 
+test('GPT Image 2 forces Spark token type even when SOGNI is requested', () => {
+  const { exitCode, state } = runCli([
+    '--token-type', 'sogni',
+    '-m', 'gpt-image-2',
+    'a cat wearing a hat'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastImageProject, 'createImageProject was called');
+  assert.equal(state.lastImageProject.modelId, 'gpt-image-2');
+  assert.equal(state.lastImageProject.tokenType, 'spark');
+});
+
 test('invalid seed strategy returns a validation error', () => {
   expectCliError(['--seed-strategy', 'foo', 'a cat'], '--seed-strategy must be "random" or "prompt-hash".');
 });
@@ -370,6 +382,19 @@ test('seedance alias selects Seedance T2V without step overrides', () => {
   assert.equal(state.lastVideoProject.modelId, 'seedance-2-0');
   assert.equal(state.lastVideoProject.fps, 24);
   assert.equal(Object.hasOwn(state.lastVideoProject, 'steps'), false);
+});
+
+test('seedance forces Spark token type even when SOGNI is requested', () => {
+  const { exitCode, state } = runCli([
+    '--video',
+    '--token-type', 'sogni',
+    '-m', 'seedance2',
+    'cinematic product reveal with ambient audio'
+  ]);
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastVideoProject, 'createVideoProject was called');
+  assert.equal(state.lastVideoProject.modelId, 'seedance-2-0');
+  assert.equal(state.lastVideoProject.tokenType, 'spark');
 });
 
 test('seedance v2v alias does not require or send ControlNet', () => {

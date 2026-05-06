@@ -61,7 +61,7 @@ class SogniClientWrapper extends EventEmitter {
     this.lastImageProject = config;
     state.lastImageProject = config;
     persistState();
-    this._emitJobs('imageUrl', config.numberOfMedia ?? 1, config.seed);
+    this._emitJobs('resultUrl', config.numberOfMedia ?? 1, config.seed);
     return { project: { id: 'proj-1' } };
   }
 
@@ -70,7 +70,7 @@ class SogniClientWrapper extends EventEmitter {
     this.lastEditProject = config;
     state.lastEditProject = config;
     persistState();
-    this._emitJobs('imageUrl', config.numberOfMedia ?? 1, config.seed);
+    this._emitJobs('resultUrl', config.numberOfMedia ?? 1, config.seed);
     return { project: { id: 'proj-1' } };
   }
 
@@ -79,7 +79,7 @@ class SogniClientWrapper extends EventEmitter {
     this.lastVideoProject = config;
     state.lastVideoProject = config;
     persistState();
-    this._emitJobs('videoUrl', config.numberOfMedia ?? 1, config.seed);
+    this._emitJobs('resultUrl', config.numberOfMedia ?? 1, config.seed);
     return { project: { id: 'proj-1' }, videoUrls: ['https://example.com/video.mp4'] };
   }
 
