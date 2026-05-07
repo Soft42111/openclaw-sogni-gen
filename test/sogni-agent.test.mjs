@@ -124,10 +124,47 @@ async function withTestApiServer(fn) {
       if (req.url === '/v1/chat/completions' && req.method === 'POST') {
         const content = parsedBody?.sogni_tool_execution === false
           ? [
-            'Project: Neon Bakery Launch. Duration: 12 seconds.',
-            'Scene 1 - Hook - 0s-2s. Visual: a baker opens a glowing oven on a rainy neon street. Action: steam rolls toward camera. Camera: slow dolly in. Audio/SFX: oven thrum, rain.',
-            'Scene 2 - Reveal - 2s-5s. Visual: pastries turn into tiny floating signs for the product. Action: signs orbit the baker. Camera: smooth arc. Audio/SFX: sparkle whooshes.',
-            'Scene 3 - CTA - 5s-12s. Visual: clean logo end card with text Start baking. Action: light settles. Camera: locked hero frame. Audio/SFX: final chime.'
+            'Project Title: Neon Bakery Launch',
+            'Total Duration: 12 seconds',
+            '',
+            'SCENE 01 - Hook',
+            'TIME: 0s-2s',
+            'PURPOSE: Establish the bakery reveal.',
+            'VISUAL: A baker opens a glowing oven on a rainy neon street.',
+            'ACTION: Steam rolls toward camera.',
+            'CAMERA: Slow dolly in.',
+            'LIGHTING/STYLE: Neon rain glow and warm oven light.',
+            'TRANSITION: Steam wipe into the reveal.',
+            'DIALOGUE/VO: [no dialogue]',
+            'AUDIO/SFX: Oven thrum, rain.',
+            'MUSIC: Soft rising synth pulse.',
+            'VISIBLE TEXT: none',
+            '',
+            'SCENE 02 - Reveal',
+            'TIME: 2s-5s',
+            'PURPOSE: Show the product magic.',
+            'VISUAL: Pastries turn into tiny floating signs for the product.',
+            'ACTION: Signs orbit the baker.',
+            'CAMERA: Smooth arc.',
+            'LIGHTING/STYLE: Bright pastry glow against wet street reflections.',
+            'TRANSITION: Orbiting sign becomes CTA underline.',
+            'DIALOGUE/VO: [no dialogue]',
+            'AUDIO/SFX: Sparkle whooshes.',
+            'MUSIC: Synth pulse peaks.',
+            'VISIBLE TEXT: none',
+            '',
+            'SCENE 03 - CTA',
+            'TIME: 5s-12s',
+            'PURPOSE: Resolve with a readable end card.',
+            'VISUAL: Clean logo end card.',
+            'ACTION: Light settles.',
+            'CAMERA: Locked hero frame.',
+            'LIGHTING/STYLE: Crisp high-key brand card.',
+            'TRANSITION: Hold to end.',
+            'DIALOGUE/VO: [no dialogue]',
+            'AUDIO/SFX: Final chime.',
+            'MUSIC: Soft resolve.',
+            'VISIBLE TEXT: Start baking.'
           ].join('\n')
           : 'Test API chat response';
         res.end(JSON.stringify({
@@ -812,6 +849,8 @@ test('--api-workflow storyboard-video generates storyline and starts GPT Image 2
     assert.equal(requests.length, 2);
     assert.equal(requests[0].url, '/v1/chat/completions');
     assert.equal(requests[0].body.sogni_tool_execution, false);
+    assert.match(requests[0].body.messages[0].content, /SCENE NN - Title block/);
+    assert.match(requests[0].body.messages[0].content, /DIALOGUE\/VO: \[no dialogue\]/);
     assert.equal(requests[1].url, '/v1/creative-agent/workflows');
     assert.equal(requests[1].body.kind, 'hosted_tool_sequence');
     assert.equal(requests[1].body.input.title, 'Neon bakery storyboard');

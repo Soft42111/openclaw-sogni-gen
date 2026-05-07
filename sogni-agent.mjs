@@ -3250,7 +3250,10 @@ function buildStoryboardStorylineMessages() {
   const system = [
     'You write production-ready video storyboard storylines for a GPT Image 2 storyboard sheet that will be rendered into a Seedance 2.0 video.',
     'Return only the storyline/script. Do not call tools, do not ask follow-up questions, and do not include markdown fences.',
-    'The script must include a project title, total duration, ordered scene/beat rows with time ranges, visual/action, camera/motion, lighting/style, Dialogue/VO, Audio/SFX, transition notes, and any exact visible CTA text.',
+    'Use this exact plain-text structure so downstream compilers can parse it: Project Title, Total Duration, then one SCENE NN - Title block per beat.',
+    'Each scene block must put each field on its own line: TIME, PURPOSE, VISUAL, ACTION, CAMERA, LIGHTING/STYLE, TRANSITION, DIALOGUE/VO, AUDIO/SFX, MUSIC, VISIBLE TEXT.',
+    'When there is no spoken dialogue or voiceover, write DIALOGUE/VO: [no dialogue]. Do not write None, N/A, or leave it blank.',
+    'If the user requires exact visible text, repeat that exact text only in the relevant VISIBLE TEXT field and preserve spelling exactly.',
     'Keep it concise enough for one GPT Image 2 storyboard image and one Seedance video prompt, while preserving cause-and-effect story progression.',
   ].join(' ');
   const user = [

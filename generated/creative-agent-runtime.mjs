@@ -1598,13 +1598,29 @@ function contextAroundStoryboardReference(text, index) {
     }
     return text;
 }
+function cleanStoryboardReferenceSubjectHint(context, index) {
+    const cleaned = compactStoryboardLine(stripStoryboardMarkup(context))
+        .replace(new RegExp(String.raw `^(?:image|photo|picture|asset)\s*(?:#|number\s*)?${index}\s*(?:\([^)]*\))?\s*:?\s*`, 'i'), '')
+        .replace(new RegExp(String.raw `^(?:uploaded|attached|provided|reference|source|input)\s+(?:image|photo|picture|asset)\s*(?:#|number\s*)?${index}\s*:?\s*`, 'i'), '')
+        .replace(/\b(?:use|using|for|as|with|from|featuring|feature)\b\s*$/i, '')
+        .replace(/[.\s]+$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!cleaned)
+        return '';
+    if (/^(?:logo|brand|character|mascot|asset|reference|image|photo|picture)$/i.test(cleaned))
+        return '';
+    return cleaned.slice(0, 180).replace(/\s+\S*$/, match => cleaned.length > 180 ? '' : match).trim();
+}
 function inferStoryboardReferenceRole(index, text) {
     const context = contextAroundStoryboardReference(text, index);
     const lower = context.toLowerCase();
+    const subjectHint = cleanStoryboardReferenceSubjectHint(context, index);
     if (/\b(?:logo|wordmark|brand|mark|icon)\b/.test(lower)) {
         return {
             index,
             role: 'logo/brand reference',
+            subjectHint,
             usage: /\b(?:end|final|card|cta|tagline|logo\s+reveal|brand\s+reveal)\b/.test(lower)
                 ? 'end card only unless the approved script says otherwise'
                 : 'brand moments and any explicitly assigned scenes',
@@ -1615,6 +1631,7 @@ function inferStoryboardReferenceRole(index, text) {
         return {
             index,
             role: 'character/source subject reference',
+            subjectHint,
             usage: 'all scenes where that subject appears',
             preserve: 'preserve the visible identity, proportions, colors, outfit cues, expression, and recognizable silhouette',
         };
@@ -1623,6 +1640,7 @@ function inferStoryboardReferenceRole(index, text) {
         return {
             index,
             role: 'product/object reference',
+            subjectHint,
             usage: 'all scenes where that product or object appears',
             preserve: 'preserve the visible shape, materials, markings, proportions, and recognizable details',
         };
@@ -1631,6 +1649,7 @@ function inferStoryboardReferenceRole(index, text) {
         return {
             index,
             role: 'style/environment reference',
+            subjectHint,
             usage: 'style, lighting, palette, or environment guidance where the approved brief calls for it',
             preserve: 'preserve the requested visual direction without copying unrelated content into every scene',
         };
@@ -1638,6 +1657,7 @@ function inferStoryboardReferenceRole(index, text) {
     return {
         index,
         role: 'reference asset',
+        subjectHint,
         usage: 'use only where assigned by the approved brief',
         preserve: 'preserve visible details that the brief identifies as important',
     };
@@ -1681,7 +1701,7 @@ function buildStoryboardReferenceAssets(userIntentText, prompt) {
         id: `image_${role.index}`,
         index: role.index,
         kind: storyboardReferenceKindFromRole(role),
-        description: `${role.role}. Usage: ${role.usage}. Preserve: ${role.preserve}.`,
+        description: `${role.role}. ${role.subjectHint ? `Subject: ${role.subjectHint}. ` : ''}Usage: ${role.usage}. Preserve: ${role.preserve}.`,
         usageScope: storyboardUsageScopeFromRole(role),
         preservePriority: storyboardPreservePriorityFromRole(role),
     }));
@@ -1735,13 +1755,28 @@ function extractStoryboardRequiredText(text) {
         }
         return false;
     };
-    const addRequiredText = (rawValue, matchIndex = 0) => {
-        const value = compactStoryboardLine(rawValue)
+    const addRequiredText = (rawValue, matchIndex = 0, options = {}) => {
+        const value = compactStoryboardLine(stripStoryboardMarkup(rawValue || ''))
             .replace(/\\"/g, '"')
+            .replace(/^\|+|\|+$/g, '')
+            .replace(/^[*_]+|[*_]+$/g, '')
             .replace(/^["“”'`]+|["“”'`]+$/g, '')
             .trim();
         if (value && shouldIgnoreRequiredText(value, matchIndex))
             return;
+        if (/^visible\s+text\b/i.test(value) && (extractStoryboardTiming(value) || /^visible\s+text\.?$/i.test(value)))
+            return;
+        if (options.splitUnquotedList && value.includes(';')) {
+            const parts = value
+                .split(/\s*;\s*/)
+                .map(part => part.trim())
+                .filter(Boolean);
+            if (parts.length > 1 && parts.every(part => part.length <= 160)) {
+                for (const part of parts)
+                    addRequiredText(part, matchIndex);
+                return;
+            }
+        }
         if (value)
             required.add(value);
     };
@@ -1752,8 +1787,17 @@ function extractStoryboardRequiredText(text) {
     const labeledTextPattern = /\b(?:on[-\s]?screen\s+text|visible\s+text|text\s+only|text|end\s+card\s+text|final\s+text|tagline|cta|headline|title\s+card|copy)\s*:\s*([^\n]{1,260})/gi;
     for (const match of text.matchAll(labeledTextPattern)) {
         const value = match[1] || '';
+        let addedQuotedText = false;
         for (const quote of value.matchAll(/"([^"]{1,160})"|“([^”]{1,160})”|`([^`]{1,160})`/g)) {
             addRequiredText(quote[1] ?? quote[2] ?? quote[3], match.index ?? 0);
+            addedQuotedText = true;
+        }
+        if (!addedQuotedText) {
+            const unquoted = value
+                .replace(/\s+\b(?:Dialogue\/VO|VO\/Dialogue|V\.O\.|VO|Voiceover|Voice-over|Speech|Narration|Audio\/SFX|Audio|SFX|FX|Foley|Sound|Sounds|Music|Camera\/Motion|Camera|Lighting\/Style|Lighting|Style|Look|Action\/Motion|Action|Motion)\s*:[\s\S]*$/i, '')
+                .replace(/\b(?:none|no\s+(?:visible\s+)?text|n\/a|not\s+specified)\b\.?$/i, '')
+                .trim();
+            addRequiredText(unquoted, match.index ?? 0, { splitUnquotedList: true });
         }
     }
     const renderThesePattern = /\b(?:exact words|exact text|required text|final cta|end card text)\b[\s\S]{0,320}/gi;
@@ -1910,16 +1954,18 @@ function normalizeStoryboardDialogue(value) {
         return '';
     if (/^[-\u2013\u2014]\.?$/.test(compact))
         return '';
-    if (/^(?:none|no\s+(?:spoken\s+)?(?:dialogue|vo|voiceover|voice-over|speech)|n\/a|not\s+specified|text\s+only)\b/i.test(compact)) {
+    if (/^(?:[\[(]\s*)?(?:none|no\s+(?:spoken\s+)?(?:dialogue|vo|voiceover|voice-over|speech)|n\/a|not\s+specified|text\s+only)(?:\s*[\])])?\.?$/i.test(compact)) {
         return '';
     }
+    if (/^text\s+only\s*:/i.test(compact))
+        return '';
     const quoted = extractQuotedDialogueSegments(compact)
         .map(line => compactStoryboardLine(line))
         .filter(Boolean);
     if (quoted.length > 0)
         return quoted.join(' ');
     const nestedVo = compact.match(/\b(?:VO|V\.O\.|Voiceover|Voice-over|Dialogue|Speech|Narration)\b(?:\s*\([^)]*\))?\s*:\s*(.+)$/i)?.[1];
-    if (nestedVo && !/^(?:none|no\s+(?:spoken\s+)?(?:dialogue|vo|voiceover|voice-over|speech)|n\/a|not\s+specified|text\s+only)\b/i.test(nestedVo)) {
+    if (nestedVo && !/^(?:[\[(]\s*)?(?:none|no\s+(?:spoken\s+)?(?:dialogue|vo|voiceover|voice-over|speech)|n\/a|not\s+specified|text\s+only)(?:\s*[\])])?\.?$/i.test(nestedVo.trim())) {
         return compactStoryboardLine(nestedVo);
     }
     return compact;
@@ -1973,43 +2019,203 @@ function storyboardMarkdownTableCells(line) {
 }
 function splitStoryboardTitleDescription(value) {
     const cleaned = stripStoryboardMarkup(value);
+    const fallbackTitleFromDescription = (description) => {
+        const withoutLeadingLabel = description.replace(/^(?:Visual|Visual Frame|Frame|Shot|Image|Action|Action\/Motion)\s*:\s*/i, '');
+        const titleSafe = withoutLeadingLabel
+            .replace(/"[^"]{1,240}"|“[^”]{1,240}”|`[^`]{1,240}`/g, '')
+            .replace(/\s+\b(?:Dialogue\/VO|VO\/Dialogue|V\.O\.|VO|Voiceover|Voice-over|Speech|Narration|Audio\/SFX|Audio|SFX|FX|Foley|Sound|Sounds|Music|Visible text|On-screen text|Onscreen text|Text|CTA|Camera\/Motion|Camera|Lighting\/Style|Lighting|Style|Look|Action\/Motion|Action|Motion)\s*:[\s\S]*$/i, '')
+            .replace(/\s*:\s*$/, '');
+        const firstClause = titleSafe.split(/(?<=[.!?])\s+|;\s+|\n/)[0] || titleSafe || withoutLeadingLabel;
+        return compactStoryboardLine(firstClause.slice(0, 80), 'Storyboard Beat');
+    };
     const match = cleaned.match(/^([^:\n]{1,100})\s*:\s*([\s\S]+)$/);
     if (!match) {
         return {
-            title: compactStoryboardLine(cleaned.slice(0, 80), 'Storyboard Beat'),
+            title: fallbackTitleFromDescription(cleaned),
             description: compactStoryboardLine(cleaned),
         };
     }
+    const title = compactStoryboardLine(match[1], 'Storyboard Beat');
+    const description = compactStoryboardLine(match[2], cleaned);
+    if (/^(?:visual|visual frame|frame|shot|image|action|action\/motion|camera|audio|sfx|dialogue|vo)$/i.test(title)) {
+        return {
+            title: fallbackTitleFromDescription(description),
+            description,
+        };
+    }
     return {
-        title: compactStoryboardLine(match[1], 'Storyboard Beat'),
-        description: compactStoryboardLine(match[2], cleaned),
+        title,
+        description,
     };
+}
+function storyboardTableCellWithFieldBreaks(value) {
+    return stripStoryboardMarkup(value)
+        .replace(/\s+\b(Dialogue\/VO|VO\/Dialogue|V\.O\.|VO|Voiceover|Voice-over|Speech|Narration|Audio\/SFX|Audio|SFX|FX|Foley|Sound|Sounds|Music|Visible text|On-screen text|Onscreen text|Text|CTA|Camera\/Motion|Camera|Lighting\/Style|Lighting|Style|Look|Action\/Motion|Action|Motion)\s*:/gi, '\n$1:')
+        .trim();
+}
+function storyboardTableHeaderMatches(header, pattern) {
+    return !!header && pattern.test(header);
+}
+function storyboardTableHeaderIndex(headers, pattern) {
+    if (!headers)
+        return -1;
+    return headers.findIndex(header => storyboardTableHeaderMatches(header, pattern));
+}
+function uniqueStoryboardTableIndices(indices) {
+    const seen = new Set();
+    return indices.filter(index => {
+        if (index < 0 || seen.has(index))
+            return false;
+        seen.add(index);
+        return true;
+    });
+}
+function looksLikeStoryboardTableHeader(cells) {
+    if (cells.some(cell => extractStoryboardTiming(cell)))
+        return false;
+    const joined = cells.join(' ');
+    return /\b(?:time|timecode|timing|duration)\b/i.test(joined)
+        && /\b(?:visual|action|frame|shot|camera|audio|dialogue|vo|voiceover|sfx)\b/i.test(joined);
+}
+function storyboardTableCellWithoutDialogue(cell, dialogue) {
+    const normalizedDialogue = compactStoryboardLine(dialogue).toLowerCase();
+    return cell
+        .split(/\r?\n/)
+        .map(line => {
+        const compact = compactStoryboardLine(dialogue ? line.replace(/"[^"]{1,800}"/g, ' ') : line);
+        if (normalizedDialogue && compact.toLowerCase() === normalizedDialogue) {
+            return '';
+        }
+        if (/^\s*(?:Dialogue\/VO|VO\/Dialogue|V\.O\.|VO|Voiceover|Voice-over|Speech|Narration)\s*:/i.test(compact)) {
+            return '';
+        }
+        if (/^\s*(?:Visible text|On-screen text|Onscreen text|Text|CTA)\s*:/i.test(compact)) {
+            return '';
+        }
+        return compact;
+    })
+        .filter(Boolean)
+        .join(' ')
+        .replace(/\b(?:none|no\s+(?:spoken\s+)?(?:dialogue|vo|voiceover|voice-over|speech)|n\/a|not\s+specified|text\s+only)\b\.?/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+function storyboardTableCellHasExplicitVoiceField(cell) {
+    return cell
+        .split(/\r?\n/)
+        .some(line => /^\s*(?:Dialogue\/VO|VO\/Dialogue|Dialogue|VO|V\.O\.|Voiceover|Voice-over|Speech|Narration)\s*:/i.test(compactStoryboardLine(line)));
+}
+function storyboardTableCellIsAudioOnly(cell) {
+    const lines = cell
+        .split(/\r?\n/)
+        .map(line => compactStoryboardLine(line))
+        .filter(Boolean);
+    if (lines.length === 0)
+        return false;
+    if (storyboardTableCellHasExplicitVoiceField(cell))
+        return false;
+    return lines.every(line => /^\s*(?:Audio\/SFX|Audio|SFX|FX|Foley|Sound|Sounds|Music)\s*:/i.test(line));
 }
 function splitStoryboardTableSections(text) {
     const sections = [];
+    let headers = null;
     for (const line of text.split(/\r?\n/)) {
         const cells = storyboardMarkdownTableCells(line);
         if (cells.length < 3)
             continue;
-        const timing = extractStoryboardTiming(cells[0]);
+        if (looksLikeStoryboardTableHeader(cells)) {
+            headers = cells;
+            continue;
+        }
+        const timingCellIndex = cells.findIndex(cell => extractStoryboardTiming(cell) !== null);
+        if (timingCellIndex < 0)
+            continue;
+        const timing = extractStoryboardTiming(cells[timingCellIndex]);
         if (!timing)
             continue;
-        const visual = splitStoryboardTitleDescription(cells[1] || '');
-        const cameraLighting = stripStoryboardMarkup(cells[2] || '')
-            .replace(/\s+\b(Lighting|Style|Lighting\/Style|Look)\s*:/gi, '\n$1:');
-        const audioCell = stripStoryboardMarkup(cells[3] || '');
+        const visualHeaderIndex = storyboardTableHeaderIndex(headers, /\b(?:visual|frame|shot|image|action)\b/i);
+        const cameraHeaderIndex = storyboardTableHeaderIndex(headers, /\b(?:camera|motion|fx|effect|lighting|style|look)\b/i);
+        const dialogueHeaderIndex = storyboardTableHeaderIndex(headers, /\b(?:dialogue|vo|v\.o\.|voiceover|speech|narration)\b/i);
+        const soundHeaderIndex = storyboardTableHeaderIndex(headers, /\b(?:audio|sfx|sound|foley|music)\b/i);
+        const visibleTextHeaderIndex = storyboardTableHeaderIndex(headers, /\b(?:visible\s+text|on[-\s]?screen\s+text|onscreen\s+text|text|copy|cta|tagline|headline|title\s+card|subtitle|caption)\b/i);
+        const beatHeaderIndex = headers
+            ? headers.findIndex(header => /\b(?:beat|scene|shot|panel|frame)\b/i.test(header)
+                && !/\b(?:visual|action|camera|audio|dialogue|vo|sfx)\b/i.test(header))
+            : -1;
+        const visualIndex = visualHeaderIndex >= 0
+            ? visualHeaderIndex
+            : timingCellIndex === 0
+                ? 1
+                : Math.min(timingCellIndex + 1, cells.length - 1);
+        if (visualIndex === timingCellIndex)
+            continue;
+        const visualHeader = headers?.[visualIndex] || '';
+        const visualCell = cells[visualIndex] || '';
+        const visualCellWithFieldBreaks = storyboardTableCellWithFieldBreaks(visualCell);
+        const visual = splitStoryboardTitleDescription(visualCell);
+        const explicitAction = extractStoryboardField(visualCellWithFieldBreaks, ['Action/Motion', 'Action', 'Motion', 'Performance']);
+        const action = explicitAction || (storyboardTableHeaderMatches(visualHeader, /\b(?:action|motion|performance)\b/i)
+            && !storyboardTableHeaderMatches(visualHeader, /\b(?:visual|frame|shot|image)\b/i)
+            ? visual.description || visual.title
+            : '');
+        const cameraLighting = cameraHeaderIndex >= 0
+            ? storyboardTableCellWithFieldBreaks(cells[cameraHeaderIndex] || '')
+            : '';
+        const dialogueCell = dialogueHeaderIndex >= 0
+            ? storyboardTableCellWithFieldBreaks(cells[dialogueHeaderIndex] || '')
+            : '';
+        const soundCell = soundHeaderIndex >= 0
+            ? storyboardTableCellWithFieldBreaks(cells[soundHeaderIndex] || '')
+            : '';
+        const visibleTextCell = visibleTextHeaderIndex >= 0
+            ? storyboardTableCellWithFieldBreaks(cells[visibleTextHeaderIndex] || '')
+            : '';
+        const audioCell = uniqueStoryboardTableIndices([dialogueHeaderIndex, soundHeaderIndex, visibleTextHeaderIndex])
+            .map(index => storyboardTableCellWithFieldBreaks(cells[index] || ''))
+            .filter(Boolean)
+            .join('\n');
+        const dialogueHeader = headers?.[dialogueHeaderIndex] || headers?.[soundHeaderIndex] || '';
         const camera = extractStoryboardField(cameraLighting, ['Camera', 'Camera/Motion', 'Framing', 'Shot type']);
         const lighting = extractStoryboardField(cameraLighting, ['Lighting', 'Style', 'Lighting/Style', 'Look']);
+        const explicitDialogue = extractStoryboardField(audioCell, [
+            'Dialogue/VO',
+            'VO/Dialogue',
+            'Dialogue',
+            'VO',
+            'V.O.',
+            'Voiceover',
+            'Voice-over',
+            'Speech',
+            'Narration',
+        ]);
+        const dialogue = explicitDialogue
+            ? normalizeStoryboardDialogue(explicitDialogue)
+            : storyboardTableCellIsAudioOnly(dialogueCell || audioCell)
+                ? ''
+                : storyboardTableHeaderMatches(dialogueHeader, /\b(?:dialogue|vo|v\.o\.|voiceover|speech|narration)\b/i)
+                    ? normalizeStoryboardDialogue(extractQuotedDialogueSegments(dialogueCell || audioCell)[0] || dialogueCell || audioCell)
+                    : '';
+        const visibleText = extractStoryboardField(audioCell, ['Visible text', 'On-screen text', 'Onscreen text', 'Text', 'CTA'])
+            || (visibleTextHeaderIndex >= 0 ? compactStoryboardLine(visibleTextCell) : '');
         const audio = extractStoryboardField(audioCell, ['Audio/SFX', 'Audio', 'SFX', 'FX', 'Foley', 'Sound', 'Sounds'])
-            || compactStoryboardLine(audioCell);
+            || storyboardTableCellWithoutDialogue(soundCell || audioCell, dialogue);
         const number = sections.length + 1;
+        const beatLabel = beatHeaderIndex >= 0 && beatHeaderIndex !== timingCellIndex
+            ? compactStoryboardLine(cells[beatHeaderIndex])
+            : '';
+        const sceneTitle = beatLabel && !/^\d{1,2}$/.test(beatLabel)
+            ? `${beatLabel}: ${visual.title}`
+            : visual.title;
         sections.push({
             number,
-            heading: `Scene ${number} - ${visual.title} - ${formatStoryboardSeconds(timing.startSec)}-${formatStoryboardSeconds(timing.endSec)}`,
+            heading: `Scene ${number} - ${sceneTitle} - ${formatStoryboardSeconds(timing.startSec)}-${formatStoryboardSeconds(timing.endSec)}`,
             body: [
                 `Visual: ${visual.description || visual.title}`,
+                action ? `Action: ${action}` : '',
                 camera ? `Camera: ${camera}` : cameraLighting ? `Camera: ${compactStoryboardLine(cameraLighting)}` : '',
                 lighting ? `Lighting: ${lighting}` : '',
+                dialogue ? `Dialogue/VO: ${dialogue}` : '',
+                visibleText ? `Visible text: ${visibleText}` : '',
                 audio ? `Audio/SFX: ${audio}` : '',
             ].filter(Boolean).join('\n'),
         });
@@ -2047,6 +2253,57 @@ function canonicalStoryboardScriptContext(text) {
     }
     return trimmed;
 }
+function escapeStoryboardRegExp(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+function uniqueStoryboardStrings(values) {
+    const seen = new Set();
+    const result = [];
+    for (const value of values.map(item => compactStoryboardLine(item)).filter(Boolean)) {
+        const key = value.toLowerCase();
+        if (seen.has(key))
+            continue;
+        seen.add(key);
+        result.push(value);
+    }
+    return result;
+}
+function storyboardReferenceSubjectTokens(ref) {
+    const subject = ref.description.match(/\bSubject:\s*([\s\S]*?)\s+Usage:/i)?.[1] || '';
+    if (!subject)
+        return [];
+    const stopWords = new Set([
+        'asset',
+        'image',
+        'photo',
+        'picture',
+        'reference',
+        'source',
+        'input',
+        'with',
+        'from',
+        'that',
+        'this',
+        'used',
+        'using',
+        'where',
+        'scene',
+        'scenes',
+        'final',
+        'card',
+        'only',
+        'unless',
+    ]);
+    return uniqueStoryboardStrings(subject
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .split(/\s+/)
+        .map(token => token.trim())
+        .filter(token => token.length >= 4 && !stopWords.has(token)));
+}
+function storyboardReferenceSubjectMatchesSection(ref, lowerSection) {
+    return storyboardReferenceSubjectTokens(ref).some(token => new RegExp(String.raw `\b${escapeStoryboardRegExp(token)}\b`, 'i').test(lowerSection));
+}
 function sceneReferencesFromSection(section, references) {
     const used = references
         .filter(ref => ref.index && new RegExp(String.raw `\b(?:image|photo|picture|asset)\s*(?:#|number\s*)?${ref.index}\b`, 'i').test(section))
@@ -2054,6 +2311,23 @@ function sceneReferencesFromSection(section, references) {
     if (used.length > 0)
         return used;
     const lower = section.toLowerCase();
+    const subjectMatches = references
+        .filter(ref => ref.kind !== 'logo')
+        .filter(ref => storyboardReferenceSubjectMatchesSection(ref, lower))
+        .map(ref => ref.id);
+    if (subjectMatches.length > 0)
+        return uniqueStoryboardStrings(subjectMatches);
+    const roleMatches = references
+        .filter(ref => {
+        if (ref.kind === 'logo')
+            return /\b(?:logo|wordmark|brand|brand\s+mark|end\s+card|cta|tagline)\b/i.test(lower);
+        if (ref.kind === 'style' || ref.kind === 'background')
+            return /\b(?:style|look|lighting|palette|background|environment|setting)\b/i.test(lower);
+        return false;
+    })
+        .map(ref => ref.id);
+    if (roleMatches.length > 0)
+        return uniqueStoryboardStrings(roleMatches);
     return references
         .filter(ref => ref.usageScope === 'global')
         .filter(ref => {
@@ -2180,6 +2454,44 @@ function buildFallbackScenes(frameCount, durationSec, sourceText) {
         };
     });
 }
+function normalizeAssistantStoryboardSceneTiming(scenes, targetDurationSec, promptAuthorship) {
+    if (promptAuthorship !== 'assistant' || targetDurationSec === null || scenes.length === 0) {
+        return scenes;
+    }
+    const timedScenes = scenes.filter(scene => scene.startSec !== null
+        && scene.endSec !== null
+        && scene.durationSec !== null
+        && scene.endSec > scene.startSec
+        && scene.durationSec > 0);
+    if (timedScenes.length !== scenes.length)
+        return scenes;
+    const totalSceneDurationSec = Math.round(scenes.reduce((sum, scene) => sum + (scene.durationSec ?? 0), 0) * 100) / 100;
+    if (totalSceneDurationSec <= 0)
+        return scenes;
+    const diff = Math.abs(totalSceneDurationSec - targetDurationSec);
+    if (diff <= DEFAULT_STORYBOARD_TIMING_RULES.toleranceSec)
+        return scenes;
+    const scale = targetDurationSec / totalSceneDurationSec;
+    const timelineStartSec = scenes[0].startSec ?? 0;
+    const timelineEndSec = Math.round((timelineStartSec + targetDurationSec) * 100) / 100;
+    let cursor = timelineStartSec;
+    return scenes.map((scene, index) => {
+        const isLast = index === scenes.length - 1;
+        const startLimit = isLast ? timelineEndSec - 0.01 : cursor;
+        const startSec = Math.round(Math.min(cursor, startLimit) * 100) / 100;
+        const endSec = isLast
+            ? timelineEndSec
+            : Math.round((startSec + Math.max(0.01, (scene.durationSec ?? 0) * scale)) * 100) / 100;
+        const durationSec = Math.round((endSec - startSec) * 100) / 100;
+        cursor = endSec;
+        return {
+            ...scene,
+            startSec,
+            endSec,
+            durationSec,
+        };
+    });
+}
 function quotedStoryboardVoiceLinesFromText(text) {
     const lines = [];
     for (const rawLine of text.split(/\r?\n/)) {
@@ -2236,10 +2548,51 @@ function inferStoryboardToneProgression(text) {
         return [];
     return progression.split(/\s*(?:->|,|;|\|)\s*/).map(item => item.trim()).filter(Boolean);
 }
+function cleanStoryboardStorySpine(value) {
+    const cleaned = sanitizeStoryboardExternalAudioReferences(compactStoryboardLine(stripStoryboardMarkup(value)))
+        .replace(/^[:*_\-\s]+|[:*_\-\s]+$/g, '')
+        .trim();
+    if (!cleaned || /^[*_\-:.\s]+$/.test(cleaned))
+        return '';
+    return cleaned;
+}
+function inferStoryboardStorySpineFromHeading(text) {
+    const lines = stripStoryboardMarkup(text)
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean);
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        const inline = line.match(/^(?:story\s+spine|narrative\s+spine|throughline|story\s+arc|creative\s+intent)\s*:\s*(.+)$/i)?.[1];
+        const cleanedInline = cleanStoryboardStorySpine(inline || '');
+        if (cleanedInline)
+            return cleanedInline;
+        if (!/^(?:story\s+spine|narrative\s+spine|throughline|story\s+arc|creative\s+intent)\s*:?\s*$/i.test(line)) {
+            continue;
+        }
+        const collected = [];
+        for (let cursor = index + 1; cursor < lines.length && collected.length < 4; cursor += 1) {
+            const candidate = lines[cursor];
+            if (/^(?:storyboard|video|production|reference|timecoded|beat\s+\d|scene\s+\d|format|duration|aspect|does this|please confirm)\b/i.test(candidate)) {
+                break;
+            }
+            const cleaned = cleanStoryboardStorySpine(candidate);
+            if (cleaned)
+                collected.push(cleaned);
+        }
+        const combined = cleanStoryboardStorySpine(collected.join(' '));
+        if (combined)
+            return combined;
+    }
+    return '';
+}
 function inferStoryboardStorySpine(text, fallbackBrief) {
-    const explicit = text.match(/\b(?:story\s+spine|narrative\s+spine|throughline|story\s+arc|creative\s+intent)\s*:\s*([^\n]{1,360})/i)?.[1];
-    if (explicit?.trim())
-        return sanitizeStoryboardExternalAudioReferences(compactStoryboardLine(explicit));
+    const explicit = cleanStoryboardStorySpine(text.match(/\b(?:story\s+spine|narrative\s+spine|throughline|story\s+arc|creative\s+intent)\s*:\s*([^\n]{1,360})/i)?.[1] || '');
+    if (explicit)
+        return explicit;
+    const fromHeading = inferStoryboardStorySpineFromHeading(text);
+    if (fromHeading)
+        return fromHeading;
     const compactFallback = sanitizeStoryboardExternalAudioReferences(compactStoryboardLine(fallbackBrief || text));
     if (compactFallback) {
         return `One continuous progression from the source brief: ${compactFallback.slice(0, 260)}`;
@@ -2286,18 +2639,24 @@ export function buildStoryboardProject(options) {
     const layout = inferStoryboardLayoutSpec(userIntentText, options.frameCount);
     const requestedDurationSec = inferRequestedTotalVideoDurationSeconds(userIntentText);
     const durationSec = requestedDurationSec ?? inferRequestedTotalVideoDurationSeconds(sourceText);
-    const references = buildStoryboardReferenceAssets(userIntentText, prompt);
+    const references = buildStoryboardReferenceAssets(userIntentText, [
+        prompt,
+        approvedScriptContext,
+    ].filter(Boolean).join('\n\n'));
     const approvedSections = approvedScriptContext
         ? splitStoryboardSections(approvedScriptContext)
         : [];
     const sourceSections = splitStoryboardSections(sourceText);
+    const assistantApprovedDraftUndercounted = options.promptAuthorship === 'assistant'
+        && approvedSections.length > 0
+        && approvedSections.length < options.frameCount;
     const assistantDraftUndercounted = options.promptAuthorship === 'assistant'
         && !approvedScriptContext
         && sourceSections.length > 0
         && sourceSections.length < options.frameCount;
-    const sections = approvedSections.length > 0
+    const sections = approvedSections.length > 0 && !assistantApprovedDraftUndercounted
         ? approvedSections
-        : assistantDraftUndercounted
+        : assistantDraftUndercounted || assistantApprovedDraftUndercounted
             ? []
             : sourceSections;
     const sceneCountForTiming = sections.length > 0 ? sections.length : options.frameCount;
@@ -2320,9 +2679,10 @@ export function buildStoryboardProject(options) {
             return buildSceneFromSection(section, references, fallbackTiming);
         })
         : buildFallbackScenes(options.frameCount, durationSec, sourceText);
+    const normalizedScenes = normalizeAssistantStoryboardSceneTiming(scenes, durationSec, options.promptAuthorship);
     const userConstraintSource = buildStoryboardUserConstraintSource(userIntentText, primarySourceBrief, options);
     const requiredText = extractStoryboardRequiredText(userConstraintSource);
-    const voiceLines = assignVoiceLinesToScenes(scenes, sourceText);
+    const voiceLines = assignVoiceLinesToScenes(normalizedScenes, sourceText);
     const storySpineFallback = approvedScriptContext
         || (options.promptAuthorship === 'assistant' ? userIntentText : primarySourceBrief)
         || prompt
@@ -2354,7 +2714,7 @@ export function buildStoryboardProject(options) {
             fullScript: voiceLines.map(line => line.text).join('\n'),
             lines: voiceLines,
         },
-        scenes,
+        scenes: normalizedScenes,
         endCard: inferEndCard(allText, references, requiredText),
     };
 }
@@ -2399,7 +2759,7 @@ export function validateStoryboardProjectTiming(project, rules = DEFAULT_STORYBO
             const wordsPerSecond = dialogueWords / duration;
             if (wordsPerSecond > rules.fastWordsPerSecondMax) {
                 issues.push({
-                    severity: 'error',
+                    severity: 'warning',
                     code: 'dialogue_too_dense',
                     sceneId: scene.id,
                     message: `${scene.id} has about ${dialogueWords} spoken words in ${duration}s (${wordsPerSecond.toFixed(1)} words/sec).`,

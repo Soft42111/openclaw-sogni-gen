@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import JSON5 from 'json5';
@@ -37,6 +37,11 @@ const hasCreds = Boolean(process.env.SOGNI_API_KEY || (process.env.SOGNI_USERNAM
 const IMAGE_TIMEOUT_SEC = Number(process.env.SOGNI_INTEGRATION_IMAGE_TIMEOUT_SEC || 60);
 const VIDEO_TIMEOUT_SEC = Number(process.env.SOGNI_INTEGRATION_VIDEO_TIMEOUT_SEC || 600);
 const PROCESS_TIMEOUT_MS = Math.max(IMAGE_TIMEOUT_SEC, VIDEO_TIMEOUT_SEC) * 1000 + 120000;
+const ARTIFACT_LOG_PATH = process.env.SOGNI_ARTIFACT_LOG_PATH || join(
+  process.cwd(),
+  'logs',
+  `sogni-agent-integration-artifacts-${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl`
+);
 
 const TESTS = [
   { key: 't2i', name: 'Text-to-image 512x512' },
@@ -100,6 +105,35 @@ function loadCredentials() {
 function formatNumber(value) {
   if (!Number.isFinite(value)) return '0';
   return value.toFixed(2);
+}
+
+function logGeneratedArtifacts(label, payload) {
+  const urls = Array.isArray(payload?.urls) ? payload.urls.filter(Boolean) : [];
+  const localPath = typeof payload?.localPath === 'string' && payload.localPath
+    ? payload.localPath
+    : null;
+  if (urls.length === 0 && !localPath) return;
+
+  const record = {
+    timestamp: new Date().toISOString(),
+    label,
+    type: payload.type,
+    prompt: payload.prompt,
+    model: payload.model,
+    workflow: payload.workflow,
+    width: payload.width,
+    height: payload.height,
+    fps: payload.fps,
+    duration: payload.duration,
+    localPath,
+    urls
+  };
+
+  mkdirSync(join(process.cwd(), 'logs'), { recursive: true });
+  appendFileSync(ARTIFACT_LOG_PATH, `${JSON.stringify(record)}\n`);
+  console.log(`[artifact-log] ${label}: ${ARTIFACT_LOG_PATH}`);
+  for (const url of urls) console.log(`[artifact-url] ${label}: ${url}`);
+  if (localPath) console.log(`[artifact-file] ${label}: ${localPath}`);
 }
 
 function resolveVideoModel(workflow) {
@@ -510,6 +544,7 @@ if (!shouldRun) {
         assert.equal(json.height, 512);
         assert.ok(Array.isArray(json.urls) && json.urls.length > 0, 'image url missing');
         assert.ok(existsSync(imagePath), 'image file not written');
+        logGeneratedArtifacts('Text-to-image 512x512', json);
       });
 
       const t2vBudget = await checkVideoBudget({
@@ -542,6 +577,7 @@ if (!shouldRun) {
           assert.equal(json.width, 640);
           assert.equal(json.height, 640);
           assert.ok(Array.isArray(json.urls) && json.urls.length > 0, 'video url missing');
+          logGeneratedArtifacts('Text-to-video 640x640', json);
         });
       }
 
@@ -577,6 +613,7 @@ if (!shouldRun) {
           assert.equal(json.height, 512);
           assert.equal(json.refImage, imagePath);
           assert.ok(Array.isArray(json.urls) && json.urls.length > 0, 'video url missing');
+          logGeneratedArtifacts('Image-to-video 512x512', json);
         });
       }
 
@@ -622,6 +659,7 @@ if (!shouldRun) {
           assert.equal(json.refImage, imagePath);
           assert.equal(json.referenceAudioIdentity, voicePath);
           assert.ok(Array.isArray(json.urls) && json.urls.length > 0, 'video url missing');
+          logGeneratedArtifacts('LTX 2.3 first-frame + Audio ID', json);
         });
       }
     } finally {
