@@ -832,6 +832,21 @@ export function textExplicitlyRequestsSeedanceFastModel(text) {
         || (mentionsSeedance
             && /\b(?:use|using|choose|select|set|switch\s+to|with|via)\b[\s\S]{0,40}\bfast\s+model\b/i.test(text));
 }
+export function textExplicitlyRequestsNonSeedanceVideoModel(text) {
+    return /\b(?:ltx(?:\s*2(?:\.3)?)?|wan(?:\s*2(?:\.2)?)?|another\s+video\s+model|different\s+video\s+model|non[-\s]?seedance)\b/i.test(text)
+        && !/\bseedance(?:\s*2(?:\.0)?)?\b/i.test(text);
+}
+export function textRequestsPrimaryAudioSyncVideo(text) {
+    if (/\b(?:do\s+not|don't|dont|no|not|without)\b[\s\S]{0,50}\b(?:sync|synced|synchroni[sz]e|synchronized|match|lip[-\s]*sync)\b[\s\S]{0,50}\b(?:audio|sound|song|track|beat|rhythm|music|voice|dialogue|speech|words)\b/i.test(text)
+        || /\b(?:audio|sound|song|track|beat|rhythm|music|voice|dialogue|speech|words)\b[\s\S]{0,50}\b(?:do\s+not|don't|dont|no|not|without)\b[\s\S]{0,50}\b(?:sync|synced|synchroni[sz]e|synchronized|match|lip[-\s]*sync)\b/i.test(text)) {
+        return false;
+    }
+    return /\bsound[-_\s]*to[-_\s]*video\b/i.test(text)
+        || /\baudio[-_\s]*(?:sync|synced|synchronized|synchroni[sz]ed)\b/i.test(text)
+        || /\b(?:sync|synced|synchroni[sz]e|synchroni[sz]ed|match)\b[\s\S]{0,80}\b(?:audio|sound|song|track|beat|rhythm|music|voice|dialogue|speech|words)\b/i.test(text)
+        || /\b(?:saying|speaking|lip[-\s]*sync(?:ing)?|mouth(?:ing)?)\b[\s\S]{0,100}\b(?:audio|sound|words|dialogue|speech|voice)\b/i.test(text)
+        || /\b(?:audio|sound|song|track|beat|rhythm|music|voice|dialogue|speech|words)\b[\s\S]{0,100}\b(?:drive|drives|driving|primary|sync|synced|synchronized|synchroni[sz]ed|lip[-\s]*sync)\b/i.test(text);
+}
 export function seedanceRequestUsesStoryboardReferenceForModelDefault(input) {
     if (input.storyboardDetected === true)
         return true;
@@ -1270,11 +1285,13 @@ function ratioFromStoryboardAspectWords(value) {
     return `${width}:${height}`;
 }
 function inferStoryboardBoardAspectDirective(text) {
+    const aspectToken = String.raw `(?:portrait|vertical|landscape|horizontal|widescreen|\d{1,4}\s*:\s*\d{1,4})`;
     const patterns = [
         /\bStoryboard layout target\s*:\s*board\s+([^\n;,]+)/i,
         /\bStoryboard layout\s*:[^\n]*\bboard\s+([^\n;,]+)/i,
         /\bDEFAULT STORYBOARD PAGE LAYOUT\s*:\s*Use a\s+([^\n.]+?)\s+storyboard\s+canvas\/page\b/i,
         /\bOverall storyboard canvas(?:\s+aspect ratio)?\s*:\s*(?:\d{3,5}\s*x\s*\d{3,5}\s+pixels\s*\()?([^\n.)]+)/i,
+        new RegExp(String.raw `\b(?:story\s*board|storyboard)?\s*(?:board|canvas|page|sheet)\b[^\n]{0,80}\b(?:must|should|use|be|is|as|at)\b[^\n]{0,80}\b(${aspectToken})\b`, 'i'),
     ];
     for (const pattern of patterns) {
         const match = text.match(pattern);
@@ -1344,10 +1361,13 @@ function inferExplicitStoryboardTargetVideoAspectRatio(text) {
         if (width > 0 && height > 0)
             return `${width}:${height}`;
     }
-    const explicitTarget = text.match(/\b(?:target|final|output|actual|seedance|video|clip|film|commercial|promo)\b[\s\S]{0,80}\b(\d{1,4})\s*:\s*(\d{1,4})\b/i);
-    if (explicitTarget) {
-        const width = Number(explicitTarget[1]);
-        const height = Number(explicitTarget[2]);
+    const explicitTargetPattern = /\b(?:target|final|output|actual|seedance|video|clip|film|commercial|promo)\b([\s\S]{0,80}?)\b(\d{1,4})\s*:\s*(\d{1,4})\b/gi;
+    for (const explicitTarget of text.matchAll(explicitTargetPattern)) {
+        const between = explicitTarget[1] ?? '';
+        if (/\b(?:story\s*board|storyboard|board|canvas|page|sheet|poster)\b/i.test(between))
+            continue;
+        const width = Number(explicitTarget[2]);
+        const height = Number(explicitTarget[3]);
         if (width > 0 && height > 0)
             return `${width}:${height}`;
     }
@@ -1384,17 +1404,37 @@ function inferStoryboardCellAspectRatio(text, targetVideoAspectRatio) {
     }
     return targetVideoAspectRatio;
 }
+function describePortraitLetterboxCellArrangement(frameCount) {
+    if (frameCount <= 4)
+        return `${frameCount} stacked widescreen letterbox storyboard cells in a portrait sheet`;
+    const columns = frameCount <= 8 ? 2 : frameCount <= 15 ? 3 : 4;
+    const rows = Math.ceil(frameCount / columns);
+    return [
+        `${frameCount} widescreen letterbox storyboard cells arranged as a ${columns}-column x ${rows}-row grid inside a portrait sheet`,
+        'keep compact labels outside the frames and use unused grid slots as margin/notes space',
+    ].join('; ');
+}
+function describeLandscapePortraitCellArrangement(frameCount) {
+    if (frameCount <= 4)
+        return `${frameCount} portrait video panels arranged cleanly inside a landscape board`;
+    const rows = frameCount <= 8 ? 2 : frameCount <= 15 ? 3 : 4;
+    const columns = Math.ceil(frameCount / rows);
+    return [
+        `${frameCount} portrait video panels arranged as a ${rows}-row x ${columns}-column grid inside a landscape board`,
+        'keep compact labels outside the frames and use unused grid slots as margin/notes space',
+    ].join('; ');
+}
 function describeStoryboardLayout(boardAspectRatio, cellAspectRatio, frameCount) {
     if (boardAspectRatio === '9:16' && cellAspectRatio === '16:9') {
         return {
             layoutKind: 'portrait_letterbox_cells',
-            layoutDescription: `${frameCount} stacked widescreen letterbox storyboard cells in a portrait sheet`,
+            layoutDescription: describePortraitLetterboxCellArrangement(frameCount),
         };
     }
     if (boardAspectRatio === '16:9' && cellAspectRatio === '9:16') {
         return {
             layoutKind: 'landscape_portrait_cells',
-            layoutDescription: `${frameCount} portrait video panels arranged cleanly inside a landscape board`,
+            layoutDescription: describeLandscapePortraitCellArrangement(frameCount),
         };
     }
     if (boardAspectRatio === '9:16') {
@@ -2492,6 +2532,202 @@ function normalizeAssistantStoryboardSceneTiming(scenes, targetDurationSec, prom
         };
     });
 }
+function normalizeStoryboardDialogueToken(value) {
+    return value
+        .toLowerCase()
+        .replace(/[‘’]/g, "'")
+        .replace(/^'+|'+$/g, '');
+}
+function storyboardDialogueWordSpans(text) {
+    const spans = [];
+    const pattern = /[\p{L}\p{N}]+(?:[’'][\p{L}\p{N}]+)?/gu;
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+        spans.push({
+            token: normalizeStoryboardDialogueToken(match[0]),
+            start: match.index,
+            end: match.index + match[0].length,
+        });
+    }
+    return spans;
+}
+function storyboardDialogueCoverage(sourceDialogue, currentDialogue) {
+    const sourceTokens = storyboardDialogueWordSpans(sourceDialogue).map(span => span.token);
+    const currentTokens = storyboardDialogueWordSpans(currentDialogue).map(span => span.token);
+    if (sourceTokens.length === 0)
+        return 1;
+    if (currentTokens.length === 0)
+        return 0;
+    let cursor = 0;
+    let matched = 0;
+    for (const token of sourceTokens) {
+        const foundIndex = currentTokens.indexOf(token, cursor);
+        if (foundIndex < 0)
+            continue;
+        matched += 1;
+        cursor = foundIndex + 1;
+    }
+    return matched / sourceTokens.length;
+}
+function sourceQuotedStoryboardDialogueSegments(userIntentText) {
+    const text = normalizeScreenplayDialogueQuotes(userIntentText.replace(/[“”]/g, '"')) || '';
+    const segments = [];
+    const pattern = /"([^"]{1,800})"/g;
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+        const index = match.index;
+        const before = text.slice(Math.max(0, index - 180), index);
+        const after = text.slice(pattern.lastIndex, Math.min(text.length, pattern.lastIndex + 120));
+        const context = `${before} ${after}`;
+        const lineStart = text.lastIndexOf('\n', Math.max(0, index - 1)) + 1;
+        const nextLineBreak = text.indexOf('\n', pattern.lastIndex);
+        const lineEnd = nextLineBreak >= 0 ? nextLineBreak : text.length;
+        const lineContext = text.slice(lineStart, lineEnd);
+        const speechContext = /\b(?:dialogue|vo|v\.o\.|voiceover|voice-over|speech|spoken|monologue|narration|line|lines|say|says|said|speak|speaks|speaking|script)\b/i.test(context);
+        const lineSpeechContext = /\b(?:dialogue|vo|v\.o\.|voiceover|voice-over|speech|spoken|monologue|narration|say|says|said|speak|speaks|speaking)\b/i.test(lineContext);
+        const lineVisibleTextOnly = /\b(?:visible|on[-\s]?screen|onscreen|text|copy|cta|tagline|headline|title\s+card|logo|wordmark|spell(?:ed)?|read(?:s)?|end\s+card|slogan)\b/i.test(lineContext)
+            && !lineSpeechContext;
+        const lineNonVoiceMetadata = /\b(?:working\s+title|title|format|duration|aspect(?:\s+ratio)?|reference\s+assets?)\s*:/i.test(lineContext)
+            && !lineSpeechContext;
+        const value = compactStoryboardLine(match[1]);
+        if (value && speechContext && !lineVisibleTextOnly && !lineNonVoiceMetadata)
+            segments.push(value);
+    }
+    return segments;
+}
+function findStoryboardDialogueStartIndex(sourceSpans, dialogue, cursor) {
+    const dialogueTokens = storyboardDialogueWordSpans(dialogue).map(span => span.token);
+    if (dialogueTokens.length === 0)
+        return null;
+    const maxNeedleLength = Math.min(3, dialogueTokens.length);
+    for (let needleLength = maxNeedleLength; needleLength >= 1; needleLength -= 1) {
+        const needle = dialogueTokens.slice(0, needleLength);
+        for (let index = cursor; index <= sourceSpans.length - needleLength; index += 1) {
+            const matches = needle.every((token, offset) => sourceSpans[index + offset]?.token === token);
+            if (matches)
+                return index;
+        }
+    }
+    return null;
+}
+function sourceDialogueSliceForWordRange(sourceDialogue, sourceSpans, startIndex, endExclusive) {
+    const start = sourceSpans[startIndex]?.start ?? 0;
+    const lastSpan = sourceSpans[Math.max(startIndex, endExclusive - 1)];
+    if (!lastSpan)
+        return '';
+    const nextStart = sourceSpans[endExclusive]?.start ?? sourceDialogue.length;
+    const trailing = sourceDialogue.slice(lastSpan.end, nextStart).match(/^[\s.,!?;:…'"’”)}\]-]*/)?.[0] ?? '';
+    return sourceDialogue.slice(start, lastSpan.end + trailing.length).trim();
+}
+function matchSourceDialogueSceneStarts(scenes, sourceSpans) {
+    const dialogueScenes = scenes
+        .map((scene, index) => ({ scene, index }))
+        .filter(({ scene }) => scene.dialogue.trim().length > 0);
+    if (sourceSpans.length === 0 || dialogueScenes.length === 0)
+        return null;
+    const matches = [];
+    let cursor = 0;
+    for (const { scene, index } of dialogueScenes) {
+        const start = findStoryboardDialogueStartIndex(sourceSpans, scene.dialogue, cursor);
+        if (start === null)
+            return null;
+        matches.push({ sceneIndex: index, startIndex: start });
+        cursor = start + 1;
+    }
+    return matches;
+}
+function redistributeSourceDialogueAcrossMatchedScenes(scenes, sourceDialogue, matches) {
+    const sourceSpans = storyboardDialogueWordSpans(sourceDialogue);
+    if (sourceSpans.length === 0 || matches.length === 0)
+        return null;
+    const repaired = scenes.slice();
+    for (let index = 0; index < matches.length; index += 1) {
+        const sceneIndex = matches[index].sceneIndex;
+        const start = matches[index].startIndex;
+        const end = matches[index + 1]?.startIndex ?? sourceSpans.length;
+        if (end <= start)
+            return null;
+        const dialogue = sourceDialogueSliceForWordRange(sourceDialogue, sourceSpans, start, end);
+        if (!dialogue)
+            return null;
+        repaired[sceneIndex] = {
+            ...repaired[sceneIndex],
+            dialogue,
+        };
+    }
+    return repaired;
+}
+function alignAssistantStoryboardDialogueWithUserSource(scenes, userIntentText, promptAuthorship) {
+    if (promptAuthorship !== 'assistant')
+        return { scenes, shouldRetime: false };
+    const sourceDialogue = sourceQuotedStoryboardDialogueSegments(userIntentText).join(' ');
+    if (!sourceDialogue)
+        return { scenes, shouldRetime: false };
+    const sourceSpans = storyboardDialogueWordSpans(sourceDialogue);
+    const matches = matchSourceDialogueSceneStarts(scenes, sourceSpans);
+    if (!matches)
+        return { scenes, shouldRetime: false };
+    const currentDialogue = scenes.map(scene => scene.dialogue).filter(Boolean).join(' ');
+    if (storyboardDialogueCoverage(sourceDialogue, currentDialogue) >= 1) {
+        return { scenes, shouldRetime: true };
+    }
+    const repaired = redistributeSourceDialogueAcrossMatchedScenes(scenes, sourceDialogue, matches);
+    if (!repaired)
+        return { scenes, shouldRetime: false };
+    return { scenes: repaired, shouldRetime: true };
+}
+function minimumStoryboardSceneDurationForDialogue(scene, rules) {
+    const dialogueWords = countWords(scene.dialogue);
+    let minDuration = dialogueWords > 0
+        ? dialogueWords / rules.normalWordsPerSecondMax
+        : 0.5;
+    const sceneContext = `${scene.title}\n${scene.visual}\n${scene.textInImage.join(' ')}`;
+    const hasReadableText = scene.textInImage.length > 0;
+    const isEndCard = /\b(?:end card|outro|cta|final|logo|brand resolve)\b/i.test(sceneContext);
+    if (isEndCard) {
+        minDuration = Math.max(minDuration, rules.minEndCardHoldSec);
+    }
+    else if (hasReadableText) {
+        minDuration = Math.max(minDuration, 1.2);
+    }
+    return Math.round(minDuration * 100) / 100;
+}
+function retimeStoryboardScenesForDialogue(scenes, targetDurationSec, rules = DEFAULT_STORYBOARD_TIMING_RULES) {
+    if (targetDurationSec === null || scenes.length === 0)
+        return scenes;
+    if (!scenes.every(scene => scene.startSec !== null && scene.endSec !== null && scene.durationSec !== null && scene.durationSec > 0)) {
+        return scenes;
+    }
+    const minimumDurations = scenes.map(scene => minimumStoryboardSceneDurationForDialogue(scene, rules));
+    const needsRetiming = scenes.some((scene, index) => (scene.durationSec ?? 0) + rules.toleranceSec < minimumDurations[index]);
+    if (!needsRetiming)
+        return scenes;
+    const minimumTotal = Math.round(minimumDurations.reduce((sum, duration) => sum + duration, 0) * 100) / 100;
+    if (minimumTotal > targetDurationSec + rules.toleranceSec)
+        return scenes;
+    const extraDuration = Math.max(0, targetDurationSec - minimumTotal);
+    const originalDurations = scenes.map(scene => scene.durationSec ?? 0);
+    const weightTotal = originalDurations.reduce((sum, duration) => sum + Math.max(0.01, duration), 0);
+    const unroundedDurations = minimumDurations.map((minimum, index) => (minimum + (extraDuration * Math.max(0.01, originalDurations[index]) / weightTotal)));
+    const timelineStartSec = scenes[0].startSec ?? 0;
+    const timelineEndSec = Math.round((timelineStartSec + targetDurationSec) * 100) / 100;
+    let cursor = timelineStartSec;
+    return scenes.map((scene, index) => {
+        const isLast = index === scenes.length - 1;
+        const startSec = Math.round(cursor * 100) / 100;
+        const endSec = isLast
+            ? timelineEndSec
+            : Math.round((startSec + unroundedDurations[index]) * 100) / 100;
+        const durationSec = Math.round((endSec - startSec) * 100) / 100;
+        cursor = endSec;
+        return {
+            ...scene,
+            startSec,
+            endSec,
+            durationSec,
+        };
+    });
+}
 function quotedStoryboardVoiceLinesFromText(text) {
     const lines = [];
     for (const rawLine of text.split(/\r?\n/)) {
@@ -2679,7 +2915,11 @@ export function buildStoryboardProject(options) {
             return buildSceneFromSection(section, references, fallbackTiming);
         })
         : buildFallbackScenes(options.frameCount, durationSec, sourceText);
-    const normalizedScenes = normalizeAssistantStoryboardSceneTiming(scenes, durationSec, options.promptAuthorship);
+    const timingNormalizedScenes = normalizeAssistantStoryboardSceneTiming(scenes, durationSec, options.promptAuthorship);
+    const dialogueAlignment = alignAssistantStoryboardDialogueWithUserSource(timingNormalizedScenes, userIntentText, options.promptAuthorship);
+    const normalizedScenes = dialogueAlignment.shouldRetime
+        ? retimeStoryboardScenesForDialogue(dialogueAlignment.scenes, durationSec)
+        : dialogueAlignment.scenes;
     const userConstraintSource = buildStoryboardUserConstraintSource(userIntentText, primarySourceBrief, options);
     const requiredText = extractStoryboardRequiredText(userConstraintSource);
     const voiceLines = assignVoiceLinesToScenes(normalizedScenes, sourceText);
@@ -2763,7 +3003,7 @@ export function validateStoryboardProjectTiming(project, rules = DEFAULT_STORYBO
                     code: 'dialogue_too_dense',
                     sceneId: scene.id,
                     message: `${scene.id} has about ${dialogueWords} spoken words in ${duration}s (${wordsPerSecond.toFixed(1)} words/sec).`,
-                    repair: 'Shorten the line, increase the scene duration, or split the dialogue into another scene.',
+                    repair: 'Increase this scene duration, reallocate time from non-dialogue beats, or split the dialogue across adjacent scenes before changing any supplied words.',
                 });
             }
             else if (wordsPerSecond > rules.normalWordsPerSecondMax) {
@@ -2772,7 +3012,7 @@ export function validateStoryboardProjectTiming(project, rules = DEFAULT_STORYBO
                     code: 'dialogue_fast',
                     sceneId: scene.id,
                     message: `${scene.id} dialogue is fast at ${wordsPerSecond.toFixed(1)} words/sec.`,
-                    repair: 'Prefer less dialogue or more time for cleaner delivery.',
+                    repair: 'Prefer more time or a split across adjacent scenes for cleaner delivery; only shorten dialogue that was not supplied by the user.',
                 });
             }
         }
@@ -2932,20 +3172,17 @@ function compileStoryboardScenesSection(project) {
 }
 function compileStoryboardTimingValidationSection(project) {
     const validation = validateStoryboardProjectTiming(project);
-    if (validation.issues.length === 0) {
-        return [
-            'TIMING VALIDATION:',
-            `Passed deterministic timing validation for ${validation.timedSceneCount} timed scene(s).`,
-        ];
-    }
+    const errors = validation.issues.filter(issue => issue.severity === 'error');
+    if (errors.length === 0)
+        return [];
     return [
         'TIMING VALIDATION:',
-        ...validation.issues.map(issue => {
-            const prefix = issue.severity === 'error' ? 'ERROR' : 'WARNING';
+        ...errors.map(issue => {
+            const prefix = 'ERROR';
             const repair = issue.repair ? ` Repair: ${issue.repair}` : '';
             return `${prefix} ${issue.code}: ${issue.message}${repair}`;
         }),
-        'Resolve any ERROR items before treating this as video-model-ready; WARNING items should be preserved as visible timing notes or repaired if possible.',
+        'Resolve these ERROR items before treating this as video-model-ready. Do not add validation, warning, or repair-status text inside any storyboard frame.',
     ];
 }
 export function compileVideoStoryboardImagePrompt(options) {
