@@ -1606,6 +1606,8 @@ Hosted API Modes:
   --workflow-title <text> Title for hosted-tool-sequence workflow input
   --video-prompt <text> Motion prompt for --api-workflow image-to-video
   --negative-prompt <text> Negative prompt for --api-workflow image-to-video
+  --generate-audio, --no-generate-audio  Toggle audio generation for image-to-video workflows
+  --expand-prompt, --no-expand-prompt    Toggle prompt expansion for image-to-video workflows
   --watch-workflow      Stream workflow events after starting
   --list-workflows      List recent durable creative workflows
   --get-workflow <id>   Fetch a workflow snapshot
@@ -1702,11 +1704,11 @@ Examples:
   sogni-agent --multi-angle -c subject.jpg --azimuth front-right --elevation eye-level --distance medium "studio portrait"
   sogni-agent --angles-360 -c subject.jpg "studio portrait"
   sogni-agent --video --ref cat.jpg -o cat.mp4 "cat walks around"
-  sogni-agent --video "A narrator says \"welcome to the story\" as ocean waves crash"
+  sogni-agent --video 'A narrator says "welcome to the story" as ocean waves crash'
   sogni-agent --video --ref cat.jpg --ref-audio speech.m4a -m wan_v2.2-14b-fp8_s2v_lightx2v "lip sync"
   sogni-agent --video --ref cover.jpg --ref-audio song.mp3 "music video"
   sogni-agent --video --ref-audio song.mp3 "abstract music visualizer"
-  sogni-agent --video --reference-audio-identity voice.webm "NARRATOR: \"This is my voice.\""
+  sogni-agent --video --reference-audio-identity voice.webm 'NARRATOR: "This is my voice."'
   sogni-agent --api-chat "Create a 4-shot product video concept for a red sneaker"
   sogni-agent --api-workflow image-to-video --video-prompt "slow push-in as it comes alive" "a graphite robot sketch"
   sogni-agent --video -m ltx23-22b-fp8_t2v_distilled --duration 20 "A wide cinematic aerial shot opens over steep tropical cliffs at golden hour, warm sunlight grazing the rock faces while sea mist drifts above the water below. Palm trees bend gently along the ridge as waves roll against the shoreline, leaving bright bands of foam across the dark stone. The camera glides forward in one continuous pass, revealing more of the coastline as sunlight flickers across wet surfaces and distant birds wheel through the haze. The scene holds a calm, upscale travel-film mood with smooth stabilized motion and crisp environmental detail."
@@ -2146,13 +2148,25 @@ if (options.video) {
 const apiWorkflowUtilityAction = options.apiWorkflowAction && options.apiWorkflowAction !== 'start';
 const apiWorkflowStartAction = options.apiWorkflowAction === 'start';
 const apiWorkflowStartHasExternalInput = options.apiWorkflowAction === 'start' && options.apiWorkflowInput;
+const personaUtilityAction = Boolean(options.personaAction && options.personaAction !== 'generate');
+const commandUsesGenerationSeed = !options.apiChat &&
+  !apiWorkflowUtilityAction &&
+  !options.estimateVideoCost &&
+  !options.showBalance &&
+  !options.showVersion &&
+  !options.extractLastFrame &&
+  !options.concatVideos &&
+  !options.listMedia &&
+  !options.memoryAction &&
+  !options.personalityAction &&
+  !personaUtilityAction;
 if (apiWorkflowStartAction && options.apiWorkflowKind === 'image_to_video' && !options.prompt && !apiWorkflowStartHasExternalInput) {
   fatalCliError('--api-workflow image-to-video requires a prompt or --workflow-input JSON.', { code: 'INVALID_ARGUMENT' });
 }
 if (apiWorkflowStartAction && options.apiWorkflowKind === 'hosted_tool_sequence' && !apiWorkflowStartHasExternalInput) {
   fatalCliError('--api-workflow hosted-tool-sequence requires --workflow-input JSON.', { code: 'INVALID_ARGUMENT' });
 }
-if (!options.prompt && !options.apiChat && !apiWorkflowUtilityAction && !apiWorkflowStartAction && !options.estimateVideoCost && !options.multiAngle && !options.showBalance && !options.showVersion && !options.extractLastFrame && !options.concatVideos && !options.listMedia && !options.memoryAction && !options.personalityAction && !(options.personaAction && options.personaAction !== 'generate')) {
+if (!options.prompt && !options.apiChat && !apiWorkflowUtilityAction && !apiWorkflowStartAction && !options.estimateVideoCost && !options.multiAngle && !options.showBalance && !options.showVersion && !options.extractLastFrame && !options.concatVideos && !options.listMedia && !options.memoryAction && !options.personalityAction && !personaUtilityAction) {
   fatalCliError('No prompt provided. Use --help for usage.', { code: 'INVALID_ARGUMENT' });
 }
 
@@ -2517,8 +2531,8 @@ if (options.contextImages.length > 0 && !options.video) {
   }
 }
 
-// Load last render seed if requested
-if (options.lastSeed) {
+// Load last render seed if requested for a command that can use it.
+if (options.lastSeed && commandUsesGenerationSeed) {
   if (existsSync(LAST_RENDER_PATH)) {
     try {
       const lastRender = JSON.parse(readFileSync(LAST_RENDER_PATH, 'utf8'));
@@ -2534,7 +2548,7 @@ if (options.lastSeed) {
   }
 }
 
-if (!options.apiChat && !apiWorkflowUtilityAction && !options.estimateVideoCost && !options.showVersion && !options.extractLastFrame && !options.concatVideos && !options.listMedia && (options.seed === null || options.seed === undefined)) {
+if (commandUsesGenerationSeed && (options.seed === null || options.seed === undefined)) {
   const strategy = options.seedStrategy || openclawConfig?.seedStrategy || 'prompt-hash';
   const normalized = normalizeSeedStrategy(strategy) || 'prompt-hash';
   options.seedStrategy = normalized;
@@ -2679,6 +2693,9 @@ function mimeTypeForPath(pathOrUrl, fallback = 'application/octet-stream') {
   if (clean.endsWith('.mp3')) return 'audio/mpeg';
   if (clean.endsWith('.wav')) return 'audio/wav';
   if (clean.endsWith('.m4a')) return 'audio/mp4';
+  if (clean.endsWith('.webm')) return 'audio/webm';
+  if (clean.endsWith('.ogg')) return 'audio/ogg';
+  if (clean.endsWith('.flac')) return 'audio/flac';
   if (clean.endsWith('.mp4')) return 'video/mp4';
   if (clean.endsWith('.mov')) return 'video/quicktime';
   return fallback;
@@ -3230,6 +3247,64 @@ async function fetchMediaBuffer(pathOrUrl) {
     err.details = { path: pathOrUrl, cause: e?.message || String(e) };
     throw err;
   }
+}
+
+async function fetchMediaBlob(pathOrUrl, fallbackMimeType = 'application/octet-stream') {
+  if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
+    await assertSafeUrl(pathOrUrl);
+    const response = await fetch(pathOrUrl);
+    if (!response.ok) {
+      const err = new Error(`Failed to fetch media (${response.status} ${response.statusText})`);
+      err.code = 'FETCH_FAILED';
+      err.details = { url: pathOrUrl, status: response.status, statusText: response.statusText };
+      throw err;
+    }
+    const contentType = response.headers.get('content-type')?.split(';')[0]?.trim();
+    const mimeType = contentType || mimeTypeForPath(pathOrUrl, fallbackMimeType);
+    return new Blob([await response.arrayBuffer()], { type: mimeType });
+  }
+
+  const buffer = await fetchMediaBuffer(pathOrUrl);
+  return new Blob([buffer], { type: mimeTypeForPath(pathOrUrl, fallbackMimeType) });
+}
+
+async function prepareReferenceAudioIdentityMedia(pathOrUrl) {
+  const cleanExt = extname(String(pathOrUrl || '').split('?')[0]).toLowerCase();
+  if (!pathOrUrl.startsWith('http://') && !pathOrUrl.startsWith('https://') && (cleanExt === '.wav' || cleanExt === '.wave')) {
+    const sourcePath = sanitizePath(pathOrUrl, '--reference-audio-identity');
+    const ffmpegPath = await ensureFfmpegAvailable();
+    const tempDir = mkdtempSync(join(tmpdir(), 'sogni-audio-id-'));
+    const outputPath = join(tempDir, 'voice-identity.m4a');
+    try {
+      const result = await runCommand(ffmpegPath, [
+        '-hide_banner',
+        '-loglevel', 'error',
+        '-y',
+        '-i', sourcePath,
+        '-vn',
+        '-ac', '1',
+        '-c:a', 'aac',
+        '-b:a', '96k',
+        outputPath
+      ], { captureOutput: true });
+
+      if (result.error || result.status !== 0 || !isNonEmptyFile(outputPath)) {
+        const err = new Error('Failed to normalize WAV voice identity audio to M4A.');
+        err.code = 'FFMPEG_AUDIO_ID_FAILED';
+        err.hint = 'Provide an .m4a/.mp3/.webm voice clip, or install ffmpeg so WAV clips can be converted.';
+        err.details = { sourcePath, stderr: result.stderr || '', stdout: result.stdout || '', status: result.status };
+        throw err;
+      }
+
+      const buffer = readFileSync(outputPath);
+      return new Blob([buffer], { type: 'audio/mp4' });
+    } finally {
+      try { if (existsSync(outputPath)) unlinkSync(outputPath); } catch {}
+      try { rmdirSync(tempDir); } catch {}
+    }
+  }
+
+  return fetchMediaBlob(pathOrUrl, 'audio/mp4');
 }
 
 async function appendSafeSeedanceReferenceUrl(target, pathOrUrl, label) {
@@ -4435,7 +4510,9 @@ async function main() {
       let endImageBuffer = options.refImageEnd && !useRefImageEndUrl ? await fetchMediaBuffer(options.refImageEnd) : undefined;
       const audioBuffer = options.refAudio && !useRefAudioUrl ? await fetchMediaBuffer(options.refAudio) : undefined;
       const videoBuffer = options.refVideo && !useRefVideoUrl ? await fetchMediaBuffer(options.refVideo) : undefined;
-      const audioIdentityBuffer = options.referenceAudioIdentity ? await fetchMediaBuffer(options.referenceAudioIdentity) : undefined;
+      const audioIdentityMedia = options.referenceAudioIdentity
+        ? await prepareReferenceAudioIdentityMedia(options.referenceAudioIdentity)
+        : undefined;
       const modelDefaults = getModelDefaults(options.model, openclawConfig);
       const videoDimensionRules = videoDimensionRulesFromDefaults(modelDefaults, options.model);
 
@@ -4515,8 +4592,8 @@ async function main() {
       if (options.audioDuration !== null) {
         projectConfig.audioDuration = options.audioDuration;
       }
-      if (audioIdentityBuffer) {
-        projectConfig.referenceAudioIdentity = audioIdentityBuffer;
+      if (audioIdentityMedia) {
+        projectConfig.referenceAudioIdentity = audioIdentityMedia;
       }
       if (videoBuffer) {
         projectConfig.referenceVideo = videoBuffer;

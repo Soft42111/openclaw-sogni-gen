@@ -18,6 +18,16 @@ function persistState() {
   const statePath = process.env.SOGNI_AGENT_TEST_STATE_PATH;
   if (!statePath) return;
   const state = getState();
+  const replacer = (_key, value) => {
+    if (typeof Blob !== 'undefined' && value instanceof Blob) {
+      return {
+        __blob: true,
+        type: value.type,
+        size: value.size
+      };
+    }
+    return value;
+  };
   try {
     writeFileSync(statePath, JSON.stringify({
       lastImageProject: state.lastImageProject ?? null,
@@ -25,7 +35,7 @@ function persistState() {
       lastEditProject: state.lastEditProject ?? null,
       lastEstimateVideoCost: state.lastEstimateVideoCost ?? null,
       emittedJobs: state.emittedJobs ?? null
-    }));
+    }, replacer));
   } catch (err) {
     // Ignore persistence errors in tests.
   }

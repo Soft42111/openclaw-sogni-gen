@@ -207,6 +207,9 @@ sogni-agent --video --ref cover.jpg --ref-audio song.mp3 \
 sogni-agent --video --reference-audio-identity voice.webm \
   "NARRATOR: \"This is my voice.\""
 
+# Prefer .webm, .m4a, or .mp3 voice clips. Local .wav clips are normalized
+# to .m4a before upload when ffmpeg is available.
+
 # Hosted API chat with rich creative-agent tools (/v1/chat/completions)
 sogni-agent --api-chat \
   "Create a 4-shot product video concept for a red sneaker"

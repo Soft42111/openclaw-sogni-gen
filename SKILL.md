@@ -554,6 +554,9 @@ node sogni-agent.mjs --video --ref-audio song.mp3 \
 node sogni-agent.mjs --video --reference-audio-identity voice.webm \
   "NARRATOR: \"This is my voice.\""
 
+# Prefer .webm, .m4a, or .mp3 voice clips. Local .wav clips are normalized
+# to .m4a before upload when ffmpeg is available.
+
 # LTX-2.3 text-to-video
 node sogni-agent.mjs --video -m ltx23-22b-fp8_t2v_distilled --duration 20 \
   "A wide cinematic aerial shot opens over steep tropical cliffs at golden hour, warm sunlight grazing the rock faces while sea mist drifts above the water below. Palm trees bend gently along the ridge as waves roll against the shoreline, leaving bright bands of foam across the dark stone. The camera glides forward in one continuous pass, revealing more of the coastline as sunlight flickers across wet surfaces and distant birds wheel through the haze. The scene holds a calm, upscale travel-film mood with smooth stabilized motion and crisp environmental detail."

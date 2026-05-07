@@ -533,6 +533,28 @@ test('--version with --json returns structured version information', () => {
   assert.ok(payload.timestamp);
 });
 
+test('state and account utility commands do not emit generation seed logs', () => {
+  const runs = [
+    runCli(['--json', '--memory-set', 'preferred_style', 'watercolor']),
+    runCli(['--json', '--personality-set', 'Be concise.']),
+    runCli(['--json', '--persona-list']),
+    runCli(['--json', '--balance'])
+  ];
+
+  for (const run of runs) {
+    assert.equal(run.exitCode, 0);
+    assert.doesNotMatch(run.stderr, /Using .* seed|No previous render/);
+    assert.equal(JSON.parse(run.stdout.trim()).success, true);
+  }
+});
+
+test('--last-seed is ignored for non-generation utility commands', () => {
+  const { exitCode, stdout, stderr } = runCli(['--last-seed', '--json', '--memory-list']);
+  assert.equal(exitCode, 0);
+  assert.equal(JSON.parse(stdout.trim()).success, true);
+  assert.doesNotMatch(stderr, /Using seed from last render|No previous render|Using .* seed/);
+});
+
 test('--api-chat posts to /v1/chat/completions with rich creative-agent tools', async () => {
   await withTestApiServer(async (apiBaseUrl, requests) => {
     const { exitCode, stdout } = await runCliAsync([
@@ -818,6 +840,23 @@ test('reference audio identity uses LTX native voice identity instead of ref-aud
   assert.equal(state.lastVideoProject.referenceAudioIdentity != null, true);
   assert.equal(state.lastVideoProject.referenceAudio == null, true);
   assert.ok(state.lastVideoProject.positivePrompt.includes('[SPEECH]'));
+});
+
+test('reference audio identity preserves browser voice clip MIME types', () => {
+  const tempDir = mkdtempSync(join(tmpdir(), 'sogni-agent-audio-id-'));
+  const voicePath = join(tempDir, 'voice.webm');
+  writeFileSync(voicePath, Buffer.from('test voice clip'));
+
+  const { exitCode, state } = runCli([
+    '--video',
+    '--reference-audio-identity', voicePath,
+    'a narrator says "this is my voice"'
+  ]);
+
+  assert.equal(exitCode, 0);
+  assert.equal(state.lastVideoProject.referenceAudioIdentity?.__blob, true);
+  assert.equal(state.lastVideoProject.referenceAudioIdentity?.type, 'audio/webm');
+  assert.equal(state.lastVideoProject.referenceAudio == null, true);
 });
 
 test('LTX 2.3 i2v forwards first frame and audio identity together', () => {
@@ -1170,4 +1209,14 @@ test('new utility flags appear in --help output', () => {
   assert.ok(stdout.includes('--list-media'), 'Help should include --list-media');
   assert.ok(stdout.includes('--api-chat'), 'Help should include --api-chat');
   assert.ok(stdout.includes('--api-workflow'), 'Help should include --api-workflow');
+  assert.ok(stdout.includes('--generate-audio'), 'Help should include --generate-audio');
+  assert.ok(stdout.includes('--expand-prompt'), 'Help should include --expand-prompt');
+  assert.ok(
+    stdout.includes('sogni-agent --video \'A narrator says "welcome to the story" as ocean waves crash\''),
+    'Help should show a shell-safe quoted dialogue example'
+  );
+  assert.ok(
+    stdout.includes('sogni-agent --video --reference-audio-identity voice.webm \'NARRATOR: "This is my voice."\''),
+    'Help should show a shell-safe quoted voice identity example'
+  );
 });
