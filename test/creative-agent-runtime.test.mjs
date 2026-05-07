@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 
 import {
   SEEDANCE_STORYBOARD_REFERENCE_PROMPT,
+  buildStoryboardVideoHostedToolSequenceInput,
   compileVideoStoryboardImagePrompt,
   getVideoPromptGuardrailPlan,
   inferExplicitPixelDimensionsFromText,
   inferNamedVideoResolutionShortSideFromText,
+  inferRequestedVideoResolutionShortSideFromText,
   inferStoryboardLayoutSpec,
   lintStoryboardImagePrompt,
   planCliVideoBrain,
@@ -56,6 +58,7 @@ test('runtime infers natural-language video dimensions and durations', () => {
     height: 1280
   });
   assert.equal(inferNamedVideoResolutionShortSideFromText('make a 720p video'), 720);
+  assert.equal(inferRequestedVideoResolutionShortSideFromText('make a 420p Seedance video'), 420);
 
   const plan = planCliVideoBrain({
     video: true,
@@ -79,6 +82,16 @@ test('runtime infers natural-language video dimensions and durations', () => {
   });
   assert.equal(aspectPlan.targetResolution, 720);
   assert.equal(aspectPlan.aspectRatio, '9:16');
+
+  const arbitraryResolutionPlan = planCliVideoBrain({
+    video: true,
+    prompt: 'Make a 420p 9:16 Seedance video of ocean waves',
+    width: 1920,
+    height: 1088,
+    cliSet: {}
+  });
+  assert.equal(arbitraryResolutionPlan.targetResolution, 420);
+  assert.equal(arbitraryResolutionPlan.aspectRatio, '9:16');
 });
 
 test('runtime extracts literal video prompts', () => {
@@ -163,4 +176,56 @@ test('runtime exposes reusable storyboard image prompt compiler', () => {
   assert.match(prompt, /Individual scene-cell\/frame aspect ratio: 9:16\./);
   assert.doesNotMatch(prompt, /Render "Psych\." exactly|S-O-G-N-I/);
   assert.equal(lintStoryboardImagePrompt(prompt, layout).ok, true);
+});
+
+test('runtime builds GPT Image 2 storyboard to Seedance hosted sequence input', () => {
+  const plan = buildStoryboardVideoHostedToolSequenceInput({
+    storyline: [
+      'Project: Neon Bakery Launch. Duration: 12 seconds.',
+      'Scene 1 - Hook - 0s-2s. Visual: a baker opens a glowing oven. Action: steam rolls toward camera. Camera: slow dolly in. Audio/SFX: oven thrum.',
+      'Scene 2 - CTA - 2s-12s. Visual: clean logo end card with text Start baking. Action: light settles. Camera: locked hero frame. Audio/SFX: final chime.',
+    ].join('\n'),
+    userIntentText: 'Create a 12 second 9:16 GPT Image 2 storyboard video, then render with Seedance.',
+    frameCount: 2,
+    videoTargetResolution: 720
+  });
+
+  assert.equal(plan.input.steps[0].toolName, 'sogni_generate_image');
+  assert.equal(plan.input.steps[0].arguments.model, 'gpt-image-2');
+  assert.match(plan.input.steps[0].arguments.prompt, /Create exactly 2 sequential video storyboard frames/);
+  assert.match(plan.input.steps[0].arguments.prompt, /Overall storyboard canvas: 2560x1440 pixels \(16:9\)/);
+  assert.equal(plan.input.steps[1].toolName, 'sogni_generate_video');
+  assert.equal(plan.input.steps[1].arguments.model, 'seedance2');
+  assert.equal(plan.input.steps[1].arguments.width, 720);
+  assert.equal(plan.input.steps[1].arguments.height, 1280);
+  assert.equal(plan.input.steps[1].arguments.expand_prompt, false);
+  assert.match(plan.input.steps[1].arguments.prompt, /@Image1: approved GPT Image 2 storyboard board/);
+
+  const plan480 = buildStoryboardVideoHostedToolSequenceInput({
+    storyline: plan.storyline,
+    userIntentText: 'Create a 12 second 9:16 GPT Image 2 storyboard video, then render with Seedance at 480p.',
+    frameCount: 2,
+    videoTargetResolution: 480
+  });
+  assert.equal(plan480.input.steps[1].arguments.width, 480);
+  assert.equal(plan480.input.steps[1].arguments.height, 848);
+});
+
+test('runtime keeps inline visible text out of no-dialogue storyboard scenes', () => {
+  const plan = buildStoryboardVideoHostedToolSequenceInput({
+    storyline: [
+      'Project: Fresh Start Ceramic Mug Ad. Duration: 4 seconds. Resolution: 9:16 vertical, 480p short side.',
+      'Scene 1 | Time: 00:00 - 00:02 | Visual/Action: Warm steam rises to form the exact text "Fresh Start". Dialogue/VO: None. Audio/SFX: soft chime.',
+      'Scene 2 | Time: 00:02 - 00:04 | Visual/Action: CTA text "Start Brewing" appears below the mug. Dialogue/VO: None. Audio/SFX: final click.'
+    ].join('\n'),
+    userIntentText: 'Create a 4 second 9:16 mug ad with visible text "Fresh Start" and CTA "Start Brewing".',
+    frameCount: 2,
+    videoDurationSec: 4,
+    videoTargetResolution: 480
+  });
+
+  assert.deepEqual(plan.storyboardProject.scenes.map(scene => scene.dialogue), ['', '']);
+  assert.match(plan.storyboardImagePrompt, /Dialogue\/VO: \[no dialogue\]/);
+  assert.doesNotMatch(plan.seedanceVideoPrompt, /VOICE\/DIALOGUE: Fresh Start/);
+  assert.doesNotMatch(plan.seedanceVideoPrompt, /VOICE\/DIALOGUE: Start Brewing/);
 });

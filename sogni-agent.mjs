@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * sogni-agent - Generate images and videos using Sogni AI
+ * sogni-agent - Generate images, videos, and music using Sogni AI
  * Usage: sogni-agent [options] "prompt"
  */
 
@@ -19,6 +19,7 @@ import {
   LTX23_WORKFLOW_MODELS,
   QUALITY_TIERS,
   VIDEO_WORKFLOW_DEFAULT_MODELS,
+  buildStoryboardVideoHostedToolSequenceInput,
   dimensionsForAspectRatio,
   dimensionsWithShortSide,
   getModelDefaults,
@@ -90,6 +91,35 @@ const IS_OPENCLAW_INVOCATION = Boolean(getEnv('OPENCLAW_PLUGIN_CONFIG'));
 const RAW_ARGS = process.argv.slice(2);
 const CLI_WANTS_JSON = RAW_ARGS.includes('--json');
 const JSON_ERROR_MODE = CLI_WANTS_JSON || IS_OPENCLAW_INVOCATION;
+const MUSIC_MODEL_IDS = {
+  turbo: 'ace_step_1.5_turbo',
+  speed: 'ace_step_1.5_turbo',
+  fast: 'ace_step_1.5_turbo',
+  sft: 'ace_step_1.5_sft',
+  lyrics: 'ace_step_1.5_sft',
+  lyric: 'ace_step_1.5_sft'
+};
+const MUSIC_MODEL_DEFAULTS = {
+  'ace_step_1.5_turbo': {
+    steps: { min: 4, max: 16, default: 8 },
+    shift: { min: 1, max: 6, default: 3 },
+    sampler: { allowed: ['euler', 'euler_ancestral'], default: 'euler' },
+    scheduler: { allowed: ['simple'], default: 'simple' }
+  },
+  'ace_step_1.5_sft': {
+    steps: { min: 10, max: 100, default: 50 },
+    guidance: { min: 1, max: 15, default: 5 },
+    shift: { min: 1, max: 6, default: 3 },
+    sampler: { allowed: ['euler', 'euler_ancestral', 'er_sde'], default: 'er_sde' },
+    scheduler: { allowed: ['simple', 'linear_quadratic'], default: 'linear_quadratic' }
+  }
+};
+const MUSIC_DURATION_LIMITS = { min: 10, max: 600, default: 30 };
+const MUSIC_BPM_LIMITS = { min: 30, max: 300, default: 120 };
+const MUSIC_PROMPT_STRENGTH_LIMITS = { min: 0, max: 10 };
+const MUSIC_CREATIVITY_LIMITS = { min: 0, max: 2 };
+const MUSIC_OUTPUT_FORMATS = new Set(['mp3', 'flac', 'wav']);
+const MUSIC_TIME_SIGNATURES = new Set(['2', '3', '4', '6']);
 
 function expandHomePath(rawPath) {
   if (typeof rawPath !== 'string') return rawPath;
@@ -274,6 +304,9 @@ function normalizeApiWorkflowKind(value) {
   const normalized = String(value || '').toLowerCase().replace(/-/g, '_');
   if (normalized === 'image_to_video' || normalized === 'i2v') return 'image_to_video';
   if (normalized === 'hosted_tool_sequence' || normalized === 'tool_sequence') return 'hosted_tool_sequence';
+  if (normalized === 'storyboard_video' || normalized === 'storyboard_to_video' || normalized === 'gpt_image_2_seedance' || normalized === 'gpt_image_seedance') {
+    return 'storyboard_video';
+  }
   return null;
 }
 
@@ -312,7 +345,7 @@ function computePromptHashSeed(opts) {
   const payload = {
     prompt: opts.prompt || '',
     model: opts.model || '',
-    workflow: opts.video ? opts.videoWorkflow : 'image',
+    workflow: opts.video ? opts.videoWorkflow : opts.music ? 'music' : 'image',
     width: opts.width,
     height: opts.height,
     azimuth: opts.azimuth || '',
@@ -322,6 +355,15 @@ function computePromptHashSeed(opts) {
     outputFormat: opts.outputFormat || '',
     sampler: opts.sampler || '',
     scheduler: opts.scheduler || '',
+    musicLyrics: opts.musicLyrics || '',
+    musicLanguage: opts.musicLanguage || '',
+    musicBpm: opts.musicBpm ?? null,
+    musicKeyscale: opts.musicKeyscale || '',
+    musicTimesig: opts.musicTimesig || '',
+    musicComposerMode: opts.musicComposerMode ?? null,
+    musicPromptStrength: opts.musicPromptStrength ?? null,
+    musicCreativity: opts.musicCreativity ?? null,
+    musicShift: opts.musicShift ?? null,
     targetResolution: opts.targetResolution ?? null,
     loras: opts.loras || [],
     loraStrengths: opts.loraStrengths || [],
@@ -373,6 +415,17 @@ function parseNonNegativeNumberValue(raw, flagName) {
 function parseNumberList(raw, flagName) {
   const entries = parseCsv(raw);
   return entries.map((entry) => parseNumberValue(entry, flagName));
+}
+
+function parseBoundedNumberValue(raw, flagName, limits) {
+  const num = parseNumberValue(raw, flagName);
+  if (num < limits.min || num > limits.max) {
+    fatalCliError(`${flagName} must be between ${limits.min} and ${limits.max}.`, {
+      code: 'INVALID_ARGUMENT',
+      details: { flag: flagName, value: raw, min: limits.min, max: limits.max }
+    });
+  }
+  return num;
 }
 
 function requireFlagValue(argv, index, flagName) {
@@ -565,6 +618,24 @@ function isWanAnimateVideoModelId(modelId) {
 function isGptImage2ModelSelection(modelId) {
   const normalized = String(modelId || '').trim().toLowerCase();
   return ['gpt-image-2', 'gptimage2', 'gpt-image', 'gpt_image_2'].includes(normalized);
+}
+
+function normalizeMusicModelId(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const normalized = raw.toLowerCase().replace(/-/g, '_').replace(/ace_step_1_5/g, 'ace_step_1.5');
+  return MUSIC_MODEL_IDS[normalized] || (MUSIC_MODEL_DEFAULTS[normalized] ? normalized : null);
+}
+
+function getMusicModelDefaults(modelId) {
+  return MUSIC_MODEL_DEFAULTS[normalizeMusicModelId(modelId)] || null;
+}
+
+function normalizeMusicTimeSignature(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const match = raw.match(/^([2346])(?:\s*\/\s*(?:4|8))?$/);
+  return match ? match[1] : raw;
 }
 
 function requiresSparkOnlyToken(modelId) {
@@ -891,6 +962,16 @@ const options = {
   seed: null,
   lastSeed: false,
   seedStrategy: null,
+  music: false,
+  musicLyrics: null,
+  musicLanguage: null,
+  musicBpm: null,
+  musicKeyscale: null,
+  musicTimesig: null,
+  musicComposerMode: null,
+  musicPromptStrength: null,
+  musicCreativity: null,
+  musicShift: null,
   video: false,
   videoWorkflow: null,
   fps: 16,
@@ -960,6 +1041,7 @@ const options = {
   apiNegativePrompt: null,
   apiGenerateAudio: null,
   apiExpandPrompt: null,
+  storyboardFrames: null,
   noFilter: false // Disable NSFW content filter
 };
 const cliSet = {
@@ -987,6 +1069,16 @@ const cliSet = {
   angleDescription: false,
   seed: false,
   seedStrategy: false,
+  music: false,
+  musicLyrics: false,
+  musicLanguage: false,
+  musicBpm: false,
+  musicKeyscale: false,
+  musicTimesig: false,
+  musicComposerMode: false,
+  musicPromptStrength: false,
+  musicCreativity: false,
+  musicShift: false,
   video: false,
   workflow: false,
   fps: false,
@@ -1026,7 +1118,8 @@ const cliSet = {
   apiVideoPrompt: false,
   apiNegativePrompt: false,
   apiGenerateAudio: false,
-  apiExpandPrompt: false
+  apiExpandPrompt: false,
+  storyboardFrames: false
 };
 
 // Parse CLI args
@@ -1172,6 +1265,70 @@ for (let i = 0; i < args.length; i++) {
     cliSet.seedStrategy = true;
   } else if (arg === '--last-seed' || arg === '--reseed') {
     options.lastSeed = true;
+  } else if (arg === '--music' || arg === '--generate-music') {
+    options.music = true;
+    cliSet.music = true;
+  } else if (arg === '--music-model' || arg === '--audio-model') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.model = raw;
+    cliSet.model = true;
+  } else if (arg === '--lyrics') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.musicLyrics = raw;
+    cliSet.musicLyrics = true;
+  } else if (arg === '--language' || arg === '--lyrics-language') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.musicLanguage = raw;
+    cliSet.musicLanguage = true;
+  } else if (arg === '--bpm') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.musicBpm = parseBoundedNumberValue(raw, arg, MUSIC_BPM_LIMITS);
+    cliSet.musicBpm = true;
+  } else if (arg === '--keyscale' || arg === '--key-scale' || arg === '--key') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.musicKeyscale = raw;
+    cliSet.musicKeyscale = true;
+  } else if (arg === '--timesig' || arg === '--time-signature') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.musicTimesig = normalizeMusicTimeSignature(raw);
+    cliSet.musicTimesig = true;
+  } else if (arg === '--composer-mode') {
+    options.musicComposerMode = true;
+    cliSet.musicComposerMode = true;
+  } else if (arg === '--no-composer-mode') {
+    options.musicComposerMode = false;
+    cliSet.musicComposerMode = true;
+  } else if (arg === '--prompt-strength') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.musicPromptStrength = parseBoundedNumberValue(raw, arg, MUSIC_PROMPT_STRENGTH_LIMITS);
+    cliSet.musicPromptStrength = true;
+  } else if (arg === '--creativity') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.musicCreativity = parseBoundedNumberValue(raw, arg, MUSIC_CREATIVITY_LIMITS);
+    cliSet.musicCreativity = true;
+  } else if (arg === '--music-shift' || arg === '--audio-shift') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.musicShift = parseNumberValue(raw, arg);
+    cliSet.musicShift = true;
+  } else if (arg === '--audio-format') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.outputFormat = raw;
+    cliSet.outputFormat = true;
+  } else if (arg === '--length') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.duration = parsePositiveIntegerValue(raw, arg);
+    cliSet.duration = true;
   } else if (arg === '--video' || arg === '-v') {
     options.video = true;
     cliSet.video = true;
@@ -1392,6 +1549,11 @@ for (let i = 0; i < args.length; i++) {
     i++;
     options.apiWorkflowTitle = raw;
     cliSet.apiWorkflowTitle = true;
+  } else if (arg === '--storyboard-frames') {
+    const raw = requireFlagValue(args, i, arg);
+    i++;
+    options.storyboardFrames = parsePositiveIntegerValue(raw, arg);
+    cliSet.storyboardFrames = true;
   } else if (arg === '--video-prompt') {
     const raw = requireFlagValue(args, i, arg);
     i++;
@@ -1528,7 +1690,7 @@ for (let i = 0; i < args.length; i++) {
     options.showVersion = true;
   } else if (arg === '--help') {
     console.log(`
-sogni-agent - Generate images and videos using Sogni AI
+sogni-agent - Generate images, videos, and music using Sogni AI
 
 Usage: sogni-agent [options] "prompt"
 
@@ -1538,7 +1700,7 @@ Image Options:
   -m, --model <id>      Model (default: z_image_turbo_bf16, overrides --quality)
   -w, --width <px>      Width (default: 512)
   -h, --height <px>     Height (default: 512)
-  -n, --count <num>     Number of images (default: 1)
+  -n, --count <num>     Number of outputs (default: 1)
   -s, --seed <num>      Use specific seed
   --last-seed           Reuse seed from previous render
   --seed-strategy <s>   Seed strategy: random|prompt-hash
@@ -1566,6 +1728,23 @@ Photobooth (Face Transfer):
   --ref <path|url>        Face image (required with --photobooth)
   --cn-strength <n>       ControlNet strength (default: 0.8)
   --cn-guidance-end <n>   ControlNet guidance end point (default: 0.3)
+
+Music Options:
+  --music               Generate music/audio instead of image
+  --music-model <id>    Music model: turbo|sft|ace_step_1.5_turbo|ace_step_1.5_sft
+  --lyrics <text>       Optional song lyrics (omit for instrumental)
+  --language <code>     Lyrics language code (default: en)
+  --duration <sec>      Music duration in seconds (10-600, default: 30)
+  --length <sec>        Alias for --duration
+  --bpm <num>           Beats per minute (30-300)
+  --keyscale <text>     Key/scale, e.g. "C major" or "A minor"
+  --timesig <n>         Time signature: 2|3|4|6 (also accepts 4/4)
+  --composer-mode       Enable AI composer mode
+  --no-composer-mode    Disable AI composer mode
+  --prompt-strength <n> Prompt adherence (0-10)
+  --creativity <n>      Composition variation/temperature (0-2)
+  --music-shift <n>     Audio model shift parameter (1-6)
+  --audio-format <f>    Alias for --output-format: mp3|flac|wav
 
 Video Options:
   --video, -v           Generate video instead of image
@@ -1601,9 +1780,10 @@ Hosted API Modes:
   --no-api-tool-execution  Ask for tool calls/plans but do not execute Sogni tools
   --llm-model <id>      LLM model for --api-chat (default: ${DEFAULT_LLM_MODEL})
   --system <text>       System prompt for --api-chat
-  --api-workflow <kind> Start /v1/creative-agent/workflows: image-to-video|hosted-tool-sequence
-  --workflow-input <json|path|@path> JSON input for hosted-tool-sequence or custom image-to-video
-  --workflow-title <text> Title for hosted-tool-sequence workflow input
+  --api-workflow <kind> Start /v1/creative-agent/workflows: image-to-video|hosted-tool-sequence|storyboard-video
+  --workflow-input <json|path|@path> JSON input for hosted-tool-sequence/custom image-to-video/storyboard-video
+  --workflow-title <text> Title for hosted-tool-sequence or storyboard-video workflow input
+  --storyboard-frames <n> Frame/beat count for --api-workflow storyboard-video
   --video-prompt <text> Motion prompt for --api-workflow image-to-video
   --negative-prompt <text> Negative prompt for --api-workflow image-to-video
   --generate-audio, --no-generate-audio  Toggle audio generation for image-to-video workflows
@@ -1617,7 +1797,7 @@ Hosted API Modes:
   --api-base-url <url>  Sogni API base URL (default: ${DEFAULT_API_BASE_URL})
 
 General:
-  -t, --timeout <sec>   Timeout in seconds (default: 30, video: 300)
+  -t, --timeout <sec>   Timeout in seconds (default: 30, video: 300, music: 600)
   --steps <num>         Override steps (model-dependent)
   --guidance <num>      Override guidance (model-dependent)
   --token-type <type>   Token type: spark|sogni|auto (default: spark, auto retries with alternate)
@@ -1673,6 +1853,10 @@ Recommended LTX 2.3 Video Models:
   ltx23-22b-fp8_a2v_distilled     Audio-to-video
   ltx23-22b-fp8_v2v_distilled     Video-to-video with ControlNet
 
+Music Models:
+  ace_step_1.5_turbo              Default direct music generation
+  ace_step_1.5_sft                Experimental model with stronger lyric handling
+
 Seedance 2.0 Video Model Selectors:
   seedance2                         Text-to-video, 4-15s, native audio, HTTPS multimodal refs
   seedance2-fast                    Fast 720p-capped text-to-video
@@ -1708,9 +1892,12 @@ Examples:
   sogni-agent --video --ref cat.jpg --ref-audio speech.m4a -m wan_v2.2-14b-fp8_s2v_lightx2v "lip sync"
   sogni-agent --video --ref cover.jpg --ref-audio song.mp3 "music video"
   sogni-agent --video --ref-audio song.mp3 "abstract music visualizer"
+  sogni-agent --music --duration 30 "uplifting cinematic synthwave theme for a product launch"
+  sogni-agent --music --lyrics "Rise with the morning light" --bpm 128 --keyscale "C major" --output-format mp3 "bright indie pop chorus"
   sogni-agent --video --reference-audio-identity voice.webm 'NARRATOR: "This is my voice."'
   sogni-agent --api-chat "Create a 4-shot product video concept for a red sneaker"
   sogni-agent --api-workflow image-to-video --video-prompt "slow push-in as it comes alive" "a graphite robot sketch"
+  sogni-agent --api-workflow storyboard-video --storyboard-frames 6 "Create a 12s 9:16 bakery launch video with GPT Image 2 and Seedance"
   sogni-agent --video -m ltx23-22b-fp8_t2v_distilled --duration 20 "A wide cinematic aerial shot opens over steep tropical cliffs at golden hour, warm sunlight grazing the rock faces while sea mist drifts above the water below. Palm trees bend gently along the ridge as waves roll against the shoreline, leaving bright bands of foam across the dark stone. The camera glides forward in one continuous pass, revealing more of the coastline as sunlight flickers across wet surfaces and distant birds wheel through the haze. The scene holds a calm, upscale travel-film mood with smooth stabilized motion and crisp environmental detail."
   sogni-agent --video --ref subject.jpg --ref-video motion.mp4 --workflow animate-move "transfer motion"
   sogni-agent --video --last-image "gentle camera pan"
@@ -1775,7 +1962,15 @@ if (openclawConfig) {
   if (!cliSet.seedStrategy && openclawConfig.seedStrategy) {
     options.seedStrategy = openclawConfig.seedStrategy;
   }
-  if (options.video) {
+  if (options.music) {
+    if (!cliSet.duration && isNumber(openclawConfig.defaultMusicDurationSec)) {
+      options.duration = openclawConfig.defaultMusicDurationSec;
+    }
+    if (!cliSet.timeout && isNumber(openclawConfig.defaultMusicTimeoutSec)) {
+      options.timeout = openclawConfig.defaultMusicTimeoutSec * 1000;
+      timeoutFromConfig = true;
+    }
+  } else if (options.video) {
     if (!cliSet.workflow && openclawConfig.defaultVideoWorkflow) {
       configuredDefaultVideoWorkflow = openclawConfig.defaultVideoWorkflow;
     }
@@ -1819,7 +2014,7 @@ options.apiTools = normalizedApiToolMode;
 if (options.apiWorkflowKind) {
   const normalized = normalizeApiWorkflowKind(options.apiWorkflowKind);
   if (!normalized) {
-    fatalCliError('--api-workflow must be "image-to-video" or "hosted-tool-sequence".', {
+    fatalCliError('--api-workflow must be "image-to-video", "hosted-tool-sequence", or "storyboard-video".', {
       code: 'INVALID_ARGUMENT',
       details: { flag: '--api-workflow', value: options.apiWorkflowKind }
     });
@@ -1834,8 +2029,13 @@ if (options.quality) {
       details: { flag: '--quality', value: options.quality }
     });
   }
+  if (options.music) {
+    fatalCliError('--quality is not used for --music. Use --music-model turbo|sft for music model selection.', {
+      code: 'INVALID_ARGUMENT'
+    });
+  }
   const tier = QUALITY_TIERS[options.quality];
-  if (!options.video) {
+  if (!options.video && !options.music) {
     // Only apply model if user didn't explicitly set one.
     if (!cliSet.model) {
       options.model = tier.model;
@@ -1874,6 +2074,26 @@ if (cliSet.guidance && !Number.isFinite(options.guidance)) {
   fatalCliError('--guidance must be a number.', {
     code: 'INVALID_ARGUMENT',
     details: { flag: '--guidance', value: options.guidance }
+  });
+}
+
+if (options.music && options.video) {
+  fatalCliError('--music cannot be combined with --video.', { code: 'INVALID_ARGUMENT' });
+}
+
+if (options.music && (
+  cliSet.width ||
+  cliSet.height ||
+  options.strictSize ||
+  options.multiAngle ||
+  options.angles360Video ||
+  options.photobooth ||
+  options.contextImages.length > 0 ||
+  options.refImage ||
+  options.refImageEnd
+)) {
+  fatalCliError('--music cannot be combined with image/video reference or sizing options.', {
+    code: 'INVALID_ARGUMENT'
   });
 }
 
@@ -1972,7 +2192,14 @@ if (options.multiAngle) {
 if (options.outputFormat) {
   const normalized = options.outputFormat.toLowerCase();
   options.outputFormat = normalized === 'jpeg' ? 'jpg' : normalized;
-  if (options.video) {
+  if (options.music) {
+    if (!MUSIC_OUTPUT_FORMATS.has(options.outputFormat)) {
+      fatalCliError('Music output format must be "mp3", "flac", or "wav".', {
+        code: 'INVALID_ARGUMENT',
+        details: { outputFormat: options.outputFormat }
+      });
+    }
+  } else if (options.video) {
     if (options.outputFormat !== 'mp4') {
       fatalCliError('Video output format must be "mp4".', {
         code: 'INVALID_ARGUMENT',
@@ -1999,7 +2226,7 @@ if (options.loraStrengths.length > 0 && options.loras.length > 0 &&
   });
 }
 
-if (options.video && options.loras.length > 0) {
+if ((options.video || options.music) && options.loras.length > 0) {
   fatalCliError('--lora options are image-only.', { code: 'INVALID_ARGUMENT' });
 }
 
@@ -2087,7 +2314,41 @@ if (options._lastImagePath) {
 }
 
 // Set defaults based on type and context
-if (options.video) {
+if (options.music) {
+  const configuredMusicModel = options.model || openclawConfig?.defaultMusicModel || 'turbo';
+  options.model = normalizeMusicModelId(configuredMusicModel);
+  if (!options.model) {
+    fatalCliError(`Unknown music model "${configuredMusicModel}". Use turbo, sft, ace_step_1.5_turbo, or ace_step_1.5_sft.`, {
+      code: 'INVALID_ARGUMENT',
+      details: { flag: cliSet.model ? '--model' : 'defaultMusicModel', value: configuredMusicModel }
+    });
+  }
+  const musicDefaults = getMusicModelDefaults(options.model);
+  if (!cliSet.duration || !Number.isFinite(options.duration)) {
+    options.duration = MUSIC_DURATION_LIMITS.default;
+  }
+  if (!options.outputFormat) {
+    options.outputFormat = 'mp3';
+  }
+  if (!cliSet.steps) {
+    options.steps = musicDefaults.steps.default;
+  }
+  if (!cliSet.guidance && musicDefaults.guidance) {
+    options.guidance = musicDefaults.guidance.default;
+  }
+  if (!cliSet.sampler) {
+    options.sampler = musicDefaults.sampler.default;
+  }
+  if (!cliSet.scheduler) {
+    options.scheduler = musicDefaults.scheduler.default;
+  }
+  if (!cliSet.musicShift) {
+    options.musicShift = musicDefaults.shift.default;
+  }
+  if (!cliSet.timeout && !timeoutFromConfig && options.timeout === 30000) {
+    options.timeout = 600000;
+  }
+} else if (options.video) {
   options.model = options.model || selectDefaultVideoModel(options.videoWorkflow, options, openclawConfig) || 'wan_v2.2-14b-fp8_i2v_lightx2v';
   options.model = resolveVideoModelAlias(options.model, options.videoWorkflow);
   const videoModelDefaults = getModelDefaults(options.model, openclawConfig);
@@ -2145,6 +2406,69 @@ if (options.video) {
   options.model = options.model || openclawConfig?.defaultImageModel || 'z_image_turbo_bf16';
 }
 
+if (options.music) {
+  const musicDefaults = getMusicModelDefaults(options.model);
+  if (options.duration < MUSIC_DURATION_LIMITS.min || options.duration > MUSIC_DURATION_LIMITS.max) {
+    fatalCliError(`Music duration must be between ${MUSIC_DURATION_LIMITS.min} and ${MUSIC_DURATION_LIMITS.max} seconds.`, {
+      code: 'INVALID_ARGUMENT',
+      details: { duration: options.duration }
+    });
+  }
+  if (options.musicBpm !== null && options.musicBpm !== undefined) {
+    if (options.musicBpm < MUSIC_BPM_LIMITS.min || options.musicBpm > MUSIC_BPM_LIMITS.max) {
+      fatalCliError(`Music BPM must be between ${MUSIC_BPM_LIMITS.min} and ${MUSIC_BPM_LIMITS.max}.`, {
+        code: 'INVALID_ARGUMENT',
+        details: { bpm: options.musicBpm }
+      });
+    }
+  }
+  if (options.musicTimesig && !MUSIC_TIME_SIGNATURES.has(options.musicTimesig)) {
+    fatalCliError('--timesig must be one of 2, 3, 4, or 6.', {
+      code: 'INVALID_ARGUMENT',
+      details: { timesig: options.musicTimesig }
+    });
+  }
+  if (options.steps !== null && options.steps !== undefined) {
+    const { min, max } = musicDefaults.steps;
+    if (!Number.isFinite(options.steps) || options.steps < min || options.steps > max) {
+      fatalCliError(`--steps for ${options.model} must be between ${min} and ${max}.`, {
+        code: 'INVALID_ARGUMENT',
+        details: { model: options.model, steps: options.steps, min, max }
+      });
+    }
+  }
+  if (options.guidance !== null && options.guidance !== undefined && musicDefaults.guidance) {
+    const { min, max } = musicDefaults.guidance;
+    if (!Number.isFinite(options.guidance) || options.guidance < min || options.guidance > max) {
+      fatalCliError(`--guidance for ${options.model} must be between ${min} and ${max}.`, {
+        code: 'INVALID_ARGUMENT',
+        details: { model: options.model, guidance: options.guidance, min, max }
+      });
+    }
+  }
+  if (options.musicShift !== null && options.musicShift !== undefined) {
+    const { min, max } = musicDefaults.shift;
+    if (!Number.isFinite(options.musicShift) || options.musicShift < min || options.musicShift > max) {
+      fatalCliError(`--music-shift for ${options.model} must be between ${min} and ${max}.`, {
+        code: 'INVALID_ARGUMENT',
+        details: { model: options.model, shift: options.musicShift, min, max }
+      });
+    }
+  }
+  if (options.sampler && !musicDefaults.sampler.allowed.includes(options.sampler)) {
+    fatalCliError(`--sampler for ${options.model} must be one of ${musicDefaults.sampler.allowed.join('|')}.`, {
+      code: 'INVALID_ARGUMENT',
+      details: { model: options.model, sampler: options.sampler, allowed: musicDefaults.sampler.allowed }
+    });
+  }
+  if (options.scheduler && !musicDefaults.scheduler.allowed.includes(options.scheduler)) {
+    fatalCliError(`--scheduler for ${options.model} must be one of ${musicDefaults.scheduler.allowed.join('|')}.`, {
+      code: 'INVALID_ARGUMENT',
+      details: { model: options.model, scheduler: options.scheduler, allowed: musicDefaults.scheduler.allowed }
+    });
+  }
+}
+
 const apiWorkflowUtilityAction = options.apiWorkflowAction && options.apiWorkflowAction !== 'start';
 const apiWorkflowStartAction = options.apiWorkflowAction === 'start';
 const apiWorkflowStartHasExternalInput = options.apiWorkflowAction === 'start' && options.apiWorkflowInput;
@@ -2165,6 +2489,9 @@ if (apiWorkflowStartAction && options.apiWorkflowKind === 'image_to_video' && !o
 }
 if (apiWorkflowStartAction && options.apiWorkflowKind === 'hosted_tool_sequence' && !apiWorkflowStartHasExternalInput) {
   fatalCliError('--api-workflow hosted-tool-sequence requires --workflow-input JSON.', { code: 'INVALID_ARGUMENT' });
+}
+if (apiWorkflowStartAction && options.apiWorkflowKind === 'storyboard_video' && !options.prompt && !apiWorkflowStartHasExternalInput) {
+  fatalCliError('--api-workflow storyboard-video requires a prompt or --workflow-input JSON.', { code: 'INVALID_ARGUMENT' });
 }
 if (!options.prompt && !options.apiChat && !apiWorkflowUtilityAction && !apiWorkflowStartAction && !options.estimateVideoCost && !options.multiAngle && !options.showBalance && !options.showVersion && !options.extractLastFrame && !options.concatVideos && !options.listMedia && !options.memoryAction && !options.personalityAction && !personaUtilityAction) {
   fatalCliError('No prompt provided. Use --help for usage.', { code: 'INVALID_ARGUMENT' });
@@ -2196,7 +2523,7 @@ if (options.apiWorkflowAction && apiMediaRefs.length > 0) {
   );
 }
 if (options.apiWorkflowAction === 'start' && options.apiWorkflowKind === 'image_to_video' && options.apiWorkflowTitle) {
-  fatalCliError('--workflow-title is currently only supported with --api-workflow hosted-tool-sequence.', {
+  fatalCliError('--workflow-title is currently only supported with --api-workflow hosted-tool-sequence or storyboard-video.', {
     code: 'INVALID_ARGUMENT',
     details: { flag: '--workflow-title', workflow: options.apiWorkflowKind }
   });
@@ -2846,6 +3173,154 @@ function buildHostedToolSequenceWorkflowInput() {
   return parsed;
 }
 
+function storyboardWorkflowImageQualityFromCli() {
+  if (!cliSet.quality || !options.quality) return undefined;
+  if (options.quality === 'pro') return 'high';
+  if (options.quality === 'fast') return 'low';
+  return 'medium';
+}
+
+function storyboardWorkflowInputFromParsedValue(parsed) {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  if (Array.isArray(parsed.steps)) return parsed;
+
+  const storyline = typeof parsed.storyline === 'string'
+    ? parsed.storyline
+    : typeof parsed.script === 'string'
+      ? parsed.script
+      : typeof parsed.storyboardScript === 'string'
+        ? parsed.storyboardScript
+        : null;
+  if (!storyline) return null;
+  const explicitCliVideoModel = options.videoModel
+    || (cliSet.model && isSeedanceModelSelection(options.model) ? options.model : undefined);
+  const explicitCliImageModel = cliSet.model && !isSeedanceModelSelection(options.model) ? options.model : undefined;
+
+  return buildStoryboardVideoHostedToolSequenceInput({
+    storyline,
+    userIntentText: typeof parsed.userIntentText === 'string'
+      ? parsed.userIntentText
+      : typeof parsed.prompt === 'string'
+        ? parsed.prompt
+        : options.prompt || storyline,
+    title: typeof parsed.title === 'string' ? parsed.title : options.apiWorkflowTitle,
+    frameCount: typeof parsed.frameCount === 'number'
+      ? parsed.frameCount
+      : typeof parsed.storyboardFrames === 'number'
+        ? parsed.storyboardFrames
+        : options.storyboardFrames ?? undefined,
+    videoDurationSec: typeof parsed.videoDurationSec === 'number'
+      ? parsed.videoDurationSec
+      : cliSet.duration && Number.isFinite(options.duration)
+        ? options.duration
+        : undefined,
+    videoTargetResolution: Number.isFinite(parsed.videoTargetResolution)
+      ? parsed.videoTargetResolution
+      : cliSet.targetResolution && Number.isFinite(options.targetResolution)
+        ? options.targetResolution
+        : undefined,
+    imageModel: typeof parsed.imageModel === 'string' ? parsed.imageModel : explicitCliImageModel,
+    imageQuality: typeof parsed.imageQuality === 'string'
+      ? parsed.imageQuality
+      : typeof parsed.gptImageQuality === 'string'
+        ? parsed.gptImageQuality
+        : storyboardWorkflowImageQualityFromCli(),
+    imageOutputFormat: typeof parsed.imageOutputFormat === 'string'
+      ? parsed.imageOutputFormat
+      : typeof parsed.outputFormat === 'string'
+        ? parsed.outputFormat
+        : cliSet.outputFormat
+          ? options.outputFormat
+          : undefined,
+    videoModel: typeof parsed.videoModel === 'string' ? parsed.videoModel : explicitCliVideoModel,
+    generateAudio: typeof parsed.generateAudio === 'boolean' ? parsed.generateAudio : options.apiGenerateAudio ?? undefined,
+  });
+}
+
+function buildStoryboardStorylineMessages() {
+  const durationLine = cliSet.duration && Number.isFinite(options.duration)
+    ? `Target duration: ${options.duration} seconds.`
+    : 'Target duration: infer a Seedance-safe duration between 4 and 15 seconds from the request.';
+  const frameLine = Number.isFinite(options.storyboardFrames)
+    ? `Storyboard beat count: exactly ${options.storyboardFrames}.`
+    : 'Storyboard beat count: infer a compact 4-8 beat plan unless the user asks otherwise.';
+  const targetResolutionLine = cliSet.targetResolution && Number.isFinite(options.targetResolution)
+    ? `Video target short-side resolution: ${options.targetResolution}p.`
+    : '';
+  const system = [
+    'You write production-ready video storyboard storylines for a GPT Image 2 storyboard sheet that will be rendered into a Seedance 2.0 video.',
+    'Return only the storyline/script. Do not call tools, do not ask follow-up questions, and do not include markdown fences.',
+    'The script must include a project title, total duration, ordered scene/beat rows with time ranges, visual/action, camera/motion, lighting/style, Dialogue/VO, Audio/SFX, transition notes, and any exact visible CTA text.',
+    'Keep it concise enough for one GPT Image 2 storyboard image and one Seedance video prompt, while preserving cause-and-effect story progression.',
+  ].join(' ');
+  const user = [
+    'Original user request:',
+    options.prompt,
+    '',
+    durationLine,
+    frameLine,
+    targetResolutionLine,
+  ].filter(Boolean).join('\n');
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ];
+}
+
+async function generateStoryboardWorkflowStoryline(apiKey) {
+  const payload = await fetchApiJson('/v1/chat/completions', {
+    apiKey,
+    method: 'POST',
+    body: {
+      model: options.llmModel || DEFAULT_LLM_MODEL,
+      messages: buildStoryboardStorylineMessages(),
+      temperature: 0.45,
+      max_tokens: 1800,
+      token_type: options.tokenType || 'spark',
+      app_source: SOGNI_APP_SOURCE,
+      appSource: SOGNI_APP_SOURCE,
+      sogni_tools: false,
+      sogni_tool_execution: false
+    }
+  });
+  const message = extractChatMessage(payload);
+  const storyline = typeof message.content === 'string' ? message.content.trim() : '';
+  if (!storyline) {
+    const err = new Error('Storyboard-video planning did not return a storyline.');
+    err.code = 'EMPTY_STORYBOARD_STORYLINE';
+    err.details = { payload };
+    throw err;
+  }
+  return { storyline, raw: payload };
+}
+
+async function buildStoryboardVideoWorkflowInput(apiKey) {
+  const parsed = parseWorkflowInput(options.apiWorkflowInput);
+  const parsedPlan = storyboardWorkflowInputFromParsedValue(parsed);
+  if (parsedPlan) {
+    return parsedPlan.input ? { plan: parsedPlan, planningRaw: null } : { plan: { input: parsedPlan }, planningRaw: null };
+  }
+
+  const { storyline, raw } = await generateStoryboardWorkflowStoryline(apiKey);
+  const explicitCliVideoModel = options.videoModel
+    || (cliSet.model && isSeedanceModelSelection(options.model) ? options.model : undefined);
+  const explicitCliImageModel = cliSet.model && !isSeedanceModelSelection(options.model) ? options.model : undefined;
+  const plan = buildStoryboardVideoHostedToolSequenceInput({
+    storyline,
+    userIntentText: options.prompt,
+    title: options.apiWorkflowTitle,
+    frameCount: options.storyboardFrames ?? undefined,
+    videoDurationSec: cliSet.duration && Number.isFinite(options.duration) ? options.duration : undefined,
+    videoTargetResolution: cliSet.targetResolution && Number.isFinite(options.targetResolution) ? options.targetResolution : undefined,
+    imageModel: explicitCliImageModel,
+    imageQuality: storyboardWorkflowImageQualityFromCli(),
+    imageOutputFormat: cliSet.outputFormat ? options.outputFormat : undefined,
+    videoModel: explicitCliVideoModel,
+    generateAudio: options.apiGenerateAudio ?? undefined,
+  });
+  return { plan, planningRaw: raw };
+}
+
 function workflowFromPayload(payload) {
   const data = extractApiEnvelopeData(payload);
   return data?.workflow || payload?.workflow || payload;
@@ -2876,11 +3351,42 @@ function printWorkflowSummary(workflow) {
 }
 
 function printWorkflowSseFrames(raw) {
-  for (const frame of parseCreativeWorkflowSseChunk(raw)) {
+  const frames = typeof parseCreativeWorkflowSseChunk === 'function'
+    ? parseCreativeWorkflowSseChunk(raw)
+    : parseWorkflowSseChunk(raw);
+  for (const frame of frames) {
     const data = frame.data && typeof frame.data === 'object' ? frame.data : {};
     const suffix = data.status ? ` ${data.status}` : data.message ? ` ${data.message}` : '';
     console.log(`[${frame.id || '-'}] ${frame.event}${suffix}`);
   }
+}
+
+function parseWorkflowSseChunk(raw) {
+  const frames = [];
+  const chunks = String(raw || '').split(/\r?\n\r?\n/).filter(chunk => chunk.trim());
+  for (const chunk of chunks) {
+    const frame = { id: null, event: 'message', data: null };
+    const dataLines = [];
+    for (const line of chunk.split(/\r?\n/)) {
+      if (!line || line.startsWith(':')) continue;
+      const separator = line.indexOf(':');
+      const field = separator >= 0 ? line.slice(0, separator) : line;
+      const value = separator >= 0 ? line.slice(separator + 1).replace(/^ /, '') : '';
+      if (field === 'id') frame.id = value;
+      else if (field === 'event') frame.event = value || 'message';
+      else if (field === 'data') dataLines.push(value);
+    }
+    if (dataLines.length > 0) {
+      const dataText = dataLines.join('\n');
+      try {
+        frame.data = JSON.parse(dataText);
+      } catch {
+        frame.data = { message: dataText };
+      }
+    }
+    frames.push(frame);
+  }
+  return frames;
 }
 
 async function streamApiWorkflowEvents(apiKey, workflowId) {
@@ -2978,10 +3484,23 @@ async function runApiWorkflow() {
     return;
   }
 
-  const kind = options.apiWorkflowKind || 'image_to_video';
-  const input = kind === 'hosted_tool_sequence'
-    ? buildHostedToolSequenceWorkflowInput()
-    : buildImageToVideoWorkflowInput();
+  const requestedKind = options.apiWorkflowKind || 'image_to_video';
+  let kind = requestedKind;
+  let input;
+  let storyboardPlan = null;
+  let storyboardPlanningRaw = null;
+
+  if (requestedKind === 'storyboard_video') {
+    const built = await buildStoryboardVideoWorkflowInput(apiKey);
+    storyboardPlan = built.plan;
+    storyboardPlanningRaw = built.planningRaw;
+    kind = 'hosted_tool_sequence';
+    input = storyboardPlan.input;
+  } else {
+    input = requestedKind === 'hosted_tool_sequence'
+      ? buildHostedToolSequenceWorkflowInput()
+      : buildImageToVideoWorkflowInput();
+  }
 
   payload = await fetchApiJson('/v1/creative-agent/workflows', {
     apiKey,
@@ -2997,8 +3516,31 @@ async function runApiWorkflow() {
   const workflow = workflowFromPayload(payload);
   const workflowId = workflow?.workflowId || workflow?.id;
   if (options.json) {
-    console.log(JSON.stringify({ success: true, type, action: 'start', workflow, raw: payload }));
+    console.log(JSON.stringify({
+      success: true,
+      type,
+      action: 'start',
+      workflowKind: requestedKind,
+      ...(storyboardPlan ? {
+        storyline: storyboardPlan.storyline,
+        storyboardPlan: {
+          title: storyboardPlan.title,
+          frameCount: storyboardPlan.frameCount,
+          image: storyboardPlan.image,
+          video: storyboardPlan.video,
+          warnings: storyboardPlan.warnings,
+        },
+      } : {}),
+      workflow,
+      raw: payload,
+      ...(storyboardPlanningRaw ? { planningRaw: storyboardPlanningRaw } : {}),
+    }));
   } else {
+    if (storyboardPlan?.storyline) {
+      console.log('Generated storyline:\n');
+      console.log(storyboardPlan.storyline);
+      console.log('');
+    }
     printWorkflowSummary(workflow);
   }
   if (options.apiWorkflowWatch && workflowId) {
@@ -4439,13 +4981,13 @@ async function main() {
       client.on(ClientEvent.JOB_COMPLETED, (data) => {
         const jobData = data.job?.data || {};
         results.push({
-          resultUrl: data.resultUrl || (options.video ? data.videoUrl : data.imageUrl),
+          resultUrl: data.resultUrl || (options.music ? data.audioUrl : options.video ? data.videoUrl : data.imageUrl),
           seed: jobData.seed,
           jobIndex: data.jobIndex,
           projectId: data.projectId
         });
         completedJobs++;
-        log(`${options.video ? 'Video' : 'Image'} ${completedJobs}/${options.count} completed`);
+        log(`${options.music ? 'Music' : options.video ? 'Video' : 'Image'} ${completedJobs}/${options.count} completed`);
         
         if (completedJobs >= options.count) {
           clearTimeout(timeout);
@@ -4478,8 +5020,8 @@ async function main() {
         reject(new Error(message));
       });
       
-      // Progress for video
-      if (options.video) {
+      // Progress for longer-running media jobs.
+      if (options.video || options.music) {
         client.on(ClientEvent.PROJECT_PROGRESS, (data) => {
           if (data.percentage && data.percentage > 0) {
             log(`Progress: ${Math.round(data.percentage)}%`);
@@ -4658,6 +5200,67 @@ async function main() {
       // Check for errors in the response (e.g., insufficient tokens)
       if (videoResult?.error || videoResult?.message) {
         throw new Error(videoResult.error || videoResult.message);
+      }
+    } else if (options.music) {
+      log(`Generating music with ${options.model}...`);
+      if (options.seed !== null && options.seed !== undefined) log(`Using seed: ${options.seed}`);
+
+      const projectConfig = {
+        modelId: options.model,
+        positivePrompt: options.prompt,
+        numberOfMedia: options.count,
+        duration: options.duration,
+        steps: options.steps,
+        tokenType: options.tokenType || 'spark',
+        waitForCompletion: false,
+        disableNSFWFilter: options.noFilter === true,
+        outputFormat: options.outputFormat || 'mp3'
+      };
+
+      if (options.guidance !== null && options.guidance !== undefined) {
+        projectConfig.guidance = options.guidance;
+      }
+      if (options.sampler) {
+        projectConfig.sampler = options.sampler;
+      }
+      if (options.scheduler) {
+        projectConfig.scheduler = options.scheduler;
+      }
+      if (options.musicShift !== null && options.musicShift !== undefined) {
+        projectConfig.shift = options.musicShift;
+      }
+      if (options.musicBpm !== null && options.musicBpm !== undefined) {
+        projectConfig.bpm = options.musicBpm;
+      }
+      if (options.musicTimesig) {
+        projectConfig.timesignature = options.musicTimesig;
+      }
+      if (options.musicLanguage) {
+        projectConfig.language = options.musicLanguage;
+      }
+      if (options.musicLyrics) {
+        projectConfig.lyrics = options.musicLyrics;
+      }
+      if (options.musicKeyscale) {
+        projectConfig.keyscale = options.musicKeyscale;
+      }
+      if (options.musicComposerMode !== null && options.musicComposerMode !== undefined) {
+        projectConfig.composerMode = options.musicComposerMode;
+      }
+      if (options.musicPromptStrength !== null && options.musicPromptStrength !== undefined) {
+        projectConfig.promptStrength = options.musicPromptStrength;
+      }
+      if (options.musicCreativity !== null && options.musicCreativity !== undefined) {
+        projectConfig.creativity = options.musicCreativity;
+      }
+      if (options.seed !== null && options.seed !== undefined) {
+        projectConfig.seed = options.seed;
+      }
+
+      const audioResult = await client.createAudioProject(projectConfig);
+
+      if (audioResult?.error || audioResult?.message) {
+        throw new Error(audioResult.error || audioResult.message);
       }
     } else if (options.contextImages.length > 0) {
       // Image editing with context images
@@ -4846,11 +5449,11 @@ async function main() {
       const seeds = results.map(r => r.seed ?? options.seed);
       const renderInfo = {
         timestamp: new Date().toISOString(),
-        type: options.video ? 'video' : 'image',
+        type: options.music ? 'music' : options.video ? 'video' : 'image',
         prompt: options.prompt,
         model: options.model,
-        width: options.width,
-        height: options.height,
+        width: options.music ? null : options.width,
+        height: options.music ? null : options.height,
         seed: firstResult.seed ?? options.seed,
         seedStrategy: options.seedStrategy || null,
         seeds,
@@ -4874,6 +5477,23 @@ async function main() {
       }
       if (options.loraStrengths.length > 0) {
         renderInfo.loraStrengths = options.loraStrengths;
+      }
+      if (options.music) {
+        renderInfo.duration = options.duration;
+        renderInfo.bpm = options.musicBpm ?? null;
+        renderInfo.keyscale = options.musicKeyscale || null;
+        renderInfo.timesignature = options.musicTimesig || null;
+        renderInfo.language = options.musicLanguage || null;
+        renderInfo.composerMode = options.musicComposerMode;
+        if (options.musicPromptStrength !== null && options.musicPromptStrength !== undefined) {
+          renderInfo.promptStrength = options.musicPromptStrength;
+        }
+        if (options.musicCreativity !== null && options.musicCreativity !== undefined) {
+          renderInfo.creativity = options.musicCreativity;
+        }
+        if (options.musicShift !== null && options.musicShift !== undefined) {
+          renderInfo.shift = options.musicShift;
+        }
       }
       if (options.video) {
         renderInfo.workflow = options.videoWorkflow;
@@ -5056,11 +5676,11 @@ async function main() {
       if (options.json) {
         const output = {
           success: true,
-          type: options.video ? 'video' : 'image',
+          type: options.music ? 'music' : options.video ? 'video' : 'image',
           prompt: options.prompt,
           model: options.model,
-          width: options.width,
-          height: options.height,
+          width: options.music ? null : options.width,
+          height: options.music ? null : options.height,
           seed: firstResult.seed ?? options.seed,
           seedStrategy: options.seedStrategy || null,
           seeds,
@@ -5082,6 +5702,23 @@ async function main() {
         }
         if (options.loraStrengths.length > 0) {
           output.loraStrengths = options.loraStrengths;
+        }
+        if (options.music) {
+          output.duration = options.duration;
+          output.bpm = options.musicBpm ?? null;
+          output.keyscale = options.musicKeyscale || null;
+          output.timesignature = options.musicTimesig || null;
+          output.language = options.musicLanguage || null;
+          output.composerMode = options.musicComposerMode;
+          if (options.musicPromptStrength !== null && options.musicPromptStrength !== undefined) {
+            output.promptStrength = options.musicPromptStrength;
+          }
+          if (options.musicCreativity !== null && options.musicCreativity !== undefined) {
+            output.creativity = options.musicCreativity;
+          }
+          if (options.musicShift !== null && options.musicShift !== undefined) {
+            output.shift = options.musicShift;
+          }
         }
         if (options.video) {
           output.workflow = options.videoWorkflow;

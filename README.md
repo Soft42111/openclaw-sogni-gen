@@ -2,14 +2,14 @@
   <img src="https://raw.githubusercontent.com/Sogni-AI/sogni-creative-agent-skill/main/docs/screenshot.jpg" alt="Telegram image render workflow" width="320" />
 </p>
 
-# Sogni Creative Agent Skill: Image & Video Generation for Agents
+# Sogni Creative Agent Skill: Image, Video & Music Generation for Agents
 
 **Sogni Creative Agent Skill** gives AI agent runtimes such as Claude Code,
 [OpenClaw](https://github.com/OpenClaw/OpenClaw),
 [Hermes Agent](https://hermes-agent.nousresearch.com/),
-[Manus AI](https://manus.im), and more — image generation, video generation, and
-creative-media tools powered by [Sogni AI](https://sogni.ai)'s decentralized GPU
-network.
+[Manus AI](https://manus.im), and more — image generation, video generation,
+music generation, and creative-media tools powered by
+[Sogni AI](https://sogni.ai)'s decentralized GPU network.
 
 Drop it into the setup you already have:
 - as a standalone Node.js CLI
@@ -22,6 +22,7 @@ With Sogni Creative Agent Skill, an agent can:
 - generate images from prompts
 - edit and restyle existing images
 - create videos from text, images, audio, or reference video
+- generate instrumental music or songs with lyrics
 - save personas, preferences, and last-render state across sessions
 - check balances, list models, and refine previous results
 
@@ -41,6 +42,7 @@ Then ask your agent to do something simple, for example:
 - "Generate an image of a sunset over mountains"
 - "Edit this image to add a rainbow"
 - "Make a video of a cat playing piano"
+- "Generate a 30 second synthwave product-launch theme"
 - "Turn my selfie into James Bond using photobooth"
 - "Refine the last image at higher quality"
 
@@ -203,6 +205,14 @@ sogni-agent --video --ref cat.jpg "gentle camera pan"
 sogni-agent --video --ref cover.jpg --ref-audio song.mp3 \
   "music video with synchronized motion"
 
+# Direct music/audio generation
+sogni-agent --music --duration 30 \
+  "uplifting cinematic synthwave theme for a product launch"
+
+# Song with lyrics and musical controls
+sogni-agent --music --lyrics "Rise with the morning light" --bpm 128 \
+  --keyscale "C major" --output-format mp3 "bright indie pop chorus"
+
 # Persona or voice identity with LTX native audio
 sogni-agent --video --reference-audio-identity voice.webm \
   "NARRATOR: \"This is my voice.\""
@@ -218,6 +228,10 @@ sogni-agent --api-chat \
 sogni-agent --api-workflow image-to-video \
   --video-prompt "The camera slowly pushes in as the sketch comes alive" \
   "A graphite robot sketch on a drafting table"
+
+# Storyline -> GPT Image 2 storyboard sheet -> Seedance video hosted sequence
+sogni-agent --api-workflow storyboard-video --storyboard-frames 6 --duration 12 -Q hq \
+  "Create a 9:16 bakery launch video with a neon street-window reveal"
 
 # Segment a source video, then stitch clips locally with an external soundtrack
 sogni-agent --video --workflow v2v --ref-video dance.mp4 \
@@ -239,7 +253,11 @@ natural-language workflows. Use `--api-tools creative-agent|rich|hosted|none`,
 `--no-api-tool-execution`, `--llm-model`, and `--system` to control the chat
 request. `--api-workflow` targets `/v1/creative-agent/workflows` for durable
 async workflow records, event streaming, cancellation, and explicit hosted tool
-sequences. Use `--workflow-input` for exact hosted workflow JSON, and
+sequences. Use `--api-workflow storyboard-video` to generate a storyline, create
+a single GPT Image 2 storyboard sheet, then pass that artifact into Seedance as
+the video reference. The `-Q fast|hq|pro` preset maps to GPT Image 2
+low|medium|high quality for that storyboard sheet. Use `--workflow-input` for
+exact hosted workflow JSON, and
 `--watch-workflow`, `--workflow-events`, `--stream-workflow`, and
 `--cancel-workflow` to manage durable runs. Uploaded local media still uses the
 direct CLI path because hosted API modes do not accept CLI `--ref*` media flags
@@ -310,12 +328,15 @@ Run `sogni-agent --help` for the complete CLI. These are the options most agents
 | `-o <path>` | Save output locally |
 | `-c <path>` | Provide image context for edits |
 | `--video` | Generate video instead of image |
+| `--music` | Generate music/audio instead of image |
+| `--lyrics`, `--bpm`, `--keyscale`, `--timesig` | Optional music generation controls |
 | `--ref`, `--ref-audio`, `--ref-video` | Provide image/audio/video references; Seedance HTTPS references are forwarded as URL context |
 | `--target-resolution <px>` | Target the short side while preserving aspect ratio |
 | `--workflow <type>` | Force `t2v`, `i2v`, `s2v`, `ia2v`, `a2v`, `v2v`, or animate workflows |
 | `--api-chat` | Use `/v1/chat/completions` with Sogni creative-agent tools |
-| `--api-workflow <kind>` | Start `/v1/creative-agent/workflows` durable workflow |
+| `--api-workflow <kind>` | Start `/v1/creative-agent/workflows` durable workflow: `image-to-video`, `hosted-tool-sequence`, or `storyboard-video` |
 | `--workflow-input <json\|path\|@path>` | Explicit hosted workflow input JSON |
+| `--storyboard-frames <n>` | Beat count for `--api-workflow storyboard-video` |
 | `--video-prompt`, `--negative-prompt`, `--generate-audio`, `--expand-prompt` | Durable image-to-video workflow inputs |
 | `--watch-workflow`, `--list-workflows`, `--get-workflow <id>`, `--workflow-events <id>`, `--stream-workflow <id>`, `--cancel-workflow <id>` | Manage durable workflows |
 | `--api-tools <mode>`, `--no-api-tool-execution`, `--llm-model <id>`, `--api-base-url <url>` | Tune hosted API chat/workflow requests |
@@ -420,6 +441,8 @@ Prefer `-Q fast|hq|pro` for images and automatic workflow routing for video. Onl
 | Highest quality images | `flux2_dev_fp8` or `-Q pro` |
 | Image editing | `qwen_image_edit_2511_fp8_lightning` |
 | Photobooth face transfer | `coreml-sogniXLturbo_alpha1_ad` |
+| Direct music generation | `ace_step_1.5_turbo` or `--music-model turbo` |
+| Music with stronger lyric handling | `ace_step_1.5_sft` or `--music-model sft` |
 | Text-to-video with native dialogue/audio | `ltx23-22b-fp8_t2v_distilled` |
 | Image+audio-to-video | `ltx23-22b-fp8_ia2v_distilled` |
 | Audio-to-video | `ltx23-22b-fp8_a2v_distilled` |
@@ -429,6 +452,10 @@ Prefer `-Q fast|hq|pro` for images and automatic workflow routing for video. Onl
 | Face lip-sync with uploaded audio | `wan_v2.2-14b-fp8_s2v_lightx2v` |
 
 `gpt-image-2` supports flexible OpenAI image sizes up to `3840px` on either edge, max `3:1` aspect ratio, and total pixels from `655,360` through `8,294,400`; the API snaps dimensions to valid multiples of 16. For image editing, select `-m gpt-image-2` to use up to 16 context images.
+
+Music generation uses `--music` and outputs `mp3` by default. `--audio` remains
+the video-reference alias for `--ref-audio`; use `--music` or `--generate-music`
+for direct audio-only generation.
 
 ## License
 

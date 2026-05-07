@@ -4,8 +4,13 @@
 function isLtxWorkflow(workflow) {
     return workflow === 't2v' || workflow === 'i2v' || workflow === 'ia2v' || workflow === 'a2v' || workflow === 'v2v';
 }
-export const SKILL_RUNTIME_VERSION = '2026-05-05.2';
+export const SKILL_RUNTIME_VERSION = '2026-05-05.3';
 export const SEEDANCE_STORYBOARD_REFERENCE_PROMPT = 'Turn the video storyboard in @Image1 into a cohesive video. Treat @Image1 as the controlling source and follow its ordered thumbnails, timecodes, captions, Dialogue/VO, Audio/SFX, camera/motion notes, transitions, visible text, and scene order. Preserve the story spine, character/product/reference continuity, and cause-and-effect progression between beats. Treat transitions as motion instructions, not unrelated hard cuts unless the storyboard explicitly asks for hard cuts. Keep critical CTA or brand text large, centered, legible, and held long enough to read. Use a generated music/SFX arc that builds, peaks, resolves, and lands the final logo/CTA hit. Do not add unrelated logos, random UI, tiny microtext, or extra scenes.';
+export const GPT_IMAGE_STORYBOARD_DEFAULTS = {
+    storyboardLandscape: { width: 2560, height: 1440, aspectRatio: '2560x1440' },
+    storyboardPortrait: { width: 1440, height: 2560, aspectRatio: '1440x2560' },
+};
+export const DEFAULT_STORYBOARD_CANVAS_HINT_MARKER = 'DEFAULT STORYBOARD PAGE LAYOUT:';
 export const LTX23_WORKFLOW_MODELS = Object.freeze({
     t2v: 'ltx23-22b-fp8_t2v_distilled',
     i2v: 'ltx23-22b-fp8_i2v_distilled',
@@ -652,6 +657,18 @@ export function inferNamedVideoResolutionShortSideFromText(text) {
     const namedResolution = compact.match(/\b(480|720|1080|1440|2160)\s*p\b/i);
     return namedResolution ? Number(namedResolution[1]) : null;
 }
+export function inferRequestedVideoResolutionShortSideFromText(text) {
+    const standardResolution = inferNamedVideoResolutionShortSideFromText(text);
+    if (standardResolution)
+        return standardResolution;
+    const match = text.match(/\b([1-9]\d{2,3})\s*p\b/i);
+    if (!match)
+        return null;
+    const parsed = Number(match[1]);
+    if (!Number.isInteger(parsed) || parsed < 100 || parsed > 4320)
+        return null;
+    return parsed;
+}
 export function inferExplicitPixelDimensionsFromText(text) {
     const compact = text.replace(/,/g, '');
     const exactPair = compact.match(/\b(\d{1,5})\s*(x|by)\s*(\d{1,5})\s*(px|pixels?)?\b/i);
@@ -1131,7 +1148,7 @@ export function planCliVideoBrain(input) {
             plan.dimensionSource = 'exact';
         }
         else if (!cliSet.targetResolution) {
-            const shortSide = inferNamedVideoResolutionShortSideFromText(text);
+            const shortSide = inferRequestedVideoResolutionShortSideFromText(text);
             if (shortSide !== null) {
                 plan.targetResolution = shortSide;
             }
@@ -1320,6 +1337,13 @@ function inferStoryboardBoardAspectRatio(text) {
     return '16:9';
 }
 function inferExplicitStoryboardTargetVideoAspectRatio(text) {
+    const storyboardLayoutTarget = text.match(/\bStoryboard layout(?: target)?\s*:[^\n]*\bvideo\s+(\d{1,4})\s*:\s*(\d{1,4})\b/i);
+    if (storyboardLayoutTarget) {
+        const width = Number(storyboardLayoutTarget[1]);
+        const height = Number(storyboardLayoutTarget[2]);
+        if (width > 0 && height > 0)
+            return `${width}:${height}`;
+    }
     const explicitTarget = text.match(/\b(?:target|final|output|actual|seedance|video|clip|film|commercial|promo)\b[\s\S]{0,80}\b(\d{1,4})\s*:\s*(\d{1,4})\b/i);
     if (explicitTarget) {
         const width = Number(explicitTarget[1]);
@@ -2088,11 +2112,14 @@ function buildSceneFromSection(section, references, fallbackTiming) {
         'Speech',
         'Narration',
     ]);
+    const hasExplicitNoDialogueField = /\b(?:Dialogue\/VO|VO\/Dialogue|Dialogue|VO|V\.O\.|Voiceover|Voice-over|Speech|Narration)\s*:\s*(?:none|no\s+(?:spoken\s+)?(?:dialogue|vo|voiceover|voice-over|speech)|n\/a|not\s+specified|text\s+only)\b/i.test(combined);
     const dialogue = dialogueField
         ? normalizeStoryboardDialogue(dialogueField)
-        : /\b(?:VO|V\.O\.|voiceover|voice-over|dialogue|speech|narration|says?|speaks?|whispers?|shouts?)\b/i.test(combined)
-            ? extractQuotedDialogueSegments(combined)[0] || ''
-            : '';
+        : hasExplicitNoDialogueField
+            ? ''
+            : /\b(?:VO|V\.O\.|voiceover|voice-over|dialogue|speech|narration|says?|speaks?|whispers?|shouts?)\b/i.test(combined)
+                ? extractQuotedDialogueSegments(combined)[0] || ''
+                : '';
     const audio = extractStoryboardField(combined, ['Audio/SFX', 'Audio/Foley', 'Foley/SFX', 'Audio', 'SFX', 'FX', 'Foley', 'Sound', 'Sounds']);
     const audioSfx = normalizeStoryboardAudioSfx(audio);
     return {
@@ -2675,6 +2702,415 @@ export function lintStoryboardImagePrompt(prompt, layout, project) {
         ok: errors.length === 0,
         errors,
         warnings,
+    };
+}
+function parseStoryboardDimensionText(value) {
+    if (!value)
+        return null;
+    const match = value.match(/\b(\d{2,5})\s*x\s*(\d{2,5})\b/i);
+    if (!match)
+        return null;
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0)
+        return null;
+    return { width, height };
+}
+function exactPixelAspectDescription(width, height) {
+    const ratio = formatAspectRatio(width, height) ?? '16:9';
+    const orientation = width > height ? 'landscape' : height > width ? 'portrait' : 'square';
+    return `${ratio} ${orientation} video`;
+}
+function storyboardCanvasContextMentionsPage(context) {
+    return /\b(?:board|canvas|page|sheet|poster|story\s*board\s+(?:image|sheet|canvas|board|page)|storyboard\s+(?:image|sheet|canvas|board|page)|(?:image|sheet|canvas|board|page)\s+(?:story\s*board|storyboard))\b/i.test(context);
+}
+export function stripGeneratedStoryboardLayoutHints(text) {
+    return text
+        .replace(new RegExp(`${DEFAULT_STORYBOARD_CANVAS_HINT_MARKER}[^\\n]*`, 'gi'), '')
+        .replace(/^Storyboard layout target:[^\n]*$/gmi, '')
+        .replace(/^Storyboard layout:[^\n]*$/gmi, '');
+}
+export function inferExplicitStoryboardCanvasPixelDimensions(text) {
+    const source = stripGeneratedStoryboardLayoutHints(text);
+    const matcher = /\b(\d{3,5})\s*x\s*(\d{3,5})\b/gi;
+    for (const match of source.matchAll(matcher)) {
+        const index = match.index ?? 0;
+        const context = source.slice(Math.max(0, index - 80), Math.min(source.length, index + match[0].length + 80));
+        if (!storyboardCanvasContextMentionsPage(context))
+            continue;
+        const width = Number(match[1]);
+        const height = Number(match[2]);
+        if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+            return { width, height };
+        }
+    }
+    return null;
+}
+export function userDefinedStoryboardCanvas(text) {
+    const source = stripGeneratedStoryboardLayoutHints(text);
+    if (inferStoryboardBoardAspectDirective(source))
+        return true;
+    if (inferExplicitStoryboardCanvasPixelDimensions(source))
+        return true;
+    const pageUnit = String.raw `(?:board|canvas|page|sheet|poster|story\s*board\s+(?:image|sheet|canvas|board|page)|storyboard\s+(?:image|sheet|canvas|board|page)|(?:image|sheet|canvas|board|page)\s+(?:story\s*board|storyboard))`;
+    const aspectToken = String.raw `(?:\d{1,4}\s*:\s*\d{1,4}|\d{3,5}\s*x\s*\d{3,5}|portrait|vertical|landscape|horizontal|widescreen)`;
+    return new RegExp(String.raw `\b${pageUnit}\b[\s\S]{0,80}\b${aspectToken}\b`, 'i').test(source)
+        || new RegExp(String.raw `\b${aspectToken}\b[\s\S]{0,80}\b${pageUnit}\b`, 'i').test(source);
+}
+export function maskNonCanvasExactPixelDimensionsForStoryboard(text) {
+    return text.replace(/\b(\d{3,5})\s*x\s*(\d{3,5})\b/gi, (match, rawWidth, rawHeight, offset, fullText) => {
+        const source = String(fullText);
+        const context = source.slice(Math.max(0, offset - 80), Math.min(source.length, offset + match.length + 80));
+        if (storyboardCanvasContextMentionsPage(context))
+            return match;
+        const width = Number(rawWidth);
+        const height = Number(rawHeight);
+        return exactPixelAspectDescription(width, height);
+    });
+}
+function parseAspectRatioOrientation(aspectRatio) {
+    const normalized = normalizeAspectRatio(aspectRatio);
+    if (!normalized)
+        return null;
+    const [widthText, heightText] = normalized.split(':');
+    const width = Number(widthText);
+    const height = Number(heightText);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+        return null;
+    }
+    if (width > height)
+        return 'landscape';
+    if (height > width)
+        return 'portrait';
+    return 'square';
+}
+function defaultStoryboardCanvasForVideoAspectRatio(targetVideoAspectRatio) {
+    const orientation = parseAspectRatioOrientation(targetVideoAspectRatio);
+    if (orientation === 'portrait')
+        return GPT_IMAGE_STORYBOARD_DEFAULTS.storyboardLandscape;
+    if (orientation === 'landscape')
+        return GPT_IMAGE_STORYBOARD_DEFAULTS.storyboardPortrait;
+    return null;
+}
+function storyboardCanvasHintText(canvas, targetVideoAspectRatio) {
+    const boardAspect = canvas === GPT_IMAGE_STORYBOARD_DEFAULTS.storyboardLandscape
+        ? '16:9 landscape'
+        : '9:16 portrait';
+    return [
+        `${DEFAULT_STORYBOARD_CANVAS_HINT_MARKER} Use a ${boardAspect} storyboard canvas/page (${canvas.aspectRatio}) for the composite storyboard sheet unless the user explicitly specifies another storyboard page size.`,
+        `Keep individual scene-cell/frame aspect ratio ${targetVideoAspectRatio}; target final video aspect ratio ${targetVideoAspectRatio}.`,
+    ].join(' ');
+}
+function insertDefaultStoryboardCanvasHint(text, hint) {
+    const generatedBriefMatch = text.match(/^\s*(?:[-*+]\s*)?(?:#{1,6}\s*)?(?:[*_]{1,3})?\s*(?:storyboard\s+image\s+brief|subsequent\s+video\s+brief|video\s+generation\s+stage|next\s+steps?)\b[^\n]*$/im);
+    if (!generatedBriefMatch || generatedBriefMatch.index === undefined) {
+        return `${hint}\n${text}`;
+    }
+    const before = text.slice(0, generatedBriefMatch.index).trimEnd();
+    const after = text.slice(generatedBriefMatch.index).trimStart();
+    return `${before}\n${hint}\n\n${after}`;
+}
+export function applyDefaultStoryboardCanvasHint(text, frameCount) {
+    if (text.includes(DEFAULT_STORYBOARD_CANVAS_HINT_MARKER))
+        return text;
+    if (userDefinedStoryboardCanvas(text))
+        return text;
+    const maskedText = maskNonCanvasExactPixelDimensionsForStoryboard(text);
+    const layout = inferStoryboardLayoutSpec(maskedText, frameCount);
+    const explicitRatio = inferExplicitAspectRatioFromText(maskedText);
+    const explicitTargetAspectRatio = explicitRatio ? `${explicitRatio.width}:${explicitRatio.height}` : null;
+    const targetVideoAspectRatio = explicitTargetAspectRatio ?? layout.targetVideoAspectRatio;
+    const canvas = defaultStoryboardCanvasForVideoAspectRatio(targetVideoAspectRatio);
+    if (!canvas)
+        return maskedText;
+    return insertDefaultStoryboardCanvasHint(maskedText, storyboardCanvasHintText(canvas, targetVideoAspectRatio));
+}
+export function buildStoryboardCanvasArgs(boardAspectRatio, isGptImage2) {
+    const normalizedBoardAspectRatio = normalizeAspectRatio(boardAspectRatio) ?? boardAspectRatio;
+    const orientation = parseAspectRatioOrientation(normalizedBoardAspectRatio);
+    const canvas = orientation === 'landscape'
+        ? GPT_IMAGE_STORYBOARD_DEFAULTS.storyboardLandscape
+        : orientation === 'portrait'
+            ? GPT_IMAGE_STORYBOARD_DEFAULTS.storyboardPortrait
+            : null;
+    if (!canvas) {
+        return { aspectRatio: normalizedBoardAspectRatio };
+    }
+    if (isGptImage2) {
+        return {
+            width: canvas.width,
+            height: canvas.height,
+            aspectRatio: canvas.aspectRatio,
+        };
+    }
+    const isLandscapeCanvas = canvas === GPT_IMAGE_STORYBOARD_DEFAULTS.storyboardLandscape;
+    const width = isLandscapeCanvas ? 1920 : 1080;
+    const height = isLandscapeCanvas ? 1080 : 1920;
+    return { width, height, aspectRatio: `${width}x${height}` };
+}
+function storyboardIntentWithDefaultCanvasHint(userIntentText, frameCount) {
+    return applyDefaultStoryboardCanvasHint(userIntentText, frameCount);
+}
+export function defaultStoryboardImageDimensions(layout) {
+    const explicit = parseStoryboardDimensionText(layout.boardDimensions);
+    if (explicit)
+        return explicit;
+    const normalized = normalizeAspectRatio(layout.boardAspectRatio);
+    if (normalized === '9:16')
+        return { width: 1440, height: 2560 };
+    if (normalized === '1:1')
+        return { width: 2048, height: 2048 };
+    if (normalized === '4:3')
+        return { width: 2048, height: 1536 };
+    if (normalized === '3:4')
+        return { width: 1536, height: 2048 };
+    return { width: 2560, height: 1440 };
+}
+function dimensionsForShortSideAspectRatio(aspectRatio, shortSide) {
+    const normalized = normalizeAspectRatio(aspectRatio) ?? '16:9';
+    const [widthText, heightText] = normalized.split(':');
+    const ratioWidth = Number(widthText);
+    const ratioHeight = Number(heightText);
+    if (!Number.isFinite(ratioWidth)
+        || !Number.isFinite(ratioHeight)
+        || ratioWidth <= 0
+        || ratioHeight <= 0) {
+        return { width: 1280, height: 720 };
+    }
+    const multiple = 16;
+    const side = Math.max(multiple, Math.round(shortSide / multiple) * multiple);
+    const roundLongSide = (value) => Math.max(multiple, Math.round(value / multiple) * multiple);
+    if (ratioWidth >= ratioHeight) {
+        return {
+            width: roundLongSide(side * ratioWidth / ratioHeight),
+            height: side,
+        };
+    }
+    return {
+        width: side,
+        height: roundLongSide(side * ratioHeight / ratioWidth),
+    };
+}
+function clampSeedanceStoryboardDuration(value) {
+    const raw = typeof value === 'number' && Number.isFinite(value) ? value : 5;
+    return Math.max(4, Math.min(15, Math.round(raw)));
+}
+function sceneLineForSeedanceStoryboardProject(scene, index) {
+    const timing = scene.startSec !== null && scene.endSec !== null
+        ? `${formatStoryboardSeconds(scene.startSec)}-${formatStoryboardSeconds(scene.endSec)}`
+        : 'untimed';
+    const voice = scene.dialogue || '[no dialogue]';
+    return [
+        `SCENE ${String(index + 1).padStart(2, '0')} - ${scene.title}`,
+        `TIME: ${timing}`,
+        `PURPOSE: ${scene.purpose || 'Advance the approved story spine.'}`,
+        `VISUAL: ${scene.visual || 'Follow the approved storyboard visual.'}`,
+        `ACTION: ${scene.action || 'Use clear motion that connects to the next beat.'}`,
+        `CAMERA: ${scene.camera || 'Use the approved shot language.'}`,
+        `LIGHTING/STYLE: ${scene.lighting || 'Preserve the storyboard style and lighting.'}`,
+        `TRANSITION: ${[scene.transitionIn, scene.transitionOut].filter(Boolean).join('; ') || 'Use a clean motivated continuity transition.'}`,
+        `VOICE/DIALOGUE: ${voice}`,
+        `AUDIO/SFX: ${scene.audioSfx.join(', ') || defaultStoryboardAudioSfxLine()}`,
+        `MUSIC: ${scene.music || 'Follow the global generated music arc.'}`,
+        `REFERENCE USAGE: ${scene.referenceUsage.join('; ') || 'Use @Image1 storyboard only.'}`,
+        `VISIBLE TEXT: ${scene.textInImage.join('; ') || 'none'}`,
+    ].join('\n');
+}
+export function compileSeedanceStoryboardPromptFromProject(project, options = {}) {
+    const storyboardImageTag = options.storyboardImageTag ?? '@Image1';
+    const durationSec = clampSeedanceStoryboardDuration(options.durationSec ?? project.durationSec);
+    const aspectRatio = normalizeAspectRatio(options.aspectRatio ?? project.targetVideoAspectRatio)
+        ?? project.targetVideoAspectRatio
+        ?? '16:9';
+    const avoidList = [
+        ...project.creativeBrief.mustAvoid,
+        'Do not render the storyboard board, grid, captions, panel dividers, thumbnails, or collage layout as the video.',
+        'Do not add extra readable text beyond required brand/CTA text.',
+        'Do not drift reference assets, product design, logo, recurring character identity, shot order, or scene timing.',
+    ];
+    const requiredText = project.endCard.requiredText.length > 0
+        ? project.endCard.requiredText.join('; ')
+        : 'none';
+    return [
+        'PROJECT:',
+        `Title: ${project.title}`,
+        `Duration: ${durationSec} seconds total.`,
+        `Aspect ratio: ${aspectRatio}.`,
+        `Story spine: ${project.creativeBrief.storySpine}`,
+        '',
+        'INPUT ASSETS:',
+        `${storyboardImageTag}: approved GPT Image 2 storyboard board. Treat it as an ordered shot guide and timing reference only, not as a collage, split-screen, grid, or picture-in-picture layout to reproduce.`,
+        '',
+        'GLOBAL VIDEO INSTRUCTIONS:',
+        `Render one continuous cinematic video in ${aspectRatio}. Follow the storyboard scene order, timing ranges, transitions, audio plan, and CTA hold exactly where specified.`,
+        'Use the storyboard as the controlling source for shot order and intent while converting each panel into full-screen motion.',
+        'Keep required visible text minimal and exact. All scene numbers, timecodes, labels, and production notes remain metadata only and must not appear in the video.',
+        `Visual style: ${project.creativeBrief.visualQualityBar}`,
+        `Tone progression: ${project.creativeBrief.toneProgression.join(' -> ') || 'preserve the approved tone progression.'}`,
+        `Music arc: ${project.scenes.map(scene => scene.music).filter(Boolean).join(' -> ') || 'support the approved story arc without overpowering dialogue.'}`,
+        '',
+        'TIMECODED SCENES:',
+        ...project.scenes.map(sceneLineForSeedanceStoryboardProject),
+        '',
+        'END CARD / CTA HOLD:',
+        `Required visible text: ${requiredText}`,
+        'Hold readable CTA or brand text long enough to read.',
+        `Treatment: ${[project.endCard.backgroundStyle, project.endCard.composition, project.endCard.logoUsage].filter(Boolean).join(' ') || 'clean branded end frame that remains readable.'}`,
+        '',
+        'NEGATIVE / AVOID:',
+        ...Array.from(new Set(avoidList.map(item => compactStoryboardLine(item)).filter(Boolean))).map(item => `- ${item}`),
+    ].join('\n');
+}
+export function lintSeedanceStoryboardPromptFromProject(prompt, project) {
+    const errors = [];
+    const warnings = [];
+    if (!/\bPROJECT:/i.test(prompt))
+        errors.push('missing PROJECT section');
+    if (!/\bINPUT ASSETS:/i.test(prompt))
+        errors.push('missing INPUT ASSETS section');
+    if (!/\bGLOBAL VIDEO INSTRUCTIONS:/i.test(prompt))
+        errors.push('missing GLOBAL VIDEO INSTRUCTIONS section');
+    if (!/@Image1/i.test(prompt))
+        errors.push('missing @Image1 storyboard reference');
+    if (!/\bshot guide\b/i.test(prompt))
+        errors.push('missing shot-guide instruction');
+    if (!/\bnot\s+as\s+a\s+(?:collage|split-screen|grid)/i.test(prompt)) {
+        errors.push('missing anti-collage/grid instruction');
+    }
+    if (project.scenes.length === 0)
+        errors.push('missing storyboard scenes');
+    project.scenes.forEach((scene, index) => {
+        const sceneNumber = String(index + 1).padStart(2, '0');
+        if (!new RegExp(`SCENE\\s+${sceneNumber}\\b`, 'i').test(prompt)) {
+            errors.push(`missing scene ${index + 1}`);
+        }
+        if (scene.startSec !== null && scene.endSec !== null) {
+            const timeText = `${formatStoryboardSeconds(scene.startSec)}-${formatStoryboardSeconds(scene.endSec)}`;
+            if (!prompt.includes(timeText))
+                warnings.push(`missing exact time range for scene ${index + 1}`);
+        }
+    });
+    for (const text of project.endCard.requiredText) {
+        if (text && !prompt.includes(text))
+            errors.push(`missing required text "${text}"`);
+    }
+    return { ok: errors.length === 0, errors, warnings };
+}
+export function buildStoryboardVideoHostedToolSequenceInput(options) {
+    const storyline = options.storyline.trim();
+    const userIntentText = options.userIntentText.trim();
+    if (!storyline) {
+        throw new Error('Storyboard video workflow requires a generated storyline or approved storyboard script.');
+    }
+    if (!userIntentText) {
+        throw new Error('Storyboard video workflow requires the original user intent text.');
+    }
+    const initialFrameCount = Math.max(1, Math.min(24, options.frameCount
+        ?? inferExplicitStoryboardFrameCountFromText(`${userIntentText}\n${storyline}`)
+        ?? inferDefaultStoryboardFrameCountFromText(`${userIntentText}\n${storyline}`)));
+    const workflowUserIntentText = storyboardIntentWithDefaultCanvasHint(userIntentText, initialFrameCount);
+    const frameCount = Math.max(1, Math.min(24, options.frameCount
+        ?? inferExplicitStoryboardFrameCountFromText(`${workflowUserIntentText}\n${storyline}`)
+        ?? inferDefaultStoryboardFrameCountFromText(`${workflowUserIntentText}\n${storyline}`)));
+    const compileOptions = {
+        prompt: storyline,
+        userIntentText: workflowUserIntentText,
+        approvedScriptContext: storyline,
+        frameCount,
+        promptAuthorship: 'assistant',
+    };
+    const project = buildStoryboardProject(compileOptions);
+    const layout = inferStoryboardLayoutSpec(workflowUserIntentText, project.scenes.length || frameCount);
+    const defaultImageDimensions = defaultStoryboardImageDimensions(layout);
+    const imageWidth = options.imageWidth ?? defaultImageDimensions.width;
+    const imageHeight = options.imageHeight ?? defaultImageDimensions.height;
+    const videoDuration = clampSeedanceStoryboardDuration(options.videoDurationSec ?? project.durationSec);
+    const videoDimensions = dimensionsForShortSideAspectRatio(project.targetVideoAspectRatio, options.videoTargetResolution ?? 720);
+    const storyboardImagePrompt = compileVideoStoryboardImagePrompt(compileOptions);
+    const seedanceVideoPrompt = compileSeedanceStoryboardPromptFromProject(project, {
+        storyboardImageTag: '@Image1',
+        durationSec: videoDuration,
+        aspectRatio: project.targetVideoAspectRatio,
+    });
+    const storyboardLint = lintStoryboardImagePrompt(storyboardImagePrompt, layout, project);
+    const seedanceLint = lintSeedanceStoryboardPromptFromProject(seedanceVideoPrompt, project);
+    const title = options.title || `${project.title} storyboard video`;
+    const imageModel = options.imageModel ?? 'gpt-image-2';
+    const imageQuality = options.imageQuality ?? 'high';
+    const imageOutputFormat = options.imageOutputFormat ?? 'png';
+    const videoModel = options.videoModel ?? 'seedance2';
+    const generateAudio = options.generateAudio ?? true;
+    const input = {
+        title,
+        steps: [
+            {
+                id: 'storyboard_image',
+                toolName: 'sogni_generate_image',
+                arguments: {
+                    prompt: storyboardImagePrompt,
+                    model: imageModel,
+                    width: imageWidth,
+                    height: imageHeight,
+                    number_of_variations: 1,
+                    gpt_image_quality: imageQuality,
+                    output_format: imageOutputFormat,
+                },
+            },
+            {
+                id: 'seedance_video',
+                toolName: 'sogni_generate_video',
+                arguments: {
+                    prompt: seedanceVideoPrompt,
+                    model: videoModel,
+                    width: videoDimensions.width,
+                    height: videoDimensions.height,
+                    duration: videoDuration,
+                    fps: 24,
+                    number_of_variations: 1,
+                    generate_audio: generateAudio,
+                    expand_prompt: false,
+                },
+                dependsOn: [
+                    {
+                        sourceStepId: 'storyboard_image',
+                        sourceArtifactIndex: 0,
+                        targetArgument: 'reference_image_url',
+                        mediaType: 'image',
+                        transform: 'artifact_url',
+                        required: true,
+                    },
+                ],
+            },
+        ],
+    };
+    return {
+        title,
+        frameCount,
+        storyline,
+        storyboardProject: project,
+        storyboardImagePrompt,
+        seedanceVideoPrompt,
+        image: {
+            width: imageWidth,
+            height: imageHeight,
+            model: imageModel,
+            quality: imageQuality,
+            outputFormat: imageOutputFormat,
+        },
+        video: {
+            width: videoDimensions.width,
+            height: videoDimensions.height,
+            duration: videoDuration,
+            model: videoModel,
+            generateAudio,
+        },
+        input,
+        warnings: [
+            ...storyboardLint.warnings.map(warning => `storyboard image: ${warning}`),
+            ...storyboardLint.errors.map(error => `storyboard image error: ${error}`),
+            ...seedanceLint.warnings.map(warning => `seedance prompt: ${warning}`),
+            ...seedanceLint.errors.map(error => `seedance prompt error: ${error}`),
+        ],
     };
 }
 export function inferDefaultVideoSteps(modelId) {

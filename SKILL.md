@@ -1,6 +1,6 @@
 ---
 name: sogni-creative-agent-skill
-description: "Sogni Creative Agent Skill: agent skill and CLI for image and video generation using Sogni AI's decentralized GPU network. Supports personas (named people with saved reference photos and voice clips), persistent memories (user preferences across sessions), custom personality, style transfer, angle synthesis, and multi-step creative workflows. Ask the agent to \"draw\", \"generate\", \"create an image\", \"make a video/animate\", \"apply a style\", or \"generate me as a superhero\"."
+description: "Sogni Creative Agent Skill: agent skill and CLI for image, video, and music generation using Sogni AI's decentralized GPU network. Supports personas (named people with saved reference photos and voice clips), persistent memories (user preferences across sessions), custom personality, style transfer, angle synthesis, and multi-step creative workflows. Ask the agent to \"draw\", \"generate\", \"create an image\", \"make a video/animate\", \"make music\", \"apply a style\", or \"generate me as a superhero\"."
 metadata:
   version: "2.1.3"
   homepage: https://sogni.ai
@@ -34,9 +34,9 @@ metadata:
         label: "Prepare runtime dependencies"
 ---
 
-# Sogni Image & Video Generation
+# Sogni Image, Video & Music Generation
 
-Generate **images and videos** using Sogni AI's decentralized GPU network.
+Generate **images, videos, and music** using Sogni AI's decentralized GPU network.
 
 ## Install Request Policy
 
@@ -127,7 +127,7 @@ Path override environment variables:
 - `SOGNI_MEDIA_INBOUND_DIR`
 - `OPENCLAW_CONFIG_PATH`
 
-## Usage (Images & Video)
+## Usage (Images, Video & Music)
 
 ```bash
 # Generate and get URL
@@ -160,6 +160,14 @@ node sogni-agent.mjs --json --balance
 # Quiet mode (suppress progress)
 node sogni-agent.mjs -q -o /tmp/cat.png "a cat wearing a hat"
 
+# Direct music/audio generation
+node sogni-agent.mjs --music --duration 30 \
+  "uplifting cinematic synthwave theme for a product launch"
+
+# Song with lyrics and musical controls
+node sogni-agent.mjs --music --lyrics "Rise with the morning light" --bpm 128 \
+  --keyscale "C major" --output-format mp3 "bright indie pop chorus"
+
 # Hosted API chat: natural-language rich creative-agent tool execution
 node sogni-agent.mjs --api-chat "Create a 4-shot product video concept for a red sneaker"
 
@@ -167,12 +175,20 @@ node sogni-agent.mjs --api-chat "Create a 4-shot product video concept for a red
 node sogni-agent.mjs --api-workflow image-to-video \
   --video-prompt "The camera slowly pushes in as the sketch comes alive" \
   "A graphite robot sketch on a drafting table"
+
+# Durable storyboard-video workflow: storyline -> GPT Image 2 storyboard -> Seedance
+node sogni-agent.mjs --api-workflow storyboard-video --storyboard-frames 6 --duration 12 -Q hq \
+  "Create a 9:16 bakery launch video with a neon street-window reveal"
 ```
 
 Use `--api-chat` for text-first natural-language workflows that should go through
 Sogni API's OpenAI-compatible `/v1/chat/completions` tool loop. Use
 `--api-workflow` when the caller already knows it wants an async durable workflow
-record under `/v1/creative-agent/workflows`. Uploaded-media execution still
+record under `/v1/creative-agent/workflows`. Use `--api-workflow storyboard-video`
+when the caller wants the hosted sequence to generate a storyline, create one GPT
+Image 2 storyboard sheet, and feed that image artifact into Seedance as the video
+reference. The `-Q fast|hq|pro` preset maps to GPT Image 2 low|medium|high
+quality for the storyboard sheet. Uploaded-media execution still
 belongs on the direct CLI path (`-c`, `--ref`, `--ref-audio`, `--ref-video`)
 until the hosted rich API and durable workflow endpoint support uploaded
 negative-index media references through CLI media flags.
@@ -219,10 +235,22 @@ copied shared contracts instead of adding skill-local regex guards.
 | `--balance, --balances` | Show SPARK/SOGNI balances and exit | - |
 | `-c, --context <path>` | Context image for editing | - |
 | `--last-image` | Use last generated image as context/ref | - |
+| `--music` | Generate music/audio instead of image | - |
+| `--music-model <id>` | Music model: turbo\|sft\|ace_step_1.5_turbo\|ace_step_1.5_sft | ace_step_1.5_turbo |
+| `--lyrics <text>` | Optional lyrics for song generation | - |
+| `--language <code>` | Lyrics language code | en |
+| `--bpm <num>` | Music tempo, 30-300 BPM | server default |
+| `--keyscale <text>` | Music key/scale, e.g. C major | - |
+| `--timesig <n>` | Time signature: 2\|3\|4\|6 | server default |
+| `--composer-mode`, `--no-composer-mode` | Toggle AI composer mode | server default |
+| `--prompt-strength <n>` | Music prompt adherence, 0-10 | server default |
+| `--creativity <n>` | Music variation/temperature, 0-2 | server default |
+| `--music-shift <n>` | Audio model shift parameter, 1-6 | 3 |
+| `--audio-format <f>` | Alias for music output format: mp3\|flac\|wav | mp3 |
 | `--video, -v` | Generate video instead of image | - |
 | `--workflow <type>` | Video workflow (t2v\|i2v\|s2v\|ia2v\|a2v\|v2v\|animate-move\|animate-replace) | inferred |
 | `--fps <num>` | Frames per second (video) | model default |
-| `--duration <sec>` | Duration in seconds (video) | 5 |
+| `--duration <sec>` | Duration in seconds (video or music) | video 5, music 30 |
 | `--frames <num>` | Override total frames (video) | - |
 | `--target-resolution <px>` | Short-side video target preserving aspect ratio | - |
 | `--auto-resize-assets` | Auto-resize video assets | true |
@@ -259,9 +287,10 @@ copied shared contracts instead of adding skill-local regex guards.
 | `--api-tools <mode>` | API tool mode: creative-agent\|rich\|hosted\|none | creative-agent |
 | `--no-api-tool-execution` | Plan/tool-call via API chat without executing Sogni tools | - |
 | `--llm-model <id>` | LLM model for `--api-chat` | qwen3.6-35b-a3b-gguf-iq4xs |
-| `--api-workflow <kind>` | Start durable workflow: image-to-video\|hosted-tool-sequence | - |
+| `--api-workflow <kind>` | Start durable workflow: image-to-video\|hosted-tool-sequence\|storyboard-video | - |
 | `--workflow-input <json\|path\|@path>` | Workflow input JSON for hosted tool sequences/custom starts | - |
 | `--workflow-title <text>` | Title for hosted-tool-sequence workflow input | - |
+| `--storyboard-frames <n>` | Beat count for storyboard-video workflow | - |
 | `--video-prompt <text>` | Motion prompt for durable image-to-video workflow | - |
 | `--negative-prompt <text>` | Negative prompt for durable image-to-video workflow | - |
 | `--generate-audio`, `--no-generate-audio` | Toggle audio generation for durable image-to-video | - |
@@ -301,6 +330,7 @@ When installed as an OpenClaw plugin, Sogni Creative Agent Skill will read defau
           "defaultImageModel": "z_image_turbo_bf16",
           "defaultEditModel": "qwen_image_edit_2511_fp8_lightning",
           "defaultPhotoboothModel": "coreml-sogniXLturbo_alpha1_ad",
+          "defaultMusicModel": "ace_step_1.5_turbo",
           "videoModels": {
             "t2v": "ltx23-22b-fp8_t2v_distilled",
             "i2v": "wan_v2.2-14b-fp8_i2v_lightx2v",
@@ -329,6 +359,8 @@ When installed as an OpenClaw plugin, Sogni Creative Agent Skill will read defau
           "defaultDurationSec": 5,
           "defaultImageTimeoutSec": 30,
           "defaultVideoTimeoutSec": 300,
+          "defaultMusicDurationSec": 30,
+          "defaultMusicTimeoutSec": 600,
           "credentialsPath": "~/.config/sogni/credentials",
           "lastRenderPath": "~/.config/sogni/last-render.json",
           "mediaInboundDir": "~/.clawdbot/media/inbound"
@@ -357,6 +389,18 @@ Seed strategies: `prompt-hash` (deterministic) or `random`.
 | `coreml-sogniXLturbo_alpha1_ad` | Fast | Photobooth face transfer (SDXL Turbo) |
 
 `gpt-image-2` supports flexible OpenAI image sizes up to `3840px` on either edge, max `3:1` aspect ratio, and total pixels from `655,360` through `8,294,400`; the API snaps dimensions to valid multiples of 16.
+
+## Music Models
+
+| Model | Use Case |
+|-------|----------|
+| `ace_step_1.5_turbo` | Default direct music generation model |
+| `ace_step_1.5_sft` | Experimental option with stronger lyric handling |
+
+Use `--music` for direct audio-only generation. Defaults are 30 seconds, `mp3`,
+`ace_step_1.5_turbo`, 8 steps, `euler` sampler, and `simple` scheduler. Keep
+`--audio` for video reference audio (`--ref-audio` alias); do not use it for
+direct music generation.
 
 ## Video Models
 
@@ -702,6 +746,9 @@ node {{skillDir}}/sogni-agent.mjs -q --video --ref /path/to/image.png -o /tmp/vi
 
 # Generate text-to-video
 node {{skillDir}}/sogni-agent.mjs -q --video -o /tmp/video.mp4 "A wide cinematic shot opens on ocean waves rolling toward a rocky shoreline at sunset, golden light spreading across the water while sea mist drifts through the air. Foam patterns form and recede over the dark sand as the horizon glows orange and pink in the distance. The camera glides forward in one continuous movement, holding smooth stabilized motion and calm environmental detail throughout the scene."
+
+# Generate direct music/audio
+node {{skillDir}}/sogni-agent.mjs -q --music --duration 30 -o /tmp/music.mp3 "uplifting cinematic synthwave theme for a product launch"
 
 # HD / "4K" text-to-video: prefer LTX-2.3
 node {{skillDir}}/sogni-agent.mjs -q --video -m ltx23-22b-fp8_t2v_distilled -w 1920 -h 1088 -o /tmp/video.mp4 "A wide cinematic aerial shot opens over a rugged ocean coastline at golden hour, warm sunlight catching the cliff faces while white surf breaks against dark rock below. Low sea mist hangs over the water and bands of foam trace the shoreline as gulls wheel through the distance. The camera glides forward in one continuous pass, revealing the curve of the coast while wet stone flashes with reflected light and the scene keeps smooth stabilized motion from start to finish. The overall mood feels expansive and polished, with crisp environmental detail and steady travel-film energy."

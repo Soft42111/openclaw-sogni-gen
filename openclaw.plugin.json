@@ -1,7 +1,7 @@
 {
   "id": "sogni-creative-agent-skill",
-  "name": "Sogni Creative Agent Skill — Image & Video Generation",
-  "description": "Agent skill and CLI for Sogni AI image and video generation.",
+  "name": "Sogni Creative Agent Skill — Image, Video & Music Generation",
+  "description": "Agent skill and CLI for Sogni AI image, video, and music generation.",
   "version": "2.1.3",
   "skills": [
     "."
@@ -24,6 +24,11 @@
         "type": "string",
         "default": "coreml-sogniXLturbo_alpha1_ad",
         "description": "Default model for photobooth face transfer."
+      },
+      "defaultMusicModel": {
+        "type": "string",
+        "default": "ace_step_1.5_turbo",
+        "description": "Default model for direct music/audio generation."
       },
       "videoModels": {
         "type": "object",
@@ -131,6 +136,17 @@
         "type": "integer",
         "minimum": 30,
         "default": 300
+      },
+      "defaultMusicDurationSec": {
+        "type": "integer",
+        "minimum": 10,
+        "maximum": 600,
+        "default": 30
+      },
+      "defaultMusicTimeoutSec": {
+        "type": "integer",
+        "minimum": 30,
+        "default": 600
       },
       "credentialsPath": {
         "type": "string",

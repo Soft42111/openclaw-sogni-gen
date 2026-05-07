@@ -122,12 +122,20 @@ async function withTestApiServer(fn) {
 
       res.setHeader('Content-Type', 'application/json');
       if (req.url === '/v1/chat/completions' && req.method === 'POST') {
+        const content = parsedBody?.sogni_tool_execution === false
+          ? [
+            'Project: Neon Bakery Launch. Duration: 12 seconds.',
+            'Scene 1 - Hook - 0s-2s. Visual: a baker opens a glowing oven on a rainy neon street. Action: steam rolls toward camera. Camera: slow dolly in. Audio/SFX: oven thrum, rain.',
+            'Scene 2 - Reveal - 2s-5s. Visual: pastries turn into tiny floating signs for the product. Action: signs orbit the baker. Camera: smooth arc. Audio/SFX: sparkle whooshes.',
+            'Scene 3 - CTA - 5s-12s. Visual: clean logo end card with text Start baking. Action: light settles. Camera: locked hero frame. Audio/SFX: final chime.'
+          ].join('\n')
+          : 'Test API chat response';
         res.end(JSON.stringify({
           id: 'chatcmpl-test',
           object: 'chat.completion',
           choices: [{
             index: 0,
-            message: { role: 'assistant', content: 'Test API chat response' },
+            message: { role: 'assistant', content },
             finish_reason: 'stop'
           }],
           creative_workflows: []
@@ -142,6 +150,12 @@ async function withTestApiServer(fn) {
             workflow: { workflowId: 'wf_test', kind: 'image_to_video', status: 'queued', artifacts: [] }
           }
         }));
+        return;
+      }
+      if (req.url === '/v1/creative-agent/workflows/wf_test/events/stream' && req.method === 'GET') {
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.end('id: evt_1\nevent: workflow.status\ndata: {"status":"completed"}\n\n');
         return;
       }
       res.statusCode = 404;
@@ -235,6 +249,84 @@ test('invalid image output format returns a validation error', () => {
 
 test('invalid video output format returns a validation error', () => {
   expectCliError(['--video', '--output-format', 'jpg', 'a cat'], 'Video output format must be "mp4".');
+});
+
+test('default music generation uses ACE-Step turbo defaults and prompt', () => {
+  const { exitCode, state, stdout } = runCli([
+    '--music',
+    '--json',
+    'uplifting cinematic synthwave theme'
+  ]);
+
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastAudioProject, 'createAudioProject was called');
+  assert.equal(state.lastAudioProject.modelId, 'ace_step_1.5_turbo');
+  assert.equal(state.lastAudioProject.positivePrompt, 'uplifting cinematic synthwave theme');
+  assert.equal(state.lastAudioProject.duration, 30);
+  assert.equal(state.lastAudioProject.steps, 8);
+  assert.equal(state.lastAudioProject.shift, 3);
+  assert.equal(state.lastAudioProject.sampler, 'euler');
+  assert.equal(state.lastAudioProject.scheduler, 'simple');
+  assert.equal(state.lastAudioProject.outputFormat, 'mp3');
+  assert.equal(state.lastAudioProject.tokenType, 'spark');
+
+  const output = JSON.parse(stdout.trim());
+  assert.equal(output.type, 'music');
+  assert.deepEqual(output.urls, ['https://example.com/audioUrl-1.mp3']);
+});
+
+test('advanced music options are forwarded to audio project generation', () => {
+  const { exitCode, state } = runCli([
+    '--music',
+    '--music-model', 'sft',
+    '--lyrics', 'Rise with the morning light',
+    '--language', 'es',
+    '--duration', '90',
+    '--bpm', '128',
+    '--keyscale', 'F# minor',
+    '--timesig', '6/8',
+    '--composer-mode',
+    '--prompt-strength', '4',
+    '--creativity', '1.2',
+    '--audio-format', 'flac',
+    '--sampler', 'er_sde',
+    '--scheduler', 'linear_quadratic',
+    '--steps', '60',
+    '--guidance', '6',
+    '--music-shift', '4',
+    '-n', '2',
+    '-s', '42',
+    'bright indie pop chorus'
+  ]);
+
+  assert.equal(exitCode, 0);
+  assert.ok(state?.lastAudioProject, 'createAudioProject was called');
+  assert.equal(state.lastAudioProject.modelId, 'ace_step_1.5_sft');
+  assert.equal(state.lastAudioProject.numberOfMedia, 2);
+  assert.equal(state.lastAudioProject.seed, 42);
+  assert.equal(state.lastAudioProject.duration, 90);
+  assert.equal(state.lastAudioProject.bpm, 128);
+  assert.equal(state.lastAudioProject.keyscale, 'F# minor');
+  assert.equal(state.lastAudioProject.timesignature, '6');
+  assert.equal(state.lastAudioProject.lyrics, 'Rise with the morning light');
+  assert.equal(state.lastAudioProject.language, 'es');
+  assert.equal(state.lastAudioProject.composerMode, true);
+  assert.equal(state.lastAudioProject.promptStrength, 4);
+  assert.equal(state.lastAudioProject.creativity, 1.2);
+  assert.equal(state.lastAudioProject.outputFormat, 'flac');
+  assert.equal(state.lastAudioProject.sampler, 'er_sde');
+  assert.equal(state.lastAudioProject.scheduler, 'linear_quadratic');
+  assert.equal(state.lastAudioProject.steps, 60);
+  assert.equal(state.lastAudioProject.guidance, 6);
+  assert.equal(state.lastAudioProject.shift, 4);
+});
+
+test('invalid music output format returns a validation error', () => {
+  expectCliError(['--music', '--output-format', 'jpg', 'a song'], 'Music output format must be "mp3", "flac", or "wav".');
+});
+
+test('music keeps --audio reserved for video reference input', () => {
+  expectCliError(['--music', '--audio', 'song.mp3', 'a song'], 'Video-only options');
 });
 
 test('video-only options without --video return a validation error', () => {
@@ -685,6 +777,85 @@ test('--api-workflow image-to-video rejects unsupported workflow title flag', ()
 
   assert.equal(exitCode, 1);
   assert.ok(stderr.includes('--workflow-title is currently only supported'));
+});
+
+test('--api-workflow storyboard-video generates storyline and starts GPT Image 2 to Seedance sequence', async () => {
+  await withTestApiServer(async (apiBaseUrl, requests) => {
+    const { exitCode, stdout } = await runCliAsync([
+      '--api-workflow', 'storyboard-video',
+      '--api-base-url', apiBaseUrl,
+      '--json',
+      '--storyboard-frames', '3',
+      '--quality', 'fast',
+      '--duration', '12',
+      '--workflow-title', 'Neon bakery storyboard',
+      'Create a 12 second 9:16 bakery launch video with GPT Image 2 and Seedance.'
+    ], {
+      SOGNI_USERNAME: '',
+      SOGNI_PASSWORD: '',
+      SOGNI_API_KEY: 'test-api-key'
+    });
+
+    assert.equal(exitCode, 0);
+    const payload = JSON.parse(stdout.trim());
+    assert.equal(payload.success, true);
+    assert.equal(payload.workflowKind, 'storyboard_video');
+    assert.equal(payload.storyboardPlan.frameCount, 3);
+    assert.equal(payload.storyboardPlan.image.model, 'gpt-image-2');
+    assert.equal(payload.storyboardPlan.image.quality, 'low');
+    assert.equal(payload.storyboardPlan.video.model, 'seedance2');
+    assert.equal(payload.storyboardPlan.video.width, 720);
+    assert.equal(payload.storyboardPlan.video.height, 1280);
+    assert.equal(payload.storyboardPlan.video.duration, 12);
+    assert.match(payload.storyline, /Neon Bakery Launch/);
+
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].url, '/v1/chat/completions');
+    assert.equal(requests[0].body.sogni_tool_execution, false);
+    assert.equal(requests[1].url, '/v1/creative-agent/workflows');
+    assert.equal(requests[1].body.kind, 'hosted_tool_sequence');
+    assert.equal(requests[1].body.input.title, 'Neon bakery storyboard');
+
+    const [imageStep, videoStep] = requests[1].body.input.steps;
+    assert.equal(imageStep.toolName, 'sogni_generate_image');
+    assert.equal(imageStep.arguments.model, 'gpt-image-2');
+    assert.equal(imageStep.arguments.gpt_image_quality, 'low');
+    assert.equal(imageStep.arguments.output_format, 'png');
+    assert.match(imageStep.arguments.prompt, /Create exactly 3 sequential video storyboard frames/);
+    assert.match(imageStep.arguments.prompt, /Overall storyboard canvas: 2560x1440 pixels \(16:9\)/);
+    assert.match(imageStep.arguments.prompt, /Target final video aspect ratio: 9:16/);
+
+    assert.equal(videoStep.toolName, 'sogni_generate_video');
+    assert.equal(videoStep.arguments.model, 'seedance2');
+    assert.equal(videoStep.arguments.expand_prompt, false);
+    assert.equal(videoStep.arguments.generate_audio, true);
+    assert.match(videoStep.arguments.prompt, /@Image1: approved GPT Image 2 storyboard board/);
+    assert.match(videoStep.arguments.prompt, /not as a collage, split-screen, grid/);
+    assert.deepEqual(videoStep.dependsOn, [{
+      sourceStepId: 'storyboard_image',
+      sourceArtifactIndex: 0,
+      targetArgument: 'reference_image_url',
+      mediaType: 'image',
+      transform: 'artifact_url',
+      required: true
+    }]);
+  });
+});
+
+test('--stream-workflow parses hosted workflow SSE frames without wrapper parser support', async () => {
+  await withTestApiServer(async (apiBaseUrl) => {
+    const { exitCode, stdout } = await runCliAsync([
+      '--stream-workflow', 'wf_test',
+      '--api-base-url', apiBaseUrl
+    ], {
+      SOGNI_USERNAME: '',
+      SOGNI_PASSWORD: '',
+      SOGNI_API_KEY: 'test-api-key'
+    });
+
+    assert.equal(exitCode, 0);
+    assert.match(stdout, /\[evt_1\] workflow\.status completed/);
+  });
 });
 
 test('explicit 512x512, output format, and seed are applied', () => {

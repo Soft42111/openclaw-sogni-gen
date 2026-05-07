@@ -4,7 +4,10 @@ import { writeFileSync } from 'node:fs';
 const ClientEvent = {
   JOB_COMPLETED: 'JOB_COMPLETED',
   JOB_FAILED: 'JOB_FAILED',
-  PROJECT_PROGRESS: 'PROJECT_PROGRESS'
+  PROJECT_PROGRESS: 'PROJECT_PROGRESS',
+  PROJECT_FAILED: 'PROJECT_FAILED',
+  PROJECT_EVENT: 'PROJECT_EVENT',
+  JOB_EVENT: 'JOB_EVENT'
 };
 
 function getState() {
@@ -32,6 +35,7 @@ function persistState() {
     writeFileSync(statePath, JSON.stringify({
       lastImageProject: state.lastImageProject ?? null,
       lastVideoProject: state.lastVideoProject ?? null,
+      lastAudioProject: state.lastAudioProject ?? null,
       lastEditProject: state.lastEditProject ?? null,
       lastEstimateVideoCost: state.lastEstimateVideoCost ?? null,
       emittedJobs: state.emittedJobs ?? null
@@ -48,6 +52,7 @@ class SogniClientWrapper extends EventEmitter {
     this.connected = false;
     this.lastImageProject = null;
     this.lastVideoProject = null;
+    this.lastAudioProject = null;
     this.lastEditProject = null;
     this.emittedJobs = 0;
     const state = getState();
@@ -93,6 +98,15 @@ class SogniClientWrapper extends EventEmitter {
     return { project: { id: 'proj-1' }, videoUrls: ['https://example.com/video.mp4'] };
   }
 
+  async createAudioProject(config) {
+    const state = getState();
+    this.lastAudioProject = config;
+    state.lastAudioProject = config;
+    persistState();
+    this._emitJobs('audioUrl', config.numberOfMedia ?? 1, config.seed);
+    return { project: { id: 'proj-1' }, audioUrls: ['https://example.com/audio.mp3'] };
+  }
+
   async getBalance() {
     return {
       sogni: 100,
@@ -116,11 +130,12 @@ class SogniClientWrapper extends EventEmitter {
   _emitJobs(urlField, count, seed) {
     queueMicrotask(() => {
       const state = getState();
+      const ext = urlField === 'videoUrl' ? 'mp4' : urlField === 'audioUrl' ? 'mp3' : 'png';
       for (let i = 0; i < count; i++) {
         this.emittedJobs += 1;
         state.emittedJobs = this.emittedJobs;
         this.emit(ClientEvent.JOB_COMPLETED, {
-          [urlField]: `https://example.com/${urlField}-${i + 1}.png`,
+          [urlField]: `https://example.com/${urlField}-${i + 1}.${ext}`,
           job: { data: { seed: seed ?? 123 } },
           jobIndex: i,
           projectId: 'proj-1'
