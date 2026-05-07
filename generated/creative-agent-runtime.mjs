@@ -820,7 +820,25 @@ export function extractLiteralVideoPrompt(text) {
     return extracted.length >= 3 ? extracted : null;
 }
 export function textMentionsStoryboardReference(text) {
-    return /\b(?:story\s*board|storyboard|video\s+sequence|sequence\s+sheet|shot\s+sheet|thumbnail\s+sequence|panel\s+sequence)\b/i.test(text);
+    const normalized = text
+        .replace(/[“”]/g, '"')
+        .replace(/[’]/g, "'")
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!normalized)
+        return false;
+    if (/\b(?:video\s+sequence|sequence\s+sheet|shot\s+sheet|thumbnail\s+sequence|panel\s+sequence)\b/i.test(normalized)) {
+        return true;
+    }
+    const rejectsStoryboardPanelOutput = /\b(?:no|without)\s+(?:extra\s+|random\s+|visible\s+|generated\s+|output\s+)?(?:story\s*board|storyboard)\s+panels?\b/i.test(normalized)
+        || /\b(?:avoid|exclude|never|don't|do\s+not)\b[\s\S]{0,80}\b(?:story\s*board|storyboard)\s+panels?\b/i.test(normalized)
+        || /\bnot\s+(?:a\s+|the\s+|as\s+)?(?:story\s*board|storyboard)\s+panels?\b/i.test(normalized)
+        || /\b(?:story\s*board|storyboard)\s+panels?\b[\s\S]{0,80}\b(?:not\s+(?:needed|required|wanted)|without|avoid|exclude|never)\b/i.test(normalized);
+    const contextualStoryboardReference = /\b(?:uploading|uploaded|attached|provided|reference|source|input)\b[\s\S]{0,80}\b(?:story\s*board|storyboard)\b/i.test(normalized)
+        || /\b(?:story\s*board|storyboard)\b[\s\S]{0,80}\b(?:uploaded|attached|provided|reference|source|input|image|sheet|grid|layout|page|board|panels?|frames?|sequence|timecodes?)\b/i.test(normalized)
+        || /\b(?:use|using|with|from|based\s+on|following|follow|turn|convert|transform|animate)\b[\s\S]{0,100}\b(?:story\s*board|storyboard)\b/i.test(normalized)
+        || /\b(?:story\s*board|storyboard)\b[\s\S]{0,100}\b(?:into|to|as)\s+(?:a\s+|the\s+)?(?:videos?|clips?|animations?|movies?|films?)\b/i.test(normalized);
+    return contextualStoryboardReference && !rejectsStoryboardPanelOutput;
 }
 export function textExplicitlyRequestsSeedanceFastModel(text) {
     const mentionsSeedance = /\bseedance(?:\s*2(?:\.0)?)?\b/i.test(text);
@@ -970,7 +988,9 @@ export function textRequestsSingleCompositeImageOutput(text) {
     if (!normalized)
         return false;
     const generationVerbs = String.raw `(?:generate|create|make|render|produce|design|build|develop|draw)`;
+    const videoGenerationVerbs = String.raw `(?:generate|create|make|render|produce|turn|animate|convert|transform)`;
     const imageOutputNouns = String.raw `(?:images?|photos?|pictures?|portraits?|posters?|artwork|illustrations?)`;
+    const videoOutputNouns = String.raw `(?:videos?|clips?|animations?|movies?|films?)`;
     const compositeNouns = String.raw `(?:story\s*board|storyboard|collage|contact\s+sheet|mood\s*board|moodboard|grid|board)`;
     const adCreativeNouns = String.raw `(?:ads?|advertisements?|banners?|flyers?|posters?|social\s+posts?|campaign\s+creative|marketing\s+(?:creative|graphic)|promo\s+graphic|product\s+graphic)`;
     const directSeedanceVersionFromStoryboard = /\b(?:generate|create|make|render|produce|turn|animate|convert|transform)\b[\s\S]{0,120}\bseedance(?:\s*2(?:\.0)?)?(?:\s+\w+){0,3}\s+(?:version|variant)\b[\s\S]{0,120}\b(?:story\s*board|storyboard)\b/i.test(normalized)
@@ -985,6 +1005,15 @@ export function textRequestsSingleCompositeImageOutput(text) {
     if (directVideoFromStoryboard
         && !explicitStoryboardImageOrSheetRequest
         && !/\b(?:story\s*board|storyboard)\b[\s\S]{0,60}\bfirst\b/i.test(normalized)) {
+        return false;
+    }
+    const directVideoOutput = new RegExp(String.raw `\b${videoGenerationVerbs}\b[\s\S]{0,140}\b${videoOutputNouns}\b`, 'i').test(normalized)
+        || new RegExp(String.raw `\b${videoOutputNouns}\b[\s\S]{0,140}\b${videoGenerationVerbs}\b`, 'i').test(normalized);
+    const rejectsStoryboardPanelOutput = /\b(?:no|without)\s+(?:extra\s+|random\s+|visible\s+|generated\s+|output\s+)?(?:story\s*board|storyboard)\s+panels?\b/i.test(normalized)
+        || /\b(?:avoid|exclude|never|don't|do\s+not)\b[\s\S]{0,80}\b(?:story\s*board|storyboard)\s+panels?\b/i.test(normalized)
+        || /\bnot\s+(?:a\s+|the\s+|as\s+)?(?:story\s*board|storyboard)\s+panels?\b/i.test(normalized)
+        || /\b(?:story\s*board|storyboard)\s+panels?\b[\s\S]{0,80}\b(?:not\s+(?:needed|required|wanted)|without|avoid|exclude|never)\b/i.test(normalized);
+    if (directVideoOutput && rejectsStoryboardPanelOutput && !explicitStoryboardImageOrSheetRequest) {
         return false;
     }
     const explicitImageOutput = new RegExp(String.raw `\b${generationVerbs}\b[\s\S]{0,180}\b(?:${imageOutputNouns}|${compositeNouns}\s+image|image\s+(?:story\s*board|storyboard|grid|collage|board))\b`, 'i').test(normalized)
@@ -1033,8 +1062,11 @@ export function textRequestsPreproductionScriptStage(text) {
         .trim();
     if (!normalized)
         return false;
-    const suppliedScript = /\b(?:here\s+is|here's|below\s+is|following\s+is|provided|supplied|existing|approved|final)\b[\s\S]{0,80}\b(?:script|screenplay|story\s*board|storyboard|shot\s*list|beat\s*sheet|treatment)\b/i.test(normalized)
-        || /\b(?:use|send|turn|convert|animate|generate|render|make|create)\b[\s\S]{0,120}\b(?:this|that|existing|approved|final|provided|supplied)\b[\s\S]{0,80}\b(?:script|screenplay|story\s*board|storyboard|shot\s*list|beat\s*sheet|treatment|storyboard\s+image)\b/i.test(normalized);
+    const planningArtifactNoun = String.raw `(?:script|screenplay|story\s*board|storyboard|shot\s*list|beat\s*sheet|treatment)`;
+    const suppliedScript = new RegExp(String.raw `\b(?:here\s+is|here's|below\s+is|following\s+is)\b[\s\S]{0,80}\b${planningArtifactNoun}\b`, 'i').test(normalized)
+        || new RegExp(String.raw `\b(?:provided|supplied|included|existing|approved|final|attached|uploaded)\s+${planningArtifactNoun}\b`, 'i').test(normalized)
+        || new RegExp(String.raw `\b${planningArtifactNoun}\b\s*(?:is|was|has\s+been|already)?\s*(?:provided|supplied|included|attached|uploaded|pasted|below|approved|final)\b`, 'i').test(normalized)
+        || /\b(?:use|send|turn|convert|animate|generate|render|make|create)\b[\s\S]{0,120}\b(?:this|that|existing|approved|final|provided|supplied|included)\b[\s\S]{0,80}\b(?:script|screenplay|story\s*board|storyboard|shot\s*list|beat\s*sheet|treatment|storyboard\s+image)\b/i.test(normalized);
     if (suppliedScript)
         return false;
     const explicitStoryboardImageOutput = /\b(?:story\s*board|storyboard)\s+(?:image|sheet|grid|layout|poster|board)\b/i.test(normalized)
@@ -1601,12 +1633,29 @@ function inferReferencedStoryboardImageCount(text) {
     return maxIndex;
 }
 function isStoryboardModelNameReference(text, start, end) {
-    const context = text.slice(Math.max(0, start - 32), Math.min(text.length, end + 48)).toLowerCase();
-    return /\bgpt\s+image\s*2\b/.test(context)
-        || /\b(?:gpt[-\s]*)?image\s*2\s+(?:image\s+)?models?\b/.test(context)
-        || /\bimage\s*2\s+image[-\s]?to[-\s]?image\b/.test(context);
+    const matched = text.slice(start, end).toLowerCase();
+    if (!/\bimage\s*(?:#|number\s*)?2\b/.test(matched))
+        return false;
+    const before = text.slice(Math.max(0, start - 24), start).toLowerCase();
+    const after = text.slice(end, Math.min(text.length, end + 36)).toLowerCase();
+    const compactContext = `${before}${matched}${after}`;
+    return /\bgpt\s+image\s*2\b/.test(compactContext)
+        || /\b(?:gpt[-\s]*)?image\s*2\s+(?:image\s+)?models?\b/.test(compactContext)
+        || /\bimage\s*2\s+image[-\s]?to[-\s]?image\b/.test(compactContext);
 }
 function contextAroundStoryboardReference(text, index) {
+    const parentheticalReferencePattern = new RegExp(String.raw `(?:^|[\n,;:])\s*([^,\n;()]{2,120}?)\s*\(\s*(?:uploaded|attached|provided|reference|source|input)?\s*(?:image|photo|picture|asset)\s*(?:#|number\s*)?${index}\s*\)`, 'gi');
+    for (const match of text.matchAll(parentheticalReferencePattern)) {
+        if (match.index === undefined)
+            continue;
+        if (isStoryboardModelNameReference(text, match.index, match.index + match[0].length))
+            continue;
+        const subject = compactStoryboardLine(stripStoryboardMarkup(match[1]))
+            .replace(/^(?:reference\s+assets?|uploaded\s+(?:images?|assets?)|attached\s+(?:images?|assets?)|provided\s+(?:images?|assets?)|assets?)\s*:\s*/i, '')
+            .trim();
+        if (subject)
+            return `${subject} (asset ${index})`;
+    }
     const patterns = [
         new RegExp(String.raw `\b(?:uploaded|attached|provided|reference|source|input)?\s*(?:image|photo|picture|asset)\s*(?:#|number\s*)?${index}\b`, 'i'),
         new RegExp(String.raw `\b${index}\b`, 'i'),
@@ -1667,7 +1716,7 @@ function inferStoryboardReferenceRole(index, text) {
             preserve: 'preserve the visible logo shape, typography, spacing, color relationships, and spelling as closely as possible',
         };
     }
-    if (/\b(?:character|mascot|person|people|face|actor|host|protagonist|subject|hero|doll|toy|figure|avatar)\b/.test(lower)) {
+    if (/\b(?:character|mascot|person|people|face|actor|host|protagonist|subject|hero|doll|toy|figure|avatar|girl|boy|woman|man)\b/.test(lower)) {
         return {
             index,
             role: 'character/source subject reference',
@@ -1834,6 +1883,7 @@ function extractStoryboardRequiredText(text) {
         }
         if (!addedQuotedText) {
             const unquoted = value
+                .split('|')[0]
                 .replace(/\s+\b(?:Dialogue\/VO|VO\/Dialogue|V\.O\.|VO|Voiceover|Voice-over|Speech|Narration|Audio\/SFX|Audio|SFX|FX|Foley|Sound|Sounds|Music|Camera\/Motion|Camera|Lighting\/Style|Lighting|Style|Look|Action\/Motion|Action|Motion)\s*:[\s\S]*$/i, '')
                 .replace(/\b(?:none|no\s+(?:visible\s+)?text|n\/a|not\s+specified)\b\.?$/i, '')
                 .trim();
@@ -1994,7 +2044,7 @@ function normalizeStoryboardDialogue(value) {
         return '';
     if (/^[-\u2013\u2014]\.?$/.test(compact))
         return '';
-    if (/^(?:[\[(]\s*)?(?:none|no\s+(?:spoken\s+)?(?:dialogue|vo|voiceover|voice-over|speech)|n\/a|not\s+specified|text\s+only)(?:\s*[\])])?\.?$/i.test(compact)) {
+    if (/^(?:[\[(]\s*)?(?:none|no\s+(?:spoken\s+)?(?:dialogue|vo|voiceover|voice-over|speech)|n\/a|not\s+specified|text\s+only|silence(?:\s*\/\s*beat)?|silent beat)(?:\s*[\])])?\.?$/i.test(compact)) {
         return '';
     }
     if (/^text\s+only\s*:/i.test(compact))
@@ -2278,7 +2328,11 @@ function splitStoryboardSceneSections(text) {
 }
 function splitStoryboardSections(text) {
     const sectionHeadings = splitStoryboardSceneSections(text);
-    return sectionHeadings.length > 0 ? sectionHeadings : splitStoryboardTableSections(text);
+    const tableSections = splitStoryboardTableSections(text);
+    if (tableSections.length > 0 && tableSections.length >= sectionHeadings.length) {
+        return tableSections;
+    }
+    return sectionHeadings.length > 0 ? sectionHeadings : tableSections;
 }
 function canonicalStoryboardScriptContext(text) {
     const trimmed = String(text || '').trim();

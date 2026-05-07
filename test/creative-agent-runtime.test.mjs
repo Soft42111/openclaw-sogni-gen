@@ -162,7 +162,7 @@ test('runtime exposes reusable storyboard image prompt compiler', () => {
     cellAspectRatio: '9:16',
     targetVideoAspectRatio: '9:16',
     layoutKind: 'landscape_portrait_cells',
-    layoutDescription: '6 portrait video panels arranged cleanly inside a landscape board'
+    layoutDescription: '6 portrait video panels arranged as a 2-row x 3-column grid inside a landscape board; keep compact labels outside the frames and use unused grid slots as margin/notes space'
   });
 
   const prompt = compileVideoStoryboardImagePrompt({
