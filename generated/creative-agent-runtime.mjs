@@ -898,18 +898,18 @@ export function textMentionsStoryboardReference(text) {
     return contextualStoryboardReference && !rejectsStoryboardPanelOutput;
 }
 export function textExplicitlyRequestsSeedanceFastModel(text) {
-    const mentionsSeedance = /\bseedance(?:\s*2(?:\.0)?)?\b/i.test(text);
-    return /\bseedance(?:\s*2(?:\.0)?)?\s+fast\b/i.test(text)
-        || /\bfast\s+seedance(?:\s*2(?:\.0)?)?\b/i.test(text)
-        || /\b(?:seedance(?:\s*2(?:\.0)?)?\s+)?fast\s+(?:version|variant)\b/i.test(text)
-        || /\b(?:version|variant)\s+(?:should\s+be\s+|is\s+|as\s+)?(?:seedance(?:\s*2(?:\.0)?)?\s+)?fast\b/i.test(text)
+    const mentionsSeedance = /\b(?:seedance|seeddance)(?:\s*2(?:\.0)?)?\b/i.test(text);
+    return /\b(?:seedance|seeddance)(?:\s*2(?:\.0)?)?\s+fast\b/i.test(text)
+        || /\bfast\s+(?:seedance|seeddance)(?:\s*2(?:\.0)?)?\b/i.test(text)
+        || /\b(?:(?:seedance|seeddance)(?:\s*2(?:\.0)?)?\s+)?fast\s+(?:version|variant)\b/i.test(text)
+        || /\b(?:version|variant)\s+(?:should\s+be\s+|is\s+|as\s+)?(?:(?:seedance|seeddance)(?:\s*2(?:\.0)?)?\s+)?fast\b/i.test(text)
         || (mentionsSeedance && /\bdraft\b/i.test(text))
         || (mentionsSeedance
             && /\b(?:use|using|choose|select|set|switch\s+to|with|via)\b[\s\S]{0,40}\bfast\s+model\b/i.test(text));
 }
 export function textExplicitlyRequestsNonSeedanceVideoModel(text) {
     return /\b(?:ltx(?:\s*2(?:\.3)?)?|wan(?:\s*2(?:\.2)?)?|another\s+video\s+model|different\s+video\s+model|non[-\s]?seedance)\b/i.test(text)
-        && !/\bseedance(?:\s*2(?:\.0)?)?\b/i.test(text);
+        && !/\b(?:seedance|seeddance)(?:\s*2(?:\.0)?)?\b/i.test(text);
 }
 export function textTreatsAudioAsLooseReference(text) {
     return /@?audio\d*\b[\s\S]{0,100}\b(?:loose|rough|mood|vibe|background|ambient|style|play\s+under)\b[\s\S]{0,40}\b(?:references?|guide|under|track|shot|clip)\b/i.test(text)
@@ -1054,6 +1054,26 @@ function textRequestsAdjacentImageTransitions(text) {
     const mentionsVideoOutput = /\b(?:video|videos|clips?|segments?|stitch|stitched|stitching|montage)\b/.test(lower);
     return mentionsGeneratedSequence && mentionsVideoOutput;
 }
+export function textRequestsProfessionalCharacterSheetImage(text) {
+    const normalized = text
+        .replace(/[“”]/g, '"')
+        .replace(/[’]/g, "'")
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!normalized)
+        return false;
+    const generationVerb = String.raw `(?:generate|create|make|render|produce|design|build|develop|draw)`;
+    const characterSubject = String.raw `(?:character|mascot|brand\s+mascot|creature|avatar|persona|toon|cartoon\s+character)`;
+    const sheetArtifact = String.raw `(?:character\s+sheet|mascot\s+sheet|model\s+sheet|reference\s+(?:sheet|board)|design\s+sheet|turnaround(?:\s+(?:sheet|views?|board))?|expression\s+(?:sheet|row|board)|pose\s+(?:sheet|board))`;
+    const directCharacterSheet = new RegExp(String.raw `\b${characterSubject}\b[\s\S]{0,80}\b(?:sheet|reference\s+(?:sheet|board)|model\s+sheet|turnaround(?:\s+(?:sheet|views?|board))?|expression\s+(?:sheet|row|board)|pose\s+(?:sheet|board))\b`, 'i').test(normalized)
+        || new RegExp(String.raw `\b${sheetArtifact}\b[\s\S]{0,80}\b${characterSubject}\b`, 'i').test(normalized)
+        || /\breusable\s+character\s+sheet\b/i.test(normalized);
+    if (!directCharacterSheet)
+        return false;
+    return new RegExp(String.raw `\b${generationVerb}\b[\s\S]{0,180}\b${sheetArtifact}\b`, 'i').test(normalized)
+        || new RegExp(String.raw `\b${sheetArtifact}\b[\s\S]{0,120}\b(?:image|illustration|artwork|render|board|layout)\b`, 'i').test(normalized)
+        || new RegExp(String.raw `\b(?:need|want|would\s+like|looking\s+for|please|can\s+you|could\s+you)\b[\s\S]{0,120}\b${sheetArtifact}\b`, 'i').test(normalized);
+}
 export function textRequestsSingleCompositeImageOutput(text) {
     const normalized = text
         .replace(/[“”]/g, '"')
@@ -1068,9 +1088,15 @@ export function textRequestsSingleCompositeImageOutput(text) {
     const videoOutputNouns = String.raw `(?:videos?|clips?|animations?|movies?|films?)`;
     const compositeNouns = String.raw `(?:story\s*board|storyboard|collage|contact\s+sheet|mood\s*board|moodboard|grid|board)`;
     const adCreativeNouns = String.raw `(?:ads?|advertisements?|banners?|flyers?|posters?|social\s+posts?|campaign\s+creative|marketing\s+(?:creative|graphic)|promo\s+graphic|product\s+graphic)`;
-    const directSeedanceVersionFromStoryboard = /\b(?:generate|create|make|render|produce|turn|animate|convert|transform)\b[\s\S]{0,120}\bseedance(?:\s*2(?:\.0)?)?(?:\s+\w+){0,3}\s+(?:version|variant)\b[\s\S]{0,120}\b(?:story\s*board|storyboard)\b/i.test(normalized)
-        || /\b(?:generate|create|make|render|produce|turn|animate|convert|transform)\b[\s\S]{0,120}\b(?:version|variant)(?:\s+\w+){0,3}\s+seedance(?:\s*2(?:\.0)?)?\b[\s\S]{0,120}\b(?:story\s*board|storyboard)\b/i.test(normalized);
+    const characterSheetImageStage = textRequestsProfessionalCharacterSheetImage(normalized);
+    const directSeedanceVersionFromStoryboard = /\b(?:generate|create|make|render|produce|turn|animate|convert|transform)\b[\s\S]{0,120}\b(?:seedance|seeddance)(?:\s*2(?:\.0)?)?(?:\s+\w+){0,3}\s+(?:version|variant)\b[\s\S]{0,120}\b(?:story\s*board|storyboard)\b/i.test(normalized)
+        || /\b(?:generate|create|make|render|produce|turn|animate|convert|transform)\b[\s\S]{0,120}\b(?:version|variant)(?:\s+\w+){0,3}\s+(?:seedance|seeddance)(?:\s*2(?:\.0)?)?\b[\s\S]{0,120}\b(?:story\s*board|storyboard)\b/i.test(normalized);
     if (directSeedanceVersionFromStoryboard)
+        return false;
+    const uploadedStoryboardPanelSource = /\b(?:upload(?:ing|ed)?|attach(?:ing|ed)?|provid(?:ing|ed)?)\b[\s\S]{0,140}\b(?:each|all|the)?\s*(?:of\s+)?(?:the\s+)?\d{1,2}\s+(?:story\s*board\s+|storyboard\s+)?(?:panels?|frames?|keyframes?)\b/i.test(normalized)
+        || /\b(?:these|uploaded|attached|provided)\s+(?:\d{1,2}\s+)?(?:story\s*board\s+|storyboard\s+)?(?:panels?|frames?|keyframes?)\b/i.test(normalized);
+    const directClipPerPanelRequest = /\b(?:generate|create|make|render|animate|produce)\b[\s\S]{0,120}\b(?:each|all|the)?\s*(?:clips?|videos?|segments?|animations?)\b[\s\S]{0,120}\b(?:per|from|using|with|based\s+on)\b[\s\S]{0,80}\b(?:panels?|frames?|keyframes?|story\s*board|storyboard)\b/i.test(normalized);
+    if (uploadedStoryboardPanelSource && directClipPerPanelRequest)
         return false;
     const directVideoFromStoryboard = new RegExp(String.raw `\b(?:generate|create|make|render|produce|turn|animate|convert|transform)\b[\s\S]{0,100}\b(?:videos?|clips?|animations?|movies?|films?)\b[\s\S]{0,140}\b(?:using|with|from|based\s+on|as|following)\b[\s\S]{0,100}\b(?:story\s*board|storyboard)(?:\s+(?:image|photo|picture|reference))?\b`, 'i').test(normalized)
         || /\b(?:turn|convert|transform|animate)\b[\s\S]{0,120}\b(?:story\s*board|storyboard)\b[\s\S]{0,80}\b(?:into|to|as)\s+(?:a\s+|the\s+)?(?:videos?|clips?|animations?|movies?|films?)\b/i.test(normalized);
@@ -1100,9 +1126,10 @@ export function textRequestsSingleCompositeImageOutput(text) {
     const referenceGuidedAdCreative = new RegExp(String.raw `\b${generationVerbs}\b[\s\S]{0,140}\b${adCreativeNouns}\b`, 'i').test(normalized)
         && /\b(?:referenc(?:e|es|ed|ing)|use|using|include|incorporate|based\s+on|guided\s+by|with)\b[\s\S]{0,120}\b(?:uploaded|attached|provided|reference|source|input|assets?|images?|photos?|pictures?)\b/i.test(normalized)
         && !/\b(?:videos?|clips?|animations?|movies?|films?|commercials?)\b/i.test(normalized);
-    if (!explicitImageOutput && !storyboardImageStage && !referenceGuidedAdCreative)
+    if (!explicitImageOutput && !storyboardImageStage && !referenceGuidedAdCreative && !characterSheetImageStage)
         return false;
     if (!referenceGuidedAdCreative
+        && !characterSheetImageStage
         && !/\b(?:story\s*board|storyboard|panels?|grid|rows?|columns?|collage|contact\s+sheet|mood\s*board|moodboard|layout|board)\b/i.test(normalized)) {
         return false;
     }
@@ -1111,7 +1138,8 @@ export function textRequestsSingleCompositeImageOutput(text) {
         return false;
     }
     const explicitSeparateOutputs = new RegExp(String.raw `\b${generationVerbs}\b[\s\S]{0,180}\b(?:separate|individual|distinct|different|multiple)\s+(?:images|photos|pictures|keyframes|frames|versions|variations|variants)\b`, 'i').test(normalized)
-        || /\b(?:images|photos|pictures|keyframes|frames|versions|variations|variants)\b[\s\S]{0,100}\b(?:then|after|before|animate|animation|video|stitch|transition)\b/i.test(normalized);
+        || /\b(?:let\s+me\s+see|show\s+me|give\s+me|i\s+want\s+to\s+see|want\s+to\s+see|need|make|generate|create|render|produce)\b[\s\S]{0,100}\b(?:\d{1,2}|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen)\s+(?:separate\s+|individual\s+|distinct\s+|different\s+|alternate\s+|new\s+)?(?:images|photos|pictures|keyframes|frames|versions|variations|variants|options|takes)\b/i.test(normalized)
+        || /\b(?:\d{1,2}|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen)\s+(?:separate\s+|individual\s+|distinct\s+|different\s+|alternate\s+|new\s+)?(?:images|photos|pictures|keyframes|frames|versions|variations|variants|options|takes)\b[\s\S]{0,100}\b(?:then|after|before|animate|animation|video|stitch|transition)\b/i.test(normalized);
     return !explicitSeparateOutputs;
 }
 export function textRequestsDirectMediaAfterPreproduction(text) {
@@ -1398,6 +1426,7 @@ function inferStoryboardBoardAspectDirective(text) {
         /\bStoryboard layout\s*:[^\n]*\bboard\s+([^\n;,]+)/i,
         /\bDEFAULT STORYBOARD PAGE LAYOUT\s*:\s*Use a\s+([^\n.]+?)\s+storyboard\s+canvas\/page\b/i,
         /\bOverall storyboard canvas(?:\s+aspect ratio)?\s*:\s*(?:\d{3,5}\s*x\s*\d{3,5}\s+pixels\s*\()?([^\n.)]+)/i,
+        new RegExp(String.raw `\b(${aspectToken})(?:\s*\([^)]{0,80}\))?[^\n]{0,120}\b(?:video\s+)?(?:story\s*board|storyboard)\s+(?:image|sheet|layout|page|board|canvas)\b`, 'i'),
         new RegExp(String.raw `\b(?:story\s*board|storyboard)?\s*(?:board|canvas|page|sheet)\b[^\n]{0,80}\b(?:must|should|use|be|is|as|at)\b[^\n]{0,80}\b(${aspectToken})\b`, 'i'),
     ];
     for (const pattern of patterns) {
