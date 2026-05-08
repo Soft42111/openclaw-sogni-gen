@@ -18,8 +18,10 @@ import { assertSafeUrl } from './ssrf-guard.mjs';
 import {
   LTX23_WORKFLOW_MODELS,
   QUALITY_TIERS,
+  SEEDANCE_V2V_REFERENCE_MAX_DURATION_SECONDS,
   VIDEO_WORKFLOW_DEFAULT_MODELS,
   buildStoryboardVideoHostedToolSequenceInput,
+  detectReferenceAudioFormat,
   dimensionsForAspectRatio,
   dimensionsWithShortSide,
   getModelDefaults,
@@ -36,6 +38,7 @@ import {
   resolveVideoSteps,
   sanitizeBatchPrompt,
   selectDefaultVideoModel,
+  shouldTrimSeedanceV2VSourceVideo,
   workflowRequiresImage
 } from './generated/creative-agent-runtime.mjs';
 
@@ -3842,6 +3845,104 @@ async function prepareReferenceAudioIdentityMedia(pathOrUrl) {
   return fetchMediaBlob(pathOrUrl, 'audio/mp4');
 }
 
+function mediaTempInputPath(tempDir, sourceLabel, fallbackExt) {
+  const cleanExt = extname(String(sourceLabel || '').split('?')[0]).toLowerCase();
+  const ext = /^[.][a-z0-9]{1,8}$/i.test(cleanExt) ? cleanExt : fallbackExt;
+  return join(tempDir, `input${ext}`);
+}
+
+async function transcodeMp3ReferenceAudioBuffer(buffer, sourceLabel) {
+  const ffmpegPath = await ensureFfmpegAvailable();
+  const tempDir = mkdtempSync(join(tmpdir(), 'sogni-ref-audio-'));
+  const inputPath = mediaTempInputPath(tempDir, sourceLabel, '.mp3');
+  const outputPath = join(tempDir, 'reference-audio.m4a');
+  try {
+    writeFileSync(inputPath, buffer);
+    const result = await runCommand(ffmpegPath, [
+      '-hide_banner',
+      '-loglevel', 'error',
+      '-y',
+      '-i', inputPath,
+      '-vn',
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-movflags', '+faststart',
+      outputPath
+    ], { captureOutput: true });
+
+    if (result.error || result.status !== 0 || !isNonEmptyFile(outputPath)) {
+      const err = new Error('Failed to prepare MP3 reference audio for video generation.');
+      err.code = 'FFMPEG_AUDIO_PREP_FAILED';
+      err.hint = 'Install ffmpeg with AAC support, or provide M4A/WAV reference audio.';
+      err.details = { sourceLabel, stderr: result.stderr || '', stdout: result.stdout || '', status: result.status };
+      throw err;
+    }
+
+    return readFileSync(outputPath);
+  } finally {
+    try { if (existsSync(inputPath)) unlinkSync(inputPath); } catch {}
+    try { if (existsSync(outputPath)) unlinkSync(outputPath); } catch {}
+    try { rmdirSync(tempDir); } catch {}
+  }
+}
+
+async function prepareReferenceAudioForVideoBuffer(buffer, sourceLabel) {
+  const mimeType = mimeTypeForPath(sourceLabel, 'application/octet-stream');
+  const sourceFormat = detectReferenceAudioFormat(buffer, mimeType);
+  if (sourceFormat !== 'mp3') return buffer;
+
+  const prepared = await transcodeMp3ReferenceAudioBuffer(buffer, sourceLabel);
+  if (!options.quiet) {
+    console.error('Prepared MP3 reference audio as M4A for video provider compatibility.');
+  }
+  return prepared;
+}
+
+async function trimSeedanceV2VSourceVideoBuffer(buffer, sourceLabel, startOffset, requestedDuration) {
+  const ffmpegPath = await ensureFfmpegAvailable();
+  const tempDir = mkdtempSync(join(tmpdir(), 'sogni-seedance-v2v-'));
+  const inputPath = mediaTempInputPath(tempDir, sourceLabel, '.mp4');
+  const outputPath = join(tempDir, 'seedance-source.mp4');
+  const start = Math.max(0, Number(startOffset) || 0);
+  const duration = Math.max(
+    0.1,
+    Math.min(SEEDANCE_V2V_REFERENCE_MAX_DURATION_SECONDS, Number(requestedDuration) || SEEDANCE_V2V_REFERENCE_MAX_DURATION_SECONDS),
+  );
+  try {
+    writeFileSync(inputPath, buffer);
+    const result = await runCommand(ffmpegPath, [
+      '-hide_banner',
+      '-loglevel', 'error',
+      '-y',
+      '-ss', String(start),
+      '-i', inputPath,
+      '-t', String(duration),
+      '-map', '0:v:0',
+      '-an',
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',
+      '-crf', '18',
+      '-pix_fmt', 'yuv420p',
+      '-movflags', '+faststart',
+      outputPath
+    ], { captureOutput: true });
+
+    if (result.error || result.status !== 0 || !isNonEmptyFile(outputPath)) {
+      const err = new Error('Failed to prepare Seedance video-to-video reference clip.');
+      err.code = 'FFMPEG_SEEDANCE_V2V_PREP_FAILED';
+      err.hint = 'Install ffmpeg with libx264 support, or provide a reference clip that starts at the desired frame.';
+      err.details = { sourceLabel, start, duration, stderr: result.stderr || '', stdout: result.stdout || '', status: result.status };
+      throw err;
+    }
+
+    return readFileSync(outputPath);
+  } finally {
+    try { if (existsSync(inputPath)) unlinkSync(inputPath); } catch {}
+    try { if (existsSync(outputPath)) unlinkSync(outputPath); } catch {}
+    try { rmdirSync(tempDir); } catch {}
+  }
+}
+
 async function appendSafeSeedanceReferenceUrl(target, pathOrUrl, label) {
   if (!isHttpsUrl(pathOrUrl)) return false;
   try {
@@ -5033,13 +5134,45 @@ async function main() {
       const seedanceReferenceAudioUrls = [];
       const useRefImageUrl = isSeedanceVideo && await appendSafeSeedanceReferenceUrl(seedanceReferenceImageUrls, options.refImage, 'Reference image');
       const useRefImageEndUrl = isSeedanceVideo && await appendSafeSeedanceReferenceUrl(seedanceReferenceImageUrls, options.refImageEnd, 'End reference image');
-      const useRefAudioUrl = isSeedanceVideo && await appendSafeSeedanceReferenceUrl(seedanceReferenceAudioUrls, options.refAudio, 'Reference audio');
-      const useRefVideoUrl = isSeedanceVideo && await appendSafeSeedanceReferenceUrl(seedanceReferenceVideoUrls, options.refVideo, 'Reference video');
+      const refAudioFormatByPath = options.refAudio
+        ? detectReferenceAudioFormat(new Uint8Array(), mimeTypeForPath(options.refAudio, 'application/octet-stream'))
+        : 'unknown';
+      const useRefAudioUrl = isSeedanceVideo
+        && refAudioFormatByPath !== 'mp3'
+        && await appendSafeSeedanceReferenceUrl(seedanceReferenceAudioUrls, options.refAudio, 'Reference audio');
+      const useRefVideoUrl = isSeedanceVideo
+        && options.videoStart === null
+        && await appendSafeSeedanceReferenceUrl(seedanceReferenceVideoUrls, options.refVideo, 'Reference video');
 
       let imageBuffer = options.refImage && !useRefImageUrl ? await fetchMediaBuffer(options.refImage) : undefined;
       let endImageBuffer = options.refImageEnd && !useRefImageEndUrl ? await fetchMediaBuffer(options.refImageEnd) : undefined;
-      const audioBuffer = options.refAudio && !useRefAudioUrl ? await fetchMediaBuffer(options.refAudio) : undefined;
-      const videoBuffer = options.refVideo && !useRefVideoUrl ? await fetchMediaBuffer(options.refVideo) : undefined;
+      let audioBuffer = options.refAudio && !useRefAudioUrl ? await fetchMediaBuffer(options.refAudio) : undefined;
+      let videoBuffer = options.refVideo && !useRefVideoUrl ? await fetchMediaBuffer(options.refVideo) : undefined;
+      let projectVideoStart = options.videoStart;
+      if (audioBuffer) {
+        audioBuffer = await prepareReferenceAudioForVideoBuffer(audioBuffer, options.refAudio);
+      }
+      if (
+        videoBuffer
+        && isSeedanceVideo
+        && options.videoWorkflow === 'v2v'
+        && shouldTrimSeedanceV2VSourceVideo({
+          sourceDurationSeconds: null,
+          requestedDurationSeconds: options.duration,
+          startOffsetSeconds: options.videoStart ?? 0
+        })
+      ) {
+        videoBuffer = await trimSeedanceV2VSourceVideoBuffer(
+          videoBuffer,
+          options.refVideo,
+          options.videoStart ?? 0,
+          options.duration,
+        );
+        projectVideoStart = null;
+        if (!options.quiet) {
+          console.error('Prepared Seedance V2V reference video clip before upload.');
+        }
+      }
       const audioIdentityMedia = options.referenceAudioIdentity
         ? await prepareReferenceAudioIdentityMedia(options.referenceAudioIdentity)
         : undefined;
@@ -5137,8 +5270,8 @@ async function main() {
       if (seedanceReferenceAudioUrls.length > 0) {
         projectConfig.referenceAudioUrls = seedanceReferenceAudioUrls;
       }
-      if (options.videoStart !== null) {
-        projectConfig.videoStart = options.videoStart;
+      if (projectVideoStart !== null) {
+        projectConfig.videoStart = projectVideoStart;
       }
       if (options.seed !== null && options.seed !== undefined) {
         projectConfig.seed = options.seed;

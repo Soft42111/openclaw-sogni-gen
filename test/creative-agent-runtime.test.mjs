@@ -5,6 +5,7 @@ import {
   SEEDANCE_STORYBOARD_REFERENCE_PROMPT,
   buildStoryboardVideoHostedToolSequenceInput,
   compileVideoStoryboardImagePrompt,
+  detectReferenceAudioFormat,
   getVideoPromptGuardrailPlan,
   inferExplicitPixelDimensionsFromText,
   inferNamedVideoResolutionShortSideFromText,
@@ -15,7 +16,9 @@ import {
   planSeedanceStoryboardFallback,
   resolveVideoModelAlias,
   sanitizeBatchPrompt,
-  selectDefaultVideoModel
+  selectDefaultVideoModel,
+  shouldTrimSeedanceV2VSourceVideo,
+  textTreatsAudioAsLooseReference
 } from '../generated/creative-agent-runtime.mjs';
 
 test('runtime resolves public video model aliases by workflow', () => {
@@ -50,6 +53,25 @@ test('runtime default model selection keeps native audio prompts on LTX', () => 
     selectDefaultVideoModel('i2v', { prompt: 'a host says "hello there"', quality: null }, {}),
     'ltx23-22b-fp8_i2v_distilled'
   );
+});
+
+test('runtime exposes shared media preparation decisions for CLI adapters', () => {
+  assert.equal(detectReferenceAudioFormat(new Uint8Array([0x49, 0x44, 0x33]), 'application/octet-stream'), 'mp3');
+  assert.equal(detectReferenceAudioFormat(new Uint8Array([1, 2, 3]), 'audio/mp4'), 'm4a');
+  assert.equal(shouldTrimSeedanceV2VSourceVideo({
+    sourceDurationSeconds: 20,
+    requestedDurationSeconds: 15
+  }), true);
+  assert.equal(shouldTrimSeedanceV2VSourceVideo({
+    sourceDurationSeconds: 10,
+    requestedDurationSeconds: 15
+  }), false);
+  assert.equal(shouldTrimSeedanceV2VSourceVideo({
+    startOffsetSeconds: 1,
+    requestedDurationSeconds: 15
+  }), true);
+  assert.equal(textTreatsAudioAsLooseReference('Use @Audio1 as a loose mood reference under the clip.'), true);
+  assert.equal(textTreatsAudioAsLooseReference('Sync the character to the uploaded dialogue track.'), false);
 });
 
 test('runtime infers natural-language video dimensions and durations', () => {

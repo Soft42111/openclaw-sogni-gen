@@ -4,8 +4,65 @@
 function isLtxWorkflow(workflow) {
     return workflow === 't2v' || workflow === 'i2v' || workflow === 'ia2v' || workflow === 'a2v' || workflow === 'v2v';
 }
-export const SKILL_RUNTIME_VERSION = '2026-05-05.3';
+export const SKILL_RUNTIME_VERSION = '2026-05-07.1';
 export const SEEDANCE_STORYBOARD_REFERENCE_PROMPT = 'Turn the video storyboard in @Image1 into a cohesive video. Treat @Image1 as the controlling source and follow its ordered thumbnails, timecodes, captions, Dialogue/VO, Audio/SFX, camera/motion notes, transitions, visible text, and scene order. Preserve the story spine, character/product/reference continuity, and cause-and-effect progression between beats. Treat transitions as motion instructions, not unrelated hard cuts unless the storyboard explicitly asks for hard cuts. Keep critical CTA or brand text large, centered, legible, and held long enough to read. Use a generated music/SFX arc that builds, peaks, resolves, and lands the final logo/CTA hit. Do not add unrelated logos, random UI, tiny microtext, or extra scenes.';
+export const SEEDANCE_V2V_REFERENCE_MAX_DURATION_SECONDS = 15;
+function asciiAt(data, start, length) {
+    if (data.length < start + length)
+        return '';
+    let value = '';
+    for (let index = start; index < start + length; index += 1) {
+        value += String.fromCharCode(data[index]);
+    }
+    return value;
+}
+export function normalizeReferenceAudioMimeType(mimeType) {
+    const trimmed = mimeType?.split(';')[0]?.trim().toLowerCase();
+    return trimmed || 'application/octet-stream';
+}
+export function detectReferenceAudioFormat(data, mimeType) {
+    const normalizedMimeType = normalizeReferenceAudioMimeType(mimeType);
+    if (normalizedMimeType === 'audio/mpeg' || normalizedMimeType === 'audio/mp3') {
+        return 'mp3';
+    }
+    if (normalizedMimeType === 'audio/mp4'
+        || normalizedMimeType === 'audio/m4a'
+        || normalizedMimeType === 'audio/x-m4a') {
+        return 'm4a';
+    }
+    if (normalizedMimeType === 'audio/wav' || normalizedMimeType === 'audio/x-wav') {
+        return 'wav';
+    }
+    if (normalizedMimeType === 'audio/ogg' || normalizedMimeType === 'application/ogg') {
+        return 'ogg';
+    }
+    if (data.length >= 3 && asciiAt(data, 0, 3) === 'ID3')
+        return 'mp3';
+    if (data.length >= 2 && data[0] === 0xff && (data[1] & 0xe0) === 0xe0)
+        return 'mp3';
+    if (data.length >= 12 && asciiAt(data, 4, 4) === 'ftyp')
+        return 'm4a';
+    if (data.length >= 12 && asciiAt(data, 0, 4) === 'RIFF' && asciiAt(data, 8, 4) === 'WAVE')
+        return 'wav';
+    if (data.length >= 4 && asciiAt(data, 0, 4) === 'OggS')
+        return 'ogg';
+    return 'unknown';
+}
+function finiteNonNegativeMediaValue(value, fallback = 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(0, parsed) : fallback;
+}
+export function shouldTrimSeedanceV2VSourceVideo({ sourceDurationSeconds, requestedDurationSeconds, startOffsetSeconds = 0, maxDurationSeconds = SEEDANCE_V2V_REFERENCE_MAX_DURATION_SECONDS, }) {
+    const maxDuration = finiteNonNegativeMediaValue(maxDurationSeconds, SEEDANCE_V2V_REFERENCE_MAX_DURATION_SECONDS)
+        || SEEDANCE_V2V_REFERENCE_MAX_DURATION_SECONDS;
+    const sourceDuration = finiteNonNegativeMediaValue(sourceDurationSeconds, Number.NaN);
+    const requestedDuration = finiteNonNegativeMediaValue(requestedDurationSeconds, maxDuration);
+    const startOffset = finiteNonNegativeMediaValue(startOffsetSeconds, 0);
+    if (startOffset > 0)
+        return true;
+    const effectiveDuration = Math.min(requestedDuration || maxDuration, maxDuration);
+    return Number.isFinite(sourceDuration) && sourceDuration > effectiveDuration + 0.15;
+}
 export const GPT_IMAGE_STORYBOARD_DEFAULTS = {
     storyboardLandscape: { width: 2560, height: 1440, aspectRatio: '2560x1440' },
     storyboardPortrait: { width: 1440, height: 2560, aspectRatio: '1440x2560' },
@@ -854,7 +911,23 @@ export function textExplicitlyRequestsNonSeedanceVideoModel(text) {
     return /\b(?:ltx(?:\s*2(?:\.3)?)?|wan(?:\s*2(?:\.2)?)?|another\s+video\s+model|different\s+video\s+model|non[-\s]?seedance)\b/i.test(text)
         && !/\bseedance(?:\s*2(?:\.0)?)?\b/i.test(text);
 }
+export function textTreatsAudioAsLooseReference(text) {
+    return /@?audio\d*\b[\s\S]{0,100}\b(?:loose|rough|mood|vibe|background|ambient|style|play\s+under)\b[\s\S]{0,40}\b(?:references?|guide|under|track|shot|clip)\b/i.test(text)
+        || /\baudio\b[\s\S]{0,80}\bloose\s+references?\b/i.test(text)
+        || /\bloose\s+references?\b[\s\S]{0,80}\baudio\b/i.test(text)
+        || /\breference\s+audio\b[\s\S]{0,100}\b(?:loose|mood|background|play\s+under|under)\b/i.test(text)
+        || /\baudio\b[\s\S]{0,100}\b(?:mood|background|ambient|style)\s+references?\b/i.test(text)
+        || /\baudio\b[\s\S]{0,80}\bplay\s+under\b/i.test(text)
+        || /\bplay\s+under\b[\s\S]{0,80}\baudio\b/i.test(text)
+        || /\baudio\b[\s\S]{0,80}\b(?:as\s+(?:a\s+)?(?:rough\s+)?(?:reference|guide)|for\s+(?:the\s+)?(?:mood|vibe|tone|feel|inspiration|style)|mood\s+reference|vibe\s+reference)\b/i.test(text)
+        || /\b(?:use|take|treat)\b[\s\S]{0,80}\b(?:audio|song|track|music)\b[\s\S]{0,80}\b(?:as\s+(?:a\s+)?(?:rough\s+)?(?:reference|guide)|for\s+(?:the\s+)?(?:mood|vibe|tone|feel|inspiration|style))\b/i.test(text)
+        || /\b(?:mood|vibe|tone|feel|style)\b[\s\S]{0,80}\b(?:from|of)\b[\s\S]{0,80}\b(?:audio|song|track|music)\b/i.test(text)
+        || /\b(?:inspired\s+by|based\s+on)\b[\s\S]{0,80}\b(?:audio|song|track|music)\b[\s\S]{0,80}\b(?:mood|vibe|tone|feel|style)?\b/i.test(text);
+}
 export function textRequestsPrimaryAudioSyncVideo(text) {
+    if (textTreatsAudioAsLooseReference(text)) {
+        return false;
+    }
     if (/\b(?:do\s+not|don't|dont|no|not|without)\b[\s\S]{0,50}\b(?:sync|synced|synchroni[sz]e|synchronized|match|lip[-\s]*sync)\b[\s\S]{0,50}\b(?:audio|sound|song|track|beat|rhythm|music|voice|dialogue|speech|words)\b/i.test(text)
         || /\b(?:audio|sound|song|track|beat|rhythm|music|voice|dialogue|speech|words)\b[\s\S]{0,50}\b(?:do\s+not|don't|dont|no|not|without)\b[\s\S]{0,50}\b(?:sync|synced|synchroni[sz]e|synchronized|match|lip[-\s]*sync)\b/i.test(text)) {
         return false;
@@ -863,7 +936,9 @@ export function textRequestsPrimaryAudioSyncVideo(text) {
         || /\baudio[-_\s]*(?:sync|synced|synchronized|synchroni[sz]ed)\b/i.test(text)
         || /\b(?:sync|synced|synchroni[sz]e|synchroni[sz]ed|match)\b[\s\S]{0,80}\b(?:audio|sound|song|track|beat|rhythm|music|voice|dialogue|speech|words)\b/i.test(text)
         || /\b(?:saying|speaking|lip[-\s]*sync(?:ing)?|mouth(?:ing)?)\b[\s\S]{0,100}\b(?:audio|sound|words|dialogue|speech|voice)\b/i.test(text)
-        || /\b(?:audio|sound|song|track|beat|rhythm|music|voice|dialogue|speech|words)\b[\s\S]{0,100}\b(?:drive|drives|driving|primary|sync|synced|synchronized|synchroni[sz]ed|lip[-\s]*sync)\b/i.test(text);
+        || /\b(?:audio|sound|song|track|beat|rhythm|music|voice|dialogue|speech|words)\b[\s\S]{0,100}\b(?:drive|drives|driving|primary|sync|synced|synchronized|synchroni[sz]ed|lip[-\s]*sync)\b/i.test(text)
+        || /\b(?:audio\s+(?:voice\s+)?recording|voice\s+(?:recording|clip|track|file)|wav\s+file|uploaded\s+(?:audio|voice|wav)|audio\s+file)\b[\s\S]{0,160}\b(?:image|photo|picture|portrait|face|person|man|woman|character)\b[\s\S]{0,160}\b(?:make|create|generate|render|animate|turn|convert|transform)\b[\s\S]{0,120}\b(?:sing|sinc|since|sync|speak|speaking|say|saying|talk|talking|lip[-\s]*sync|dance|dancing)\b/i.test(text)
+        || /\b(?:image|photo|picture|portrait|face|person|man|woman|character)\b[\s\S]{0,160}\b(?:audio\s+(?:voice\s+)?recording|voice\s+(?:recording|clip|track|file)|wav\s+file|uploaded\s+(?:audio|voice|wav)|audio\s+file)\b[\s\S]{0,160}\b(?:make|create|generate|render|animate|turn|convert|transform)\b[\s\S]{0,120}\b(?:sing|sinc|since|sync|speak|speaking|say|saying|talk|talking|lip[-\s]*sync|dance|dancing)\b/i.test(text);
 }
 export function seedanceRequestUsesStoryboardReferenceForModelDefault(input) {
     if (input.storyboardDetected === true)
