@@ -1,46 +1,85 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Sogni-AI/sogni-creative-agent-skill/main/docs/screenshot.jpg" alt="Telegram image render workflow" width="320" />
+  <img src="https://raw.githubusercontent.com/Sogni-AI/sogni-creative-agent-skill/main/docs/screenshot.jpg" alt="Sogni Creative Agent Skill rendering an image from a Telegram-style chat" width="320" />
 </p>
 
-# Sogni Creative Agent Skill: Image, Video & Music Generation for Agents
+<h1 align="center">Sogni Creative Agent Skill</h1>
 
-**Sogni Creative Agent Skill** gives AI agent runtimes such as Claude Code,
-[OpenClaw](https://github.com/OpenClaw/OpenClaw),
-[Hermes Agent](https://hermes-agent.nousresearch.com/),
-[Manus AI](https://manus.im), and more — image generation, video generation,
-music generation, and creative-media tools powered by
-[Sogni AI](https://sogni.ai)'s decentralized GPU network.
+<p align="center">Image, video, and music generation for AI agents — powered by <a href="https://sogni.ai">Sogni AI</a>'s decentralized GPU network.</p>
 
-Drop it into the setup you already have:
-- as a standalone Node.js CLI
-- as a skill source for **Hermes Agent**, **Manus AI**, and other agent frameworks
-- as an [OpenClaw](https://github.com/OpenClaw/OpenClaw) plugin
+<p align="center">
+  <a href="https://www.npmjs.com/package/@sogni-ai/sogni-creative-agent-skill"><img alt="npm" src="https://img.shields.io/npm/v/@sogni-ai/sogni-creative-agent-skill.svg" /></a>
+  <a href="https://www.npmjs.com/package/@sogni-ai/sogni-creative-agent-skill"><img alt="downloads" src="https://img.shields.io/npm/dm/@sogni-ai/sogni-creative-agent-skill.svg" /></a>
+  <img alt="node" src="https://img.shields.io/node/v/@sogni-ai/sogni-creative-agent-skill.svg" />
+  <a href="./LICENSE"><img alt="license" src="https://img.shields.io/npm/l/@sogni-ai/sogni-creative-agent-skill.svg" /></a>
+</p>
 
-For install requests, use the CLI plus skill setup by default.
+---
 
-With Sogni Creative Agent Skill, an agent can:
-- generate images from prompts
-- edit and restyle existing images
-- create videos from text, images, audio, or reference video
-- generate instrumental music or songs with lyrics
+**Sogni Creative Agent Skill** plugs into the agent runtime you already use — Claude Code, [OpenClaw](https://github.com/OpenClaw/OpenClaw), [Hermes Agent](https://hermes-agent.nousresearch.com/), [Manus AI](https://manus.im), and others — and gives it production-quality image, video, and music generation through a single CLI: `sogni-agent`.
+
+It ships three ways:
+
+- a standalone Node.js CLI (`sogni-agent`)
+- a skill source that any [`SKILL.md`](./SKILL.md)-aware agent can load
+- a published [OpenClaw](https://github.com/OpenClaw/OpenClaw) plugin
+
+With this skill, an agent can:
+
+- generate images from prompts and edit/restyle existing images
+- create videos from text, images, audio, or reference video (LTX-2.3, WAN 2.2, Seedance 2.0)
+- generate instrumental music or full songs with lyrics
+- run hosted creative workflows including storyboard-driven video
 - save personas, preferences, and last-render state across sessions
 - check balances, list models, and refine previous results
 
+> **Fastest install:** paste this repo's GitHub URL into your agent and ask it to "install this skill".
+
+---
+
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Requirements](#requirements)
+- [Installation](#installation)
+  - [Node CLI (default)](#node-cli-default)
+  - [OpenClaw plugin](#openclaw-plugin)
+  - [Hermes Agent / Manus / other frameworks](#hermes-agent--manus--other-frameworks)
+  - [Manual install from source](#manual-install-from-source)
+  - [Upgrading safely from inside an agent](#upgrading-safely-from-inside-an-agent)
+- [Setup (Sogni API key)](#setup-sogni-api-key)
+- [Usage](#usage)
+- [CLI Reference](#cli-reference)
+  - [Common options](#common-options)
+  - [Quality presets](#quality-presets)
+  - [Recommended models](#recommended-models)
+- [Video Sizing & Aspect Ratios](#video-sizing--aspect-ratios)
+- [LTX-2.3 Prompting Guide](#ltx-23-prompting-guide)
+- [Photobooth (Face Transfer)](#photobooth-face-transfer)
+- [Personas, Memory, and Personality](#personas-memory-and-personality)
+- [Hosted API Modes](#hosted-api-modes)
+- [Dynamic Prompt Variations](#dynamic-prompt-variations)
+- [Token Auto-Fallback](#token-auto-fallback)
+- [Error Reporting & Output](#error-reporting--output)
+- [For AI Agents](#for-ai-agents)
+- [Development](#development)
+- [License](#license)
+
+---
+
 ## Quick Start
 
-**The fastest way to install this skill it to just paste the github URL to your agent and say "install this skill".**
+1. Get a Sogni API key from [dashboard.sogni.ai](https://dashboard.sogni.ai) (click your username) and save it — see [Setup](#setup-sogni-api-key).
+2. Install the CLI:
 
-1. Create a Sogni API key once. See [Setup](#setup).
-2. Install the command-line tool:
+   ```bash
+   npm install -g @sogni-ai/sogni-creative-agent-skill@latest
+   sogni-agent --version
+   ```
 
-```bash
-npm install -g @sogni-ai/sogni-creative-agent-skill@latest
-sogni-agent --version
-```
+3. Point your agent runtime at this repository's [`SKILL.md`](./SKILL.md).
 
-3. Point your agent/runtime at this repository's [`SKILL.md`](./SKILL.md).
+Then ask your agent to do something:
 
-Then ask your agent to do something simple, for example:
 - "Generate an image of a sunset over mountains"
 - "Edit this image to add a rainbow"
 - "Make a video of a cat playing piano"
@@ -48,22 +87,85 @@ Then ask your agent to do something simple, for example:
 - "Turn my selfie into James Bond using photobooth"
 - "Refine the last image at higher quality"
 
+---
+
+## Requirements
+
+- **Node.js ≥ 22.11.0**
+- **Sogni API key** ([dashboard.sogni.ai](https://dashboard.sogni.ai))
+- **`ffmpeg`** *(optional)* — required for local utilities such as `--angles-360-video`, `--concat-videos`, and `--extract-last-frame`. Set `FFMPEG_PATH` to override discovery.
+- macOS, Linux, or Windows
+
+---
+
 ## Installation
 
-Default install behavior: when someone asks to install Sogni Creative Agent Skill, install the command-line tool and skill source.
+### Node CLI (default)
+
+For most agents and human users:
 
 ```bash
 npm install -g @sogni-ai/sogni-creative-agent-skill@latest
 sogni-agent --version
 ```
 
-Then point the agent/runtime at this repository's [`SKILL.md`](./SKILL.md).
+Then point your agent/runtime at this repository's [`SKILL.md`](./SKILL.md). When an install request is ambiguous, install the CLI and skill source together — that's the supported default.
 
-### Agent-Safe Upgrade
+### OpenClaw plugin
 
-When upgrading from inside an agent runtime, prefer direct package-manager or existing-checkout commands. Avoid asking the agent to build a clone-or-pull shell bootstrap script with `set -e`, `bash -c`, `sh -c`, or an inline repository URL; some sandboxes correctly route those through approval.
+For the published plugin:
 
-For the CLI:
+```bash
+openclaw plugins install sogni-creative-agent-skill
+```
+
+The installed plugin loads its behavior from [`SKILL.md`](./SKILL.md) via [`openclaw.plugin.json`](./openclaw.plugin.json).
+
+For a local checkout that you want to update continuously, link the minimal OpenClaw surface (`.openclaw-link/`) — not the repository root, which contains development tests that OpenClaw correctly blocks during plugin safety scanning:
+
+```bash
+cd /path/to/sogni-creative-agent-skill
+npm install
+npm link
+npm run openclaw:sync
+openclaw plugins install -l "$PWD/.openclaw-link"
+openclaw gateway restart
+```
+
+To update the linked install later:
+
+```bash
+cd /path/to/sogni-creative-agent-skill
+git pull --ff-only
+npm install
+npm link
+npm run openclaw:sync
+openclaw gateway restart
+```
+
+The generated `.openclaw-link/` directory is only for OpenClaw; Hermes, Manus, and other skill-based agents should continue using the root [`SKILL.md`](./SKILL.md).
+
+#### OpenClaw configuration
+
+When loaded through OpenClaw, this skill reads plugin defaults from OpenClaw config; CLI flags always override them. The supported config schema is defined in [`openclaw.plugin.json`](./openclaw.plugin.json) and includes default models, video workflow models, hosted API defaults (`apiBaseUrl`, `defaultLlmModel`, `defaultApiToolMode`), token type, seed strategy, timeouts, and media paths. If your OpenClaw config lives elsewhere, set `OPENCLAW_CONFIG_PATH`.
+
+### Hermes Agent / Manus / other frameworks
+
+Point the agent at this repository's [`SKILL.md`](./SKILL.md) for behavior guidance and [`llm.txt`](https://raw.githubusercontent.com/Sogni-AI/sogni-creative-agent-skill/main/llm.txt) for install/setup help. The agent should invoke the globally installed `sogni-agent` CLI by default.
+
+### Manual install from source
+
+```bash
+gh repo clone Sogni-AI/sogni-creative-agent-skill
+cd sogni-creative-agent-skill
+npm install
+```
+
+### Upgrading safely from inside an agent
+
+When upgrading from inside an agent runtime, prefer direct package-manager or existing-checkout commands. Avoid asking the agent to build a clone-or-pull shell bootstrap script with `set -e`, `bash -c`, `sh -c`, or an inline repository URL — some sandboxes correctly route those through approval and the install will stall.
+
+For a global CLI:
 
 ```bash
 npm install -g @sogni-ai/sogni-creative-agent-skill@latest
@@ -80,92 +182,36 @@ npm --prefix "$DEST" install
 
 If the checkout is missing, use the npm install path above or explicitly approve a clone.
 
-### OpenClaw Plugin
+---
 
-For the published plugin:
+## Setup (Sogni API key)
 
-```bash
-openclaw plugins install sogni-creative-agent-skill
-```
+1. Get your API key from [dashboard.sogni.ai](https://dashboard.sogni.ai) (click your username).
+2. Save it to a credentials file:
 
-The installed plugin loads its behavior from [`SKILL.md`](./SKILL.md) via [`openclaw.plugin.json`](./openclaw.plugin.json).
+   ```bash
+   mkdir -p ~/.config/sogni
+   cat > ~/.config/sogni/credentials << 'EOF'
+   SOGNI_API_KEY=your_api_key
+   EOF
+   chmod 600 ~/.config/sogni/credentials
+   ```
 
-For a local checkout that you want to update continuously, link the minimal OpenClaw surface instead of the repository root:
+You can also skip the file and export `SOGNI_API_KEY` in your environment.
 
-```bash
-cd /path/to/sogni-creative-agent-skill
-npm install
-npm link
-npm run openclaw:sync
-openclaw plugins install -l "$PWD/.openclaw-link"
-openclaw gateway restart
-```
+### Filesystem path overrides
 
-To update that linked install later:
+Defaults live under `~/.config/sogni/` for credentials, last-render metadata, personas, memories, and personality. Override individual paths with:
 
-```bash
-cd /path/to/sogni-creative-agent-skill
-git pull --ff-only
-npm install
-npm link
-npm run openclaw:sync
-openclaw gateway restart
-```
+| Variable | Purpose |
+|----------|---------|
+| `SOGNI_CREDENTIALS_PATH` | Custom credentials file |
+| `SOGNI_LAST_RENDER_PATH` | Where last-render state is persisted |
+| `SOGNI_MEDIA_INBOUND_DIR` | Directory used by `--list-media` |
+| `OPENCLAW_CONFIG_PATH` | OpenClaw config file location |
+| `FFMPEG_PATH` | Custom `ffmpeg` binary |
 
-Do not run `openclaw plugins install -l "$PWD"` from the repository root. The root contains development tests that use `child_process`, and OpenClaw correctly blocks those during plugin safety scanning. The generated `.openclaw-link/` directory is only for OpenClaw; Hermes, Manus, and other skill-based agents should continue using the root [`SKILL.md`](./SKILL.md).
-
-### Hermes Agent / Manus / Other Frameworks
-
-Point the agent to this repository's [`SKILL.md`](./SKILL.md) for behavior guidance and [`llm.txt`](https://raw.githubusercontent.com/Sogni-AI/sogni-creative-agent-skill/main/llm.txt) for install/setup help. By default, the agent should invoke the globally installed `sogni-agent` CLI.
-
-### Manual Installation
-
-```bash
-gh repo clone Sogni-AI/sogni-creative-agent-skill
-cd sogni-creative-agent-skill
-npm install
-```
-
-### Maintainer Runtime Sync
-
-This public skill keeps CLI/runtime glue here, but Sogni model routing, video workflow defaults, quality tiers, and prompt guardrails are generated from the private `sogni-creative-agent` repo. With both repos checked out as siblings, refresh the generated runtime before publishing:
-
-```bash
-npm run sync:creative-agent-runtime
-```
-
-`npm test` runs `npm run check:creative-agent-runtime` first, which regenerates this file and fails if it differs from the committed copy.
-
-The generated file is committed at [`generated/creative-agent-runtime.mjs`](./generated/creative-agent-runtime.mjs) so public installs do not need access to the private repo.
-
-Reusable workflow rules should be added to `../sogni-creative-agent` first, then synced here. Keep storyboard planning, tool argument validation, prompt linting, and typed repair/control semantics aligned with `sogni-chat`, `sogni-client`, and `sogni-api` hosted chat/workflow endpoints rather than recreating skill-only regex guards.
-
-Prefer generated or copied shared helpers for hosted workflow compilation, schema argument validation, repair-control decisions, and guard telemetry summaries over skill-local guard code. This keeps public-agent behavior close to `/v1/chat/completions` and `/v1/creative-agent/workflows`.
-
-### Advanced OpenClaw Config
-
-When loaded through OpenClaw, Sogni Creative Agent Skill reads plugin defaults from OpenClaw config. CLI flags always override those defaults.
-
-The supported config shape is defined in [`openclaw.plugin.json`](./openclaw.plugin.json). Common overrides include default models, video workflow models, hosted API defaults (`apiBaseUrl`, `defaultLlmModel`, `defaultApiToolMode`), token type, seed strategy, timeouts, and media paths. If your OpenClaw config lives elsewhere, set `OPENCLAW_CONFIG_PATH`.
-
-## Setup
-
-1. Get your Sogni API key by logging into https://dashboard.sogni.ai and clicking your username.
-2. Create an API key credentials file:
-
-```bash
-mkdir -p ~/.config/sogni
-cat > ~/.config/sogni/credentials << 'EOF'
-SOGNI_API_KEY=your_api_key
-EOF
-chmod 600 ~/.config/sogni/credentials
-```
-
-You can also skip the file and set `SOGNI_API_KEY` in your environment. The API key can always be found by logging into https://dashboard.sogni.ai and clicking your username.
-
-### Filesystem Paths and Overrides
-
-Defaults live under `~/.config/sogni/` for credentials, last-render metadata, personas, memories, and personality. Advanced path overrides are available through `SOGNI_CREDENTIALS_PATH`, `SOGNI_LAST_RENDER_PATH`, `SOGNI_MEDIA_INBOUND_DIR`, and `OPENCLAW_CONFIG_PATH`.
+---
 
 ## Usage
 
@@ -179,14 +225,14 @@ sogni-agent -c subject.jpg "add a neon cyberpunk glow"
 # Photobooth face transfer
 sogni-agent --photobooth --ref face.jpg "80s fashion portrait"
 
-# Text-to-video (t2v)
-sogni-agent --video "A narrator says \"welcome to the story\" as ocean waves crash"
+# Text-to-video (t2v) with native dialogue
+sogni-agent --video 'A narrator says "welcome to the story" as ocean waves crash'
 
-# Short-side targeting preserves the current shape without forcing landscape
+# Short-side resolution targeting (preserves the inherited aspect ratio)
 sogni-agent --video --target-resolution 768 \
   "A calm cinematic shot of lanterns drifting across a night lake"
 
-# Seedance 2.0 model selector (4-15s vendor video path)
+# Seedance 2.0 (4-15s vendor video path with native audio)
 sogni-agent --video -m seedance2 --duration 8 \
   "A polished product reveal with native ambient sound"
 
@@ -200,11 +246,11 @@ sogni-agent --video -m seedance2 --workflow t2v \
 # Image-to-video (i2v)
 sogni-agent --video --ref cat.jpg "gentle camera pan"
 
-# Image+audio-to-video (auto-routes to LTX 2.3 ia2v)
+# Image+audio-to-video (auto-routes to LTX-2.3 ia2v)
 sogni-agent --video --ref cover.jpg --ref-audio song.mp3 \
   "music video with synchronized motion"
 
-# Direct music/audio generation
+# Direct music generation
 sogni-agent --music --duration 30 \
   "uplifting cinematic synthwave theme for a product launch"
 
@@ -212,14 +258,11 @@ sogni-agent --music --duration 30 \
 sogni-agent --music --lyrics "Rise with the morning light" --bpm 128 \
   --keyscale "C major" --output-format mp3 "bright indie pop chorus"
 
-# Persona or voice identity with LTX native audio
+# LTX-2.3 voice identity / persona
 sogni-agent --video --reference-audio-identity voice.webm \
-  "NARRATOR: \"This is my voice.\""
+  'NARRATOR: "This is my voice."'
 
-# Prefer .webm, .m4a, or .mp3 voice clips. Local .wav clips are normalized
-# to .m4a before upload when ffmpeg is available.
-
-# Hosted API chat with rich creative-agent tools (/v1/chat/completions)
+# Hosted chat with rich creative-agent tools (/v1/chat/completions)
 sogni-agent --api-chat \
   "Create a 4-shot product video concept for a red sneaker"
 
@@ -228,11 +271,11 @@ sogni-agent --api-workflow image-to-video \
   --video-prompt "The camera slowly pushes in as the sketch comes alive" \
   "A graphite robot sketch on a drafting table"
 
-# Storyline -> GPT Image 2 storyboard sheet -> Seedance video hosted sequence
+# Storyline -> GPT Image 2 storyboard sheet -> Seedance video sequence
 sogni-agent --api-workflow storyboard-video --storyboard-frames 6 --duration 12 -Q hq \
   "Create a 9:16 bakery launch video with a neon street-window reveal"
 
-# Segment a source video, then stitch clips locally with an external soundtrack
+# Local segment + concat with external soundtrack
 sogni-agent --video --workflow v2v --ref-video dance.mp4 \
   --video-start 10 --duration 8 --controlnet-name pose -o /tmp/clip-2.mp4 \
   "robot dancing"
@@ -244,47 +287,118 @@ sogni-agent --balance
 sogni-agent --help
 ```
 
-For local multi-clip workflows, prefer the built-in FFmpeg wrappers over raw shell commands. `--video-start`, `--audio-start`, and `--audio-duration` let you generate focused segments, while `--concat-videos` can stitch them and optionally mux a single soundtrack with `--concat-audio`.
+> Prefer `.webm`, `.m4a`, or `.mp3` voice clips. Local `.wav` clips are normalized to `.m4a` before upload when `ffmpeg` is available.
+>
+> For local multi-clip workflows, use the built-in FFmpeg wrappers (`--video-start`, `--audio-start`, `--audio-duration`, `--concat-videos`, `--concat-audio`) over raw shell commands — they produce safer, more reproducible results.
 
-Hosted API modes require `SOGNI_API_KEY`. `--api-chat` targets
-`/v1/chat/completions` with rich creative-agent tools and is best for text-first
-natural-language workflows. Use `--api-tools creative-agent|rich|hosted|none`,
-`--no-api-tool-execution`, `--llm-model`, and `--system` to control the chat
-request. `--api-workflow` targets `/v1/creative-agent/workflows` for durable
-async workflow records, event streaming, cancellation, and explicit hosted tool
-sequences. Use `--api-workflow storyboard-video` to generate a storyline, create
-a single GPT Image 2 storyboard sheet, then pass that artifact into Seedance as
-the video reference. The `-Q fast|hq|pro` preset maps to GPT Image 2
-low|medium|high quality for that storyboard sheet. Use `--workflow-input` for
-exact hosted workflow JSON, and
-`--watch-workflow`, `--workflow-events`, `--stream-workflow`, and
-`--cancel-workflow` to manage durable runs. Uploaded local media still uses the
-direct CLI path because hosted API modes do not accept CLI `--ref*` media flags
-for server-side tool execution. Override the API origin with `--api-base-url`,
-`SOGNI_API_BASE_URL`, or `SOGNI_REST_ENDPOINT`.
+---
 
-V2V defaults mirror the Sogni Chat workflow tuning: `canny`, `pose`, and `depth` use ControlNet strength `0.85` with detailer assist, while `detailer` uses strength `1.0`. Use `-m seedance2-v2v` for Seedance V2V without ControlNet. Seedance accepts public HTTPS image, video, and audio references that pass the CLI URL safety checks; localhost and private-network URLs are rejected before forwarding. Audio references must be paired with an image or video reference.
+## CLI Reference
+
+Run `sogni-agent --help` for the full CLI. Below are the options and tables most agents and users reach for first.
+
+### Common options
+
+| Option | Use |
+|--------|-----|
+| `-Q fast\|hq\|pro` | Pick image quality without memorizing model IDs |
+| `-o <path>` | Save output locally |
+| `-c <path>` | Provide image context for edits |
+| `--video` | Generate video instead of image |
+| `--music` | Generate music/audio instead of image |
+| `--lyrics`, `--bpm`, `--keyscale`, `--timesig` | Music generation controls |
+| `--ref`, `--ref-audio`, `--ref-video` | Image/audio/video references; HTTPS refs are forwarded as URL context for Seedance |
+| `--target-resolution <px>` | Target the short side, preserving aspect ratio |
+| `--workflow <type>` | Force `t2v`, `i2v`, `s2v`, `ia2v`, `a2v`, `v2v`, or animate workflows |
+| `--api-chat` | Use `/v1/chat/completions` with Sogni creative-agent tools |
+| `--api-workflow <kind>` | Start a `/v1/creative-agent/workflows` durable workflow: `image-to-video`, `hosted-tool-sequence`, or `storyboard-video` |
+| `--workflow-input <json\|path\|@path>` | Explicit hosted workflow input JSON |
+| `--storyboard-frames <n>` | Beat count for `--api-workflow storyboard-video` |
+| `--video-prompt`, `--negative-prompt`, `--generate-audio`, `--expand-prompt` | Durable image-to-video workflow inputs |
+| `--watch-workflow`, `--list-workflows`, `--get-workflow <id>`, `--workflow-events <id>`, `--stream-workflow <id>`, `--cancel-workflow <id>` | Manage durable workflows |
+| `--api-tools <mode>`, `--no-api-tool-execution`, `--llm-model <id>`, `--api-base-url <url>` | Tune hosted API requests |
+| `--persona <name>` | Use a saved persona |
+| `--concat-videos <out> <clips...>` | Stitch clips locally with FFmpeg |
+| `--last`, `--last-image` | Inspect last render / reuse last image as context or video reference |
+| `--strict-size` | Fail instead of auto-adjusting video size |
+| `--json` | Emit structured output for agents |
+
+### Quality presets
+
+Skip remembering model IDs — `--quality` / `-Q` selects the right model, steps, and dimensions for image generation:
+
+| Preset | Model | Steps | Size | Speed |
+|--------|-------|-------|------|-------|
+| `fast` | `z_image_turbo_bf16` | 8 | 512×512 | ~5–10s |
+| `hq` | `z_image_turbo_bf16` | default | 768×768 | ~10–15s |
+| `pro` | `flux2_dev_fp8` | 40 | 1024×1024 | ~2 min |
+
+Explicit `--model` overrides the preset's model. Explicit `-w`/`-h` overrides dimensions.
+
+### Recommended models
+
+Prefer `-Q fast|hq|pro` for images and automatic workflow routing for video. Pass `-m` only when you need a specific model family.
+
+| Need | Recommended selector |
+|------|----------------------|
+| Default images | `z_image_turbo_bf16` |
+| OpenAI GPT Image generation, editing, or strong text rendering | `gpt-image-2` |
+| Highest-quality images | `flux2_dev_fp8` (or `-Q pro`) |
+| Image editing | `qwen_image_edit_2511_fp8_lightning` |
+| Photobooth face transfer | `coreml-sogniXLturbo_alpha1_ad` |
+| Direct music generation | `ace_step_1.5_turbo` (or `--music-model turbo`) |
+| Music with stronger lyric handling | `ace_step_1.5_sft` (or `--music-model sft`) |
+| Text-to-video with native dialogue/audio | `ltx23-22b-fp8_t2v_distilled` |
+| Image+audio-to-video | `ltx23-22b-fp8_ia2v_distilled` |
+| Audio-to-video | `ltx23-22b-fp8_a2v_distilled` |
+| Video-to-video with ControlNet | `ltx23-22b-fp8_v2v_distilled` |
+| Seedance text-to-video | `seedance2` or `seedance2-fast` |
+| Seedance video-to-video without ControlNet | `seedance2-v2v` |
+| Face lip-sync with uploaded audio | `wan_v2.2-14b-fp8_s2v_lightx2v` |
+
+`gpt-image-2` supports flexible OpenAI image sizes up to 3840 px on either edge, max 3:1 aspect ratio, and total pixels from 655,360 to 8,294,400; the API snaps dimensions to valid multiples of 16. For image editing with `gpt-image-2`, you can pass up to 16 context images.
+
+Music generation uses `--music` and outputs `mp3` by default. `--audio` remains the video-reference alias for `--ref-audio`; use `--music` or `--generate-music` for direct audio-only generation.
+
+---
+
+## Video Sizing & Aspect Ratios
+
+- **WAN models** use dimensions divisible by 16, min 480 px, max 1536 px.
+- **LTX family** (`ltx2-*`, `ltx23-*`) uses dimensions divisible by 64. The current wrapper caps non-WAN video dimensions at 2048 px on the long side.
+- **Seedance** runs at fixed 24 fps and supports 4–15 s durations. Other default/WAN paths support up to 10 s; LTX and WAN animate workflows support up to 20 s.
+- The script auto-normalizes video sizes to satisfy these constraints.
+- Use `--target-resolution <px>` for bare resolution requests like "720p" — it targets the short side and preserves the inherited aspect ratio.
+- Natural-language aspect requests like "portrait", "square", "16:9", or "9:16" are inferred when width/height aren't explicitly set. Combined requests like "720p 9:16" keep the requested short side while applying the requested shape.
+- For i2v (and any workflow using `--ref` / `--ref-end`), the client wrapper resizes the reference image with strict aspect-fit (`fit: inside`) and uses the *resized* dimensions as the final video size. Because that resize uses rounding, a "valid" requested size can still produce an invalid final size (example: `1024×1536` requested, but ref becomes `1024×1535`). `sogni-agent` detects this for local refs and auto-adjusts to a nearby safe size.
+- Pass `--strict-size` to fail instead — the script will print a suggested size.
+
+V2V defaults mirror Sogni Chat workflow tuning: `canny`, `pose`, and `depth` use ControlNet strength `0.85` with detailer assist; `detailer` uses strength `1.0`. Use `-m seedance2-v2v` for Seedance V2V without ControlNet. Seedance accepts public HTTPS image, video, and audio references that pass CLI URL safety checks; localhost and private-network URLs are rejected before forwarding. Audio references must be paired with an image or video reference.
+
+---
 
 ## LTX-2.3 Prompting Guide
 
-When you use `ltx23-22b-fp8_t2v_distilled`, do not feed it short tag prompts like `"cinematic drone shot over tropical cliffs"`. LTX-2.3 renders more reliably from a dense natural-language scene description.
+When you use `ltx23-22b-fp8_t2v_distilled`, do **not** feed it short tag prompts like `"cinematic drone shot over tropical cliffs"`. LTX-2.3 renders more reliably from a dense natural-language scene description.
 
-- Write one unbroken paragraph with no line breaks, bullets, headers, or tag blocks.
-- Use 4-8 flowing present-tense sentences describing one continuous shot, not a montage.
+- Write one unbroken paragraph — no line breaks, bullets, headers, or tag blocks.
+- Use 4–8 flowing present-tense sentences describing one continuous shot, not a montage.
 - Start with shot scale and scene identity, then cover environment, time of day, textures, and named light sources.
-- Keep characters and objects concrete and stable. Describe one main action thread from start to finish.
-- If the user wants dialogue, include the exact spoken words in double quotes with the speaker and delivery identified inline.
-- Express mood through visible behavior, motion, and sound cues instead of vague adjectives.
-- Use positive phrasing. Avoid script formatting, negative prompts, on-screen text/logo requests, and generic filler words like "beautiful" or "nice".
-- Match scene density to clip length. For the default short clips, describe one main beat rather than several unrelated actions.
+- Keep characters and objects concrete and stable; describe one main action thread from start to finish.
+- For dialogue, include the exact spoken words in double quotes with the speaker and delivery identified inline.
+- Express mood through visible behavior, motion, and sound cues — not vague adjectives.
+- Use positive phrasing. Avoid script formatting, negative prompts, on-screen text/logo requests, and filler words like "beautiful" or "nice".
+- Match scene density to clip length. For short clips, describe one main beat, not several actions.
 
-Example rewrite:
+**Example rewrite:**
 
 ```text
 User ask: "make a 4k video of a woman in a neon alley"
 
 LTX-2.3 prompt: "A medium cinematic shot frames a woman in her 30s standing in a rain-soaked neon alley at night, violet and amber signs reflecting across the wet pavement while warm steam drifts from street vents. She wears a dark trench coat with damp strands of black hair clinging near her cheek as light glances across the fabric texture and the brick walls behind her. She turns toward the camera and steps forward with measured focus, one hand tightening around the strap of her bag while rain taps softly on the metal fire escape and a distant train hum rolls through the block. The camera performs a slow push-in as her jaw sets and her breathing steadies, maintaining smooth stabilized motion and a tense urban-thriller mood."
 ```
+
+---
 
 ## Photobooth (Face Transfer)
 
@@ -295,90 +409,15 @@ sogni-agent --photobooth --ref face.jpg "80s fashion portrait"
 sogni-agent --photobooth --ref face.jpg -n 4 "LinkedIn professional headshot"
 ```
 
-Uses SDXL Turbo (`coreml-sogniXLturbo_alpha1_ad`) at 1024x1024 by default. The face image is passed via `--ref` and styled according to the prompt. Cannot be combined with `--video` or `-c/--context`.
+Uses SDXL Turbo (`coreml-sogniXLturbo_alpha1_ad`) at 1024×1024 by default. The face image is passed via `--ref` and styled by the prompt. Cannot be combined with `--video` or `-c` / `--context`.
 
-Multi-angle mode auto-builds the `<sks>` prompt and applies the `multiple_angles` LoRA.
-`--angles-360-video` generates i2v clips between consecutive angles (including last→first) and concatenates them with ffmpeg for a seamless loop.
-`--balance` / `--balances` does not require a prompt and exits after printing current `SPARK` and `SOGNI` balances.
+Multi-angle mode (`--multi-angle` / `--angles-360`) auto-builds the `<sks>` prompt and applies the `multiple_angles` LoRA. `--angles-360-video` generates i2v clips between consecutive angles (including last → first) and concatenates them with `ffmpeg` into a seamless loop.
 
-## Video Sizing Rules (Aspect Ratios)
+`--balance` / `--balances` does not require a prompt and prints current `SPARK` and `SOGNI` balances before exiting.
 
-- WAN models use dimensions divisible by 16, min 480px, max 1536px.
-- LTX family models (`ltx2-*`, `ltx23-*`) use dimensions divisible by 64. The current wrapper caps non-WAN video dimensions at 2048px on the long side.
-- Seedance runs at fixed 24fps and supports 4-15s durations. Other default/WAN video paths support up to 10s; LTX and WAN animate workflows support up to 20s.
-- The script auto-normalizes video sizes to satisfy those constraints.
-- Use `--target-resolution <px>` for bare resolution requests such as "720p" when the user did not specify exact pixels. It targets the short side and preserves the inherited aspect ratio.
-- Natural-language aspect requests such as "portrait", "square", "16:9", or "9:16" are inferred when width and height are not explicitly set. Combined requests such as "720p 9:16" keep the requested short side while applying the requested shape.
-- For i2v (and any workflow using `--ref` / `--ref-end`), the client wrapper resizes the reference image with a strict aspect-fit (`fit: inside`) and then uses the *resized reference dimensions* as the final video size. Because that resize uses rounding, a “valid” requested size can still produce an invalid final size (example: `1024x1536` requested, but ref becomes `1024x1535`).
-- `sogni-agent` detects this for local refs and will auto-adjust the requested size to a nearby safe size so the resized reference matches the model divisor.
-- If you want the script to fail instead of auto-adjusting, pass `--strict-size` and it will print a suggested size.
+---
 
-## Error Reporting
-
-Failures use a non-zero exit code and human-readable stderr. Add `--json` when an agent needs structured success/error output.
-
-## Options
-
-Run `sogni-agent --help` for the complete CLI. These are the options most agents should reach for first:
-
-| Option | Use |
-|--------|-----|
-| `-Q fast|hq|pro` | Pick image quality without memorizing model IDs |
-| `-o <path>` | Save output locally |
-| `-c <path>` | Provide image context for edits |
-| `--video` | Generate video instead of image |
-| `--music` | Generate music/audio instead of image |
-| `--lyrics`, `--bpm`, `--keyscale`, `--timesig` | Optional music generation controls |
-| `--ref`, `--ref-audio`, `--ref-video` | Provide image/audio/video references; Seedance HTTPS references are forwarded as URL context |
-| `--target-resolution <px>` | Target the short side while preserving aspect ratio |
-| `--workflow <type>` | Force `t2v`, `i2v`, `s2v`, `ia2v`, `a2v`, `v2v`, or animate workflows |
-| `--api-chat` | Use `/v1/chat/completions` with Sogni creative-agent tools |
-| `--api-workflow <kind>` | Start `/v1/creative-agent/workflows` durable workflow: `image-to-video`, `hosted-tool-sequence`, or `storyboard-video` |
-| `--workflow-input <json\|path\|@path>` | Explicit hosted workflow input JSON |
-| `--storyboard-frames <n>` | Beat count for `--api-workflow storyboard-video` |
-| `--video-prompt`, `--negative-prompt`, `--generate-audio`, `--expand-prompt` | Durable image-to-video workflow inputs |
-| `--watch-workflow`, `--list-workflows`, `--get-workflow <id>`, `--workflow-events <id>`, `--stream-workflow <id>`, `--cancel-workflow <id>` | Manage durable workflows |
-| `--api-tools <mode>`, `--no-api-tool-execution`, `--llm-model <id>`, `--api-base-url <url>` | Tune hosted API chat/workflow requests |
-| `--persona <name>` | Use a saved persona reference |
-| `--concat-videos <out> <clips...>` | Stitch clips locally with FFmpeg |
-| `--json` | Return structured output for agents |
-
-### Quality Presets
-
-Instead of remembering model IDs, use `--quality` / `-Q` to auto-select the right model, steps, and dimensions:
-
-| Preset | Model | Steps | Size | Speed |
-|--------|-------|-------|------|-------|
-| `fast` | z_image_turbo_bf16 | 8 | 512x512 | ~5-10s |
-| `hq` | z_image_turbo_bf16 | default | 768x768 | ~10-15s |
-| `pro` | flux2_dev_fp8 | 40 | 1024x1024 | ~2min |
-
-Explicit `--model` overrides the quality preset's model. Explicit `-w`/`-h` overrides dimensions.
-
-### Dynamic Prompt Variations
-
-Generate diverse images in a single call using `{option1|option2|option3}` syntax:
-
-```bash
-# Generates 3 images: "a red car", "a blue car", "a green car"
-sogni-agent -n 3 "a {red|blue|green} car"
-
-# Multiple variation groups cycle independently
-sogni-agent -n 4 "a {cat|dog} in a {garden|kitchen}"
-# → "a cat in a garden", "a dog in a kitchen", "a cat in a garden", "a dog in a kitchen"
-```
-
-Options cycle sequentially per image. Without `{...}` syntax, `-n` generates multiple images with the same prompt as before.
-
-### Token Auto-Fallback
-
-Use `--token-type auto` to automatically retry with SOGNI tokens if SPARK balance is insufficient:
-
-```bash
-sogni-agent --token-type auto "a dragon eating tacos"
-```
-
-This tries SPARK first (free daily tokens), then falls back to SOGNI if the balance is too low.
+## Personas, Memory, and Personality
 
 ### Personas
 
@@ -391,20 +430,20 @@ sogni-agent --persona-add "Mark" --ref face.jpg --relationship self --descriptio
 # Add with voice clip for video voice cloning
 sogni-agent --persona-add "Sarah" --ref sarah.jpg --relationship partner --voice-clip voice.webm
 
-# Generate an image using a persona (auto-injects photo as context)
+# Generate using a persona (auto-injects photo as context)
 sogni-agent --persona "Mark" -o hero.png "superhero in dramatic lighting"
 
-# Generate video using a persona photo plus saved voice identity
-sogni-agent --video --persona "Sarah" "SARAH: \"This is my voice.\""
+# Video using a persona photo + saved voice identity
+sogni-agent --video --persona "Sarah" 'SARAH: "This is my voice."'
 
 # List / remove
 sogni-agent --persona-list
 sogni-agent --persona-remove "Mark"
 ```
 
-Personas are stored at `~/.config/sogni/personas/`. Pronouns like "me"/"myself" auto-resolve to the `self` persona. "my wife" resolves to `partner`, etc.
+Stored at `~/.config/sogni/personas/`. Pronouns like "me" / "myself" auto-resolve to the `self` persona; "my wife" resolves to `partner`, etc.
 
-### Memory (Persistent Preferences)
+### Memory (persistent preferences)
 
 Save preferences that agents respect across sessions:
 
@@ -417,9 +456,9 @@ sogni-agent --memory-remove preferred_style
 
 Stored at `~/.config/sogni/memories.json`.
 
-### Personality (Custom Agent Instructions)
+### Personality (custom agent instructions)
 
-Set how the agent should behave:
+Tell the agent how it should behave:
 
 ```bash
 sogni-agent --personality-set "Be concise, always use cinematic lighting"
@@ -429,33 +468,105 @@ sogni-agent --personality-clear
 
 Stored at `~/.config/sogni/personality.txt`.
 
-## Models
+---
 
-Prefer `-Q fast|hq|pro` for images and automatic workflow routing for video. Only pass `-m` when you need a specific model family.
+## Hosted API Modes
 
-| Need | Recommended model selector |
-|------|----------------------------|
-| Default images | `z_image_turbo_bf16` |
-| OpenAI GPT Image generation, editing, or strong text rendering | `gpt-image-2` |
-| Highest quality images | `flux2_dev_fp8` or `-Q pro` |
-| Image editing | `qwen_image_edit_2511_fp8_lightning` |
-| Photobooth face transfer | `coreml-sogniXLturbo_alpha1_ad` |
-| Direct music generation | `ace_step_1.5_turbo` or `--music-model turbo` |
-| Music with stronger lyric handling | `ace_step_1.5_sft` or `--music-model sft` |
-| Text-to-video with native dialogue/audio | `ltx23-22b-fp8_t2v_distilled` |
-| Image+audio-to-video | `ltx23-22b-fp8_ia2v_distilled` |
-| Audio-to-video | `ltx23-22b-fp8_a2v_distilled` |
-| Video-to-video with ControlNet | `ltx23-22b-fp8_v2v_distilled` |
-| Seedance text-to-video | `seedance2` or `seedance2-fast` |
-| Seedance video-to-video without ControlNet | `seedance2-v2v` |
-| Face lip-sync with uploaded audio | `wan_v2.2-14b-fp8_s2v_lightx2v` |
+Hosted API modes require `SOGNI_API_KEY`.
 
-`gpt-image-2` supports flexible OpenAI image sizes up to `3840px` on either edge, max `3:1` aspect ratio, and total pixels from `655,360` through `8,294,400`; the API snaps dimensions to valid multiples of 16. For image editing, select `-m gpt-image-2` to use up to 16 context images.
+- **`--api-chat`** targets `/v1/chat/completions` with rich creative-agent tools — best for text-first natural-language workflows. Tune with `--api-tools creative-agent|rich|hosted|none`, `--no-api-tool-execution`, `--llm-model`, and `--system`.
+- **`--api-workflow`** targets `/v1/creative-agent/workflows` for durable, async workflow records with event streaming and cancellation. Supported kinds: `image-to-video`, `hosted-tool-sequence`, and `storyboard-video`.
+- **`--api-workflow storyboard-video`** generates a storyline, creates a single GPT Image 2 storyboard sheet, then passes that artifact into Seedance as the video reference. The `-Q fast|hq|pro` preset maps to GPT Image 2 low/medium/high quality for that storyboard sheet.
+- Manage runs with `--watch-workflow`, `--workflow-events`, `--stream-workflow`, `--list-workflows`, `--get-workflow`, and `--cancel-workflow`. Use `--workflow-input` to provide exact hosted workflow JSON.
 
-Music generation uses `--music` and outputs `mp3` by default. `--audio` remains
-the video-reference alias for `--ref-audio`; use `--music` or `--generate-music`
-for direct audio-only generation.
+Override the API origin with `--api-base-url`, `SOGNI_API_BASE_URL`, or `SOGNI_REST_ENDPOINT`.
+
+> Uploaded local media still uses the direct CLI path because hosted API modes do not accept CLI `--ref*` media flags for server-side tool execution.
+
+---
+
+## Dynamic Prompt Variations
+
+Generate diverse images in a single call with `{option1|option2|option3}` syntax:
+
+```bash
+# 3 images: "a red car", "a blue car", "a green car"
+sogni-agent -n 3 "a {red|blue|green} car"
+
+# Multiple groups cycle independently
+sogni-agent -n 4 "a {cat|dog} in a {garden|kitchen}"
+# -> "a cat in a garden", "a dog in a kitchen", "a cat in a garden", "a dog in a kitchen"
+```
+
+Options cycle sequentially per image. Without `{...}` syntax, `-n` produces multiple images with the same prompt.
+
+---
+
+## Token Auto-Fallback
+
+Use `--token-type auto` to retry with SOGNI tokens when SPARK is insufficient:
+
+```bash
+sogni-agent --token-type auto "a dragon eating tacos"
+```
+
+Tries SPARK first (free daily tokens), then falls back to SOGNI if the balance is too low.
+
+---
+
+## Error Reporting & Output
+
+- **Exit codes:** failures use a non-zero exit code with human-readable stderr.
+- **Structured output:** add `--json` when an agent needs machine-parseable success/error data, or `--last` to inspect the last render.
+- **Output files:** use `-o <path>` to save locally; otherwise the CLI prints a result URL.
+- **Quiet mode:** `-q` / `--quiet` suppresses progress output without changing exit semantics.
+
+---
+
+## For AI Agents
+
+This skill is designed to be loaded into agent runtimes as a first-class capability.
+
+1. **Behavior contract — [`SKILL.md`](./SKILL.md)**
+   The canonical instructions for how the agent should call `sogni-agent`. Load this as the skill source.
+2. **Install/setup hints — [`llm.txt`](./llm.txt)**
+   A condensed install/setup reference for agents that fetch `llm.txt` over HTTPS:
+   `https://raw.githubusercontent.com/Sogni-AI/sogni-creative-agent-skill/main/llm.txt`
+3. **OpenClaw manifest — [`openclaw.plugin.json`](./openclaw.plugin.json)**
+   Plugin metadata, config schema, and defaults for OpenClaw-aware runtimes.
+4. **Structured output — `--json`**
+   Use `--json` for machine-readable success/error payloads. Use `--last` to read the previous render's metadata.
+5. **Agent-safe install/upgrade**
+   Prefer the `npm install -g` and `git -C "$DEST" pull --ff-only` paths above. Avoid generating clone-or-pull bootstrap scripts with `set -e`, `bash -c`, `sh -c`, or inline repository URLs — agent sandboxes correctly route those through approval and the install will stall.
+6. **SSRF / URL safety**
+   The CLI runs an SSRF guard ([`ssrf-guard.mjs`](./ssrf-guard.mjs)) before forwarding any HTTP(S) reference to hosted models. Localhost and private-network URLs are rejected; only public HTTPS references are forwarded as Seedance multimodal context.
+
+---
+
+## Development
+
+The public skill keeps CLI/runtime glue in this repo, but Sogni model routing, video workflow defaults, quality tiers, and prompt guardrails are generated from the private `sogni-creative-agent` repo. The generated runtime is committed at [`generated/creative-agent-runtime.mjs`](./generated/creative-agent-runtime.mjs) so public installs do not need access to the private repo.
+
+Run the test suite:
+
+```bash
+npm test
+```
+
+`npm test` first runs `npm run check:creative-agent-runtime`, which regenerates the runtime file and fails if it differs from the committed copy.
+
+With both repos checked out as siblings, refresh the generated runtime before publishing:
+
+```bash
+npm run sync:creative-agent-runtime
+```
+
+Reusable workflow rules should be added to `../sogni-creative-agent` first, then synced here. Keep storyboard planning, tool argument validation, prompt linting, and typed repair/control semantics aligned with `sogni-chat`, `sogni-client`, and `sogni-api` hosted chat/workflow endpoints rather than recreating skill-only regex guards. Prefer generated or copied shared helpers for hosted workflow compilation, schema argument validation, repair-control decisions, and guard telemetry summaries over skill-local guard code — this keeps public-agent behavior close to `/v1/chat/completions` and `/v1/creative-agent/workflows`.
+
+Issues and feature requests: [github.com/Sogni-AI/sogni-creative-agent-skill/issues](https://github.com/Sogni-AI/sogni-creative-agent-skill/issues).
+
+---
 
 ## License
 
-MIT
+[MIT](./LICENSE) © Sogni AI
