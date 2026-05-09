@@ -804,16 +804,22 @@ export function inferExplicitAspectRatioFromText(text) {
 export function inferRequestedTotalVideoDurationSeconds(text) {
     const durations = [];
     for (const match of text.matchAll(/\b(\d{1,3}(?:\.\d+)?)\s*(?:minutes?|mins?)\b/gi)) {
+        if (match.index !== undefined && text[match.index - 1] === '%')
+            continue;
         const minutes = Number(match[1]);
         if (Number.isFinite(minutes) && minutes > 0)
             durations.push(Math.ceil(minutes * 60));
     }
     for (const match of text.matchAll(/\b(\d{1,3}(?:\.\d+)?)\s*(?:s|sec|secs|seconds?)\b/gi)) {
+        if (match.index !== undefined && text[match.index - 1] === '%')
+            continue;
         const seconds = Number(match[1]);
         if (Number.isFinite(seconds) && seconds > 0)
             durations.push(seconds);
     }
     for (const match of text.matchAll(/\b(\d{1,2}):([0-5]\d)(?:\.\d+)?\s*(?:-|–|—|\bto\b)\s*(\d{1,2}):([0-5]\d)(?:\.\d+)?\b/gi)) {
+        if (match.index !== undefined && text[match.index - 1] === '%')
+            continue;
         const start = (Number(match[1]) * 60) + Number(match[2]);
         const end = (Number(match[3]) * 60) + Number(match[4]);
         if (Number.isFinite(start) && Number.isFinite(end) && end > start && end <= 600) {
