@@ -99,6 +99,139 @@ export const ASSET_REFERENCE_MANAGEMENT_SKILL = {
     alwaysLoaded: true,
     constraints: ['Use formatModelRef/map assets helpers instead of hand-formatting model reference tokens.'],
 };
+export const QUALITY_AUDIT_SKILL = {
+    id: 'quality_audit',
+    name: 'Quality audit',
+    description: 'Pre-dispatch and post-generation audits that catch parameter / asset / model-range / persona-flow issues before burning a worker round. Findings come back as structured fatal/minor issues with a recommended_action (accept | refine | regenerate | ask_user). Always loaded — cannot be unloaded.',
+    toolNames: [],
+    alwaysLoaded: true,
+    constraints: [
+        'When the audit returns recommended_action="ask_user", surface the fatal_issues to the user and wait — do not retry the tool call.',
+        'When recommended_action="refine", apply the fix_hint(s) on the next attempt rather than repeating the same call.',
+    ],
+};
+export const SKILL_MANAGEMENT_SKILL = {
+    id: 'skill_management',
+    name: 'Skill management',
+    description: 'Introspect and mutate the active skill set. Always loaded — provides load_skill, unload_skill, and list_active_skills so the model can request additional capabilities as the session evolves.',
+    toolNames: ['load_skill', 'unload_skill', 'list_active_skills'],
+    alwaysLoaded: true,
+};
+export const IMAGE_GENERATION_SKILL = {
+    id: 'image_generation',
+    name: 'Image generation',
+    description: 'Text-to-image synthesis (Flux). Use when the user wants a new image generated from a prompt with no source asset.',
+    toolNames: ['generate_image'],
+    constraints: [
+        'For persona-driven requests, defer to image_editing — personas must be conditioned on reference photos, never generated from scratch.',
+    ],
+};
+export const IMAGE_EDITING_SKILL = {
+    id: 'image_editing',
+    name: 'Image editing',
+    description: 'Edit, restore, restyle, refine, or change the camera angle of an existing image. Includes persona-conditioned edits — persona images must always be produced with edit_image and reference photos, never via text-to-image.',
+    toolNames: ['edit_image', 'restore_photo', 'apply_style', 'change_angle', 'refine_result'],
+    constraints: [
+        'Persona images must always be produced with edit_image and a reference photo — never invoke generate_image for persona output.',
+        'refine_result acts on a prior generation in the session; do not call it before any image has been produced or uploaded.',
+    ],
+};
+export const VIDEO_GENERATION_SKILL = {
+    id: 'video_generation',
+    name: 'Video generation',
+    description: 'Text-to-video synthesis (LTX-2). Use when the user wants a new video clip generated from a prompt with no source image, audio, or clip.',
+    toolNames: ['generate_video'],
+    constraints: [
+        'Persona-driven video requests must always go through image_editing first to produce a conditioned image; never go straight to text-to-video for personas.',
+    ],
+};
+export const VIDEO_EDITING_SKILL = {
+    id: 'video_editing',
+    name: 'Video editing',
+    description: 'Convert a still image, audio track, or existing clip into video, plus stitching, orbits, and dance-montage compositions over previously rendered clips.',
+    toolNames: ['animate_photo', 'sound_to_video', 'video_to_video', 'stitch_video', 'orbit_video', 'dance_montage'],
+    constraints: [
+        'Per-clip retry and the batch progress contract are sacred — never collapse a multi-clip render down to a single waterfall call.',
+        'animate_photo errors with all_failed must surface to the user; do not auto-retry from inside the chat loop.',
+    ],
+};
+export const MUSIC_GENERATION_SKILL = {
+    id: 'music_generation',
+    name: 'Music generation',
+    description: 'Compose music with optional lyrics, BPM, key, and structural hints (Sonic Logos).',
+    toolNames: ['generate_music'],
+};
+export const MEDIA_ANALYSIS_SKILL = {
+    id: 'media_analysis',
+    name: 'Media analysis',
+    description: 'Vision analysis of uploaded images / videos and structured extraction of generation metadata from previously rendered results.',
+    toolNames: ['analyze_image', 'analyze_video', 'extract_metadata'],
+};
+export const PERSONA_MANAGEMENT_SKILL = {
+    id: 'persona_management',
+    name: 'Persona & memory',
+    description: "Resolve named personas to their reference photos and read/write the user's long-term creative memory (preferences, named subjects, ongoing projects).",
+    toolNames: ['resolve_personas', 'manage_memory'],
+    constraints: [
+        'A persona-driven request must call resolve_personas before any image_editing or video_editing tool — never assume a name resolves on its own.',
+    ],
+};
+export const APP_SETTINGS_SKILL = {
+    id: 'app_settings',
+    name: 'App settings',
+    description: 'Toggle user-visible app preferences such as the safe-content filter. Only invoke when the user has explicitly asked to change a setting.',
+    toolNames: ['set_content_filter'],
+};
+export const ALL_BUILT_IN_SKILLS = [
+    QUALITY_AUDIT_SKILL,
+    SKILL_MANAGEMENT_SKILL,
+    SESSION_CONTROL_SKILL,
+    ASSET_REFERENCE_MANAGEMENT_SKILL,
+    IMAGE_GENERATION_SKILL,
+    IMAGE_EDITING_SKILL,
+    VIDEO_GENERATION_SKILL,
+    VIDEO_EDITING_SKILL,
+    MUSIC_GENERATION_SKILL,
+    MEDIA_ANALYSIS_SKILL,
+    PERSONA_MANAGEMENT_SKILL,
+    APP_SETTINGS_SKILL,
+];
+export function toolOk(fields) {
+    return { ok: true, status: 'completed', output_assets: [], ...fields };
+}
+export function toolErr(fields) {
+    return { ok: false, ...fields };
+}
+export function isToolResultOk(result) {
+    return result.ok === true;
+}
+export function isToolResultErr(result) {
+    return result.ok === false;
+}
+// ---------------------------------------------------------------------------
+// Storyboard adapter prompt-guidance composer (wraps the per-adapter strings)
+// ---------------------------------------------------------------------------
+/**
+ * Returns the concatenated per-adapter system-prompt guidance block.
+ * Public-skill consumers append this to their chat system prompt so the
+ * model sees the same per-model rules the chat product injects. The
+ * adapter `compile()` runtime is intentionally not bundled here — public
+ * skill callers that need real per-model prompt compilation should
+ * import directly from `@sogni/creative-agent` rather than the
+ * single-file runtime bundle.
+ *
+ * NOTE: The rich adapter `compile()` logic (Seedance / GPT Image 2 /
+ * LTX-2.3 / WAN) is not inlined into this bundle yet. Pull it in from
+ * `@sogni/creative-agent/storyboard` when a downstream consumer needs
+ * `compileForModel()` to do real prompt compilation rather than the
+ * registry stub above.
+ */
+export function composeAdapterPromptGuidance() {
+    // The hand-curated bundle currently exposes adapter stubs only, so the
+    // composer returns an empty block. Real compile() + getSystemPromptGuidance
+    // for each adapter lives in `@sogni/creative-agent/storyboard/adapters`.
+    return '';
+}
 export class SkillRegistry {
     manifests = new Map();
     loaded = new Set();
