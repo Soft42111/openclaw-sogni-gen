@@ -4,8 +4,158 @@
 function isLtxWorkflow(workflow) {
     return workflow === 't2v' || workflow === 'i2v' || workflow === 'ia2v' || workflow === 'a2v' || workflow === 'v2v';
 }
-export const SKILL_RUNTIME_VERSION = '2026-05-07.1';
-export const SEEDANCE_STORYBOARD_REFERENCE_PROMPT = 'Turn the video storyboard in @Image1 into a cohesive video. Treat @Image1 as the controlling source and follow its ordered thumbnails, timecodes, captions, Dialogue/VO, Audio/SFX, camera/motion notes, transitions, visible text, and scene order. Preserve the story spine, character/product/reference continuity, and cause-and-effect progression between beats. Treat transitions as motion instructions, not unrelated hard cuts unless the storyboard explicitly asks for hard cuts. Keep critical CTA or brand text large, centered, legible, and held long enough to read. Use a generated music/SFX arc that builds, peaks, resolves, and lands the final logo/CTA hit. Do not add unrelated logos, random UI, tiny microtext, or extra scenes.';
+export const SKILL_RUNTIME_VERSION = '2026-05-08.1';
+const SEEDANCE_MODEL_REF_FORMAT = {
+    format(index, type) {
+        if (type === 'video')
+            return `@Video${index}`;
+        if (type === 'audio')
+            return `@Audio${index}`;
+        return `@Image${index}`;
+    },
+    parse(token) {
+        const m = /^@(Image|Video|Audio)(\d+)$/.exec(token.trim());
+        if (!m)
+            return null;
+        const index = Number.parseInt(m[2], 10);
+        if (!Number.isFinite(index) || index < 1)
+            return null;
+        return {
+            index,
+            type: m[1] === 'Video' ? 'video' : m[1] === 'Audio' ? 'audio' : 'image',
+        };
+    },
+    scanRegex: /@(?:Image|Video|Audio)\d+/g,
+};
+const GPT_IMAGE_MODEL_REF_FORMAT = {
+    format(index, type) {
+        if (type === 'video')
+            return `[Video ${index}]`;
+        if (type === 'audio')
+            return `[Audio ${index}]`;
+        return `[Image ${index}]`;
+    },
+    parse(token) {
+        const m = /^\[(Image|Video|Audio)\s+(\d+)\]$/.exec(token.trim());
+        if (!m)
+            return null;
+        const index = Number.parseInt(m[2], 10);
+        if (!Number.isFinite(index) || index < 1)
+            return null;
+        return {
+            index,
+            type: m[1] === 'Video' ? 'video' : m[1] === 'Audio' ? 'audio' : 'image',
+        };
+    },
+    scanRegex: /\[(?:Image|Video|Audio)\s+\d+\]/g,
+};
+const CONTEXT_MODEL_REF_FORMAT = {
+    format(index, type) {
+        const slot = Math.max(0, index - 1);
+        if (type === 'video')
+            return `context_video_${slot}`;
+        if (type === 'audio')
+            return `context_audio_${slot}`;
+        return `context_image_${slot}`;
+    },
+    parse(token) {
+        const m = /^context_(image|video|audio)_(\d+)$/.exec(token.trim());
+        if (!m)
+            return null;
+        const slot = Number.parseInt(m[2], 10);
+        if (!Number.isFinite(slot) || slot < 0)
+            return null;
+        return { index: slot + 1, type: m[1] };
+    },
+    scanRegex: /context_(?:image|video|audio)_\d+/g,
+};
+export function getModelRefFormat(modelId) {
+    const trimmed = modelId.trim().toLowerCase();
+    if (trimmed.startsWith('seedance'))
+        return SEEDANCE_MODEL_REF_FORMAT;
+    if (trimmed.startsWith('gpt-image') || trimmed.startsWith('flux'))
+        return GPT_IMAGE_MODEL_REF_FORMAT;
+    if (trimmed.startsWith('ltx') || trimmed.startsWith('wan') || trimmed.startsWith('qwen-image'))
+        return CONTEXT_MODEL_REF_FORMAT;
+    console.warn(`[SOGNI RUNTIME] Unknown model_id "${modelId}" fell back to GPT Image model_ref format.`);
+    return GPT_IMAGE_MODEL_REF_FORMAT;
+}
+export function formatModelRef(modelId, index, type) {
+    return getModelRefFormat(modelId).format(index, type);
+}
+export const SESSION_CONTROL_SKILL = {
+    id: 'session_control',
+    name: 'Session control',
+    description: 'Turn-control markers that end the current turn cleanly.',
+    toolNames: ['ask_clarifying_question', 'finalize_response'],
+    alwaysLoaded: true,
+    constraints: ['ask_clarifying_question and finalize_response both end the turn.'],
+};
+export const ASSET_REFERENCE_MANAGEMENT_SKILL = {
+    id: 'asset_reference_management',
+    name: 'Asset reference management',
+    description: 'Translate between asset_id, user_label, and per-model model_ref tokens.',
+    toolNames: ['create_asset_manifest', 'inspect_asset', 'label_asset', 'map_assets_for_model', 'validate_asset_references'],
+    alwaysLoaded: true,
+    constraints: ['Use formatModelRef/map assets helpers instead of hand-formatting model reference tokens.'],
+};
+export class SkillRegistry {
+    manifests = new Map();
+    loaded = new Set();
+    register(manifest) {
+        this.manifests.set(manifest.id, manifest);
+        if (manifest.alwaysLoaded)
+            this.loaded.add(manifest.id);
+    }
+    load(id) {
+        if (!this.manifests.has(id))
+            return false;
+        this.loaded.add(id);
+        return true;
+    }
+    unload(id) {
+        const manifest = this.manifests.get(id);
+        if (!manifest || manifest.alwaysLoaded)
+            return false;
+        return this.loaded.delete(id);
+    }
+    getActiveToolNames() {
+        const names = new Set();
+        for (const id of this.loaded) {
+            const manifest = this.manifests.get(id);
+            if (!manifest)
+                continue;
+            for (const name of manifest.toolNames)
+                names.add(name);
+        }
+        return [...names];
+    }
+    getActiveSkills() {
+        return [...this.loaded].map((id) => this.manifests.get(id)).filter(Boolean);
+    }
+}
+export const storyboardAdapterRegistry = {
+    getAdapter(modelId) {
+        const trimmed = modelId.trim().toLowerCase();
+        if (trimmed.startsWith('seedance'))
+            return { modelId: 'seedance' };
+        if (trimmed.startsWith('gpt-image'))
+            return { modelId: 'gpt-image-2' };
+        if (trimmed.startsWith('ltx'))
+            return { modelId: 'ltx23' };
+        if (trimmed.startsWith('wan'))
+            return { modelId: 'wan' };
+        return null;
+    },
+};
+export function compileForModel(modelId) {
+    const adapter = storyboardAdapterRegistry.getAdapter(modelId);
+    if (!adapter)
+        throw new Error(`No storyboard adapter registered for model_id "${modelId}".`);
+    return { adapterModelId: adapter.modelId };
+}
+const PUBLIC_SEEDANCE_PRIMARY_IMAGE_REF = formatModelRef('seedance', 1, 'image');
+export const SEEDANCE_STORYBOARD_REFERENCE_PROMPT = `Turn the video storyboard in ${PUBLIC_SEEDANCE_PRIMARY_IMAGE_REF} into a cohesive video. Treat ${PUBLIC_SEEDANCE_PRIMARY_IMAGE_REF} as the controlling source and follow its ordered thumbnails, timecodes, captions, Dialogue/VO, Audio/SFX, camera/motion notes, transitions, visible text, and scene order. Preserve the story spine, character/product/reference continuity, and cause-and-effect progression between beats. Treat transitions as motion instructions, not unrelated hard cuts unless the storyboard explicitly asks for hard cuts. Keep critical CTA or brand text large, centered, legible, and held long enough to read. Use a generated music/SFX arc that builds, peaks, resolves, and lands the final logo/CTA hit. Do not add unrelated logos, random UI, tiny microtext, or extra scenes.`;
 export const SEEDANCE_V2V_REFERENCE_MAX_DURATION_SECONDS = 15;
 function asciiAt(data, start, length) {
     if (data.length < start + length)
@@ -75,6 +225,18 @@ export const LTX23_WORKFLOW_MODELS = Object.freeze({
     a2v: 'ltx23-22b-fp8_a2v_distilled',
     v2v: 'ltx23-22b-fp8_v2v_distilled'
 });
+export const LTX23_DEV_WORKFLOW_MODELS = Object.freeze({
+    t2v: 'ltx23-22b-fp8_t2v_dev',
+    i2v: 'ltx23-22b-fp8_i2v_dev',
+    ia2v: 'ltx23-22b-fp8_ia2v_dev',
+    a2v: 'ltx23-22b-fp8_a2v_dev'
+});
+export function resolveLtx23WorkflowModelForQuality(workflow, qualityTier) {
+    if (qualityTier === 'pro' && workflow !== 'v2v') {
+        return LTX23_DEV_WORKFLOW_MODELS[workflow];
+    }
+    return LTX23_WORKFLOW_MODELS[workflow];
+}
 export const SEEDANCE_WORKFLOW_MODELS = Object.freeze({
     t2v: 'seedance-2-0',
     t2vFast: 'seedance-2-0-fast',
@@ -295,6 +457,15 @@ export const VIDEO_MODEL_REGISTRY = Object.freeze({
 });
 export const EXPANDED_VIDEO_MODEL_REGISTRY = (() => {
     const registry = { ...VIDEO_MODEL_REGISTRY };
+    for (const workflow of ['t2v', 'i2v', 'ia2v', 'a2v']) {
+        const base = registry[LTX23_WORKFLOW_MODELS[workflow]];
+        if (!base)
+            continue;
+        registry[LTX23_DEV_WORKFLOW_MODELS[workflow]] = {
+            ...base,
+            steps: 20
+        };
+    }
     for (const workflow of ['t2v', 'i2v', 'ia2v', 'a2v', 'v2v']) {
         const ltx2Distilled = 'ltx2-19b-fp8_' + workflow + '_distilled';
         const ltx2Quality = 'ltx2-19b-fp8_' + workflow;
@@ -662,15 +833,15 @@ export function selectDefaultVideoModel(workflow, opts = {}, config) {
     if (configured)
         return resolveVideoModelAlias(configured, workflow) || null;
     if (workflow === 'ia2v')
-        return LTX23_WORKFLOW_MODELS.ia2v;
+        return resolveLtx23WorkflowModelForQuality('ia2v', opts.quality);
     if (workflow === 'a2v')
-        return LTX23_WORKFLOW_MODELS.a2v;
+        return resolveLtx23WorkflowModelForQuality('a2v', opts.quality);
     if (workflow === 'v2v')
         return LTX23_WORKFLOW_MODELS.v2v;
     if (workflow === 't2v')
-        return LTX23_WORKFLOW_MODELS.t2v;
+        return resolveLtx23WorkflowModelForQuality('t2v', opts.quality);
     if (workflow === 'i2v' && (opts.referenceAudioIdentity || promptNeedsLtxNativeAudio(opts.prompt) || opts.quality === 'hq' || opts.quality === 'pro')) {
-        return LTX23_WORKFLOW_MODELS.i2v;
+        return resolveLtx23WorkflowModelForQuality('i2v', opts.quality);
     }
     return VIDEO_WORKFLOW_DEFAULT_MODELS[workflow] || null;
 }
@@ -3673,12 +3844,12 @@ function sceneLineForSeedanceStoryboardProject(scene, index) {
         `VOICE/DIALOGUE: ${voice}`,
         `AUDIO/SFX: ${scene.audioSfx.join(', ') || defaultStoryboardAudioSfxLine()}`,
         `MUSIC: ${scene.music || 'Follow the global generated music arc.'}`,
-        `REFERENCE USAGE: ${scene.referenceUsage.join('; ') || 'Use @Image1 storyboard only.'}`,
+        `REFERENCE USAGE: ${scene.referenceUsage.join('; ') || `Use ${PUBLIC_SEEDANCE_PRIMARY_IMAGE_REF} storyboard only.`}`,
         `VISIBLE TEXT: ${scene.textInImage.join('; ') || 'none'}`,
     ].join('\n');
 }
 export function compileSeedanceStoryboardPromptFromProject(project, options = {}) {
-    const storyboardImageTag = options.storyboardImageTag ?? '@Image1';
+    const storyboardImageTag = options.storyboardImageTag ?? PUBLIC_SEEDANCE_PRIMARY_IMAGE_REF;
     const durationSec = clampSeedanceStoryboardDuration(options.durationSec ?? project.durationSec);
     const aspectRatio = normalizeAspectRatio(options.aspectRatio ?? project.targetVideoAspectRatio)
         ?? project.targetVideoAspectRatio
@@ -3731,8 +3902,9 @@ export function lintSeedanceStoryboardPromptFromProject(prompt, project) {
         errors.push('missing INPUT ASSETS section');
     if (!/\bGLOBAL VIDEO INSTRUCTIONS:/i.test(prompt))
         errors.push('missing GLOBAL VIDEO INSTRUCTIONS section');
-    if (!/@Image1/i.test(prompt))
-        errors.push('missing @Image1 storyboard reference');
+    if (!new RegExp(PUBLIC_SEEDANCE_PRIMARY_IMAGE_REF, 'i').test(prompt)) {
+        errors.push(`missing ${PUBLIC_SEEDANCE_PRIMARY_IMAGE_REF} storyboard reference`);
+    }
     if (!/\bshot guide\b/i.test(prompt))
         errors.push('missing shot-guide instruction');
     if (!/\bnot\s+as\s+a\s+(?:collage|split-screen|grid)/i.test(prompt)) {
@@ -3789,7 +3961,7 @@ export function buildStoryboardVideoHostedToolSequenceInput(options) {
     const videoDimensions = dimensionsForShortSideAspectRatio(project.targetVideoAspectRatio, options.videoTargetResolution ?? 720);
     const storyboardImagePrompt = compileVideoStoryboardImagePrompt(compileOptions);
     const seedanceVideoPrompt = compileSeedanceStoryboardPromptFromProject(project, {
-        storyboardImageTag: '@Image1',
+        storyboardImageTag: PUBLIC_SEEDANCE_PRIMARY_IMAGE_REF,
         durationSec: videoDuration,
         aspectRatio: project.targetVideoAspectRatio,
     });
