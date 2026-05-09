@@ -36,6 +36,8 @@ metadata:
 
 Generate **images, videos, and music** using Sogni AI's decentralized GPU network.
 
+> **Per-skill view**: hosts that want to load focused capabilities rather than this monolith can read [`skills/README.md`](./skills/README.md) for the per-skill index — one markdown file per skill (`image_generation`, `image_editing`, `video_generation`, `video_editing`, `music_generation`, `media_analysis`, `persona_management`, `app_settings`, plus the always-loaded `quality_audit`, `skill_management`, `session_control`, `asset_reference_management`). Each file mirrors the canonical manifest in `@sogni/creative-agent`. The whole-monolith load below stays the default for OpenClaw / Claude Code / Hermes Agent / Manus AI integrations.
+
 ## Install Request Policy
 
 When a user asks to install this plugin, skill, or Sogni Creative Agent Skill, install it as the command-line tool plus this skill.

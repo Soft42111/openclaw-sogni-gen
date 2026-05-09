@@ -1,0 +1,19 @@
+---
+name: video_generation
+description: Text-to-video synthesis (LTX-2).
+always_loaded: false
+tool_names:
+  - generate_video
+---
+
+# Video generation
+
+Text-to-video synthesis (LTX-2). Use when the user wants a new video clip generated from a prompt with no source image, audio, or clip.
+
+## Tools
+
+- `generate_video` — produce a video clip from text or Seedance multimodal references.
+
+## Constraints
+
+- Persona-driven video requests must always go through `image_editing` first to produce a conditioned image; never go straight to text-to-video for personas.
