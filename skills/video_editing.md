@@ -1,6 +1,6 @@
 ---
 name: video_editing
-description: Source-conditioned video flows: animate a photo, audio-driven motion, video style transfer, stitching, orbits, dance-montage compositions.
+description: Source-conditioned video flows: animate a photo, audio-driven motion, video style transfer, stitching, orbits, dance-montage compositions, segment extend/replace, and pure-ffmpeg post-production (overlay, subtitles).
 always_loaded: false
 tool_names:
   - animate_photo
@@ -9,11 +9,15 @@ tool_names:
   - stitch_video
   - orbit_video
   - dance_montage
+  - extend_video
+  - replace_video_segment
+  - overlay_video
+  - add_subtitles
 ---
 
 # Video editing
 
-Convert a still image, audio track, or existing clip into video, plus stitching, orbits, and dance-montage compositions over previously rendered clips.
+Convert a still image, audio track, or existing clip into video, plus stitching, orbits, dance-montage compositions, segment extend/replace, and pure-ffmpeg post-production (overlay, subtitles) over previously rendered or uploaded clips.
 
 ## Tools
 
@@ -23,6 +27,10 @@ Convert a still image, audio track, or existing clip into video, plus stitching,
 - `stitch_video` — concatenate previously rendered clips.
 - `orbit_video` — 360° orbit composition with optional dialogue.
 - `dance_montage` — beat-synced dance-style composition over uploaded photos.
+- `extend_video` — append new tail content to an existing video without rewriting the rest.
+- `replace_video_segment` — swap a bounded time window inside a video while preserving the unchanged portion and original audio outside the replaced window.
+- `overlay_video` — burn-in a static text/logo overlay onto an existing video via ffmpeg.
+- `add_subtitles` — burn-in subtitle cues onto an existing video via ffmpeg.
 
 ## Constraints
 

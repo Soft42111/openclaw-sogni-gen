@@ -2,7 +2,7 @@
 
 The legacy `SKILL.md` at the repo root is the public entry point ingested by skill-loading hosts (Claude Code, OpenClaw, Hermes Agent, Manus AI, etc.) that load a skill as one artifact. This `skills/` directory is the **per-skill** view used by hosts that want to load a focused subset of capability rather than the whole monolith.
 
-Each file is the canonical SKILL.md for one skill, kept in sync with the matching manifest in [`@sogni/creative-agent`](../../sogni-creative-agent/src/skills/). Frontmatter declares `name`, `description`, `always_loaded`, and `tool_names`; the body documents the LLM-callable tools and any constraints the host should respect.
+Each file is the canonical SKILL.md for one skill, kept in sync with the matching manifest exported from [`@sogni/creative-agent`](../../sogni-creative-agent/src/public-skill-runtime/index.ts). Frontmatter declares `name`, `description`, `always_loaded`, and `tool_names`; the body documents the LLM-callable tools and any constraints the host should respect.
 
 ## Always-loaded skills
 
@@ -11,20 +11,19 @@ Loaded automatically by every Sogni-hosted runtime. Hosts that mirror this layou
 | Skill | Tools |
 |---|---|
 | [`quality_audit`](./quality_audit.md) | _(none — preflight rule set)_ |
-| [`skill_management`](./skill_management.md) | `load_skill`, `unload_skill`, `list_active_skills` |
 | [`session_control`](./session_control.md) | `ask_clarifying_question`, `finalize_response` |
 | [`asset_reference_management`](./asset_reference_management.md) | `create_asset_manifest`, `inspect_asset`, `label_asset`, `map_assets_for_model`, `validate_asset_references` |
 
-## Creative skills (load on demand)
+## Capability skills
 
-Loadable per session via `load_skill` once the dynamic loader is enabled (`WORKFLOW_DYNAMIC_SKILLS=1` in the chat runtime). All loaded by default today.
+Available to every per-skill consumer. Sogni-hosted chat loads all capabilities and lets Structured Contracts v1 (`ToolGatingPolicy` in `@sogni/creative-agent`) gate per-turn visibility — the host never asks the model to load or unload skills explicitly. External skill-loading hosts (Claude Code, OpenClaw, Hermes Agent, Manus AI) are free to load focused subsets based on session needs.
 
 | Skill | Tools |
 |---|---|
 | [`image_generation`](./image_generation.md) | `generate_image` |
 | [`image_editing`](./image_editing.md) | `edit_image`, `restore_photo`, `apply_style`, `change_angle`, `refine_result` |
 | [`video_generation`](./video_generation.md) | `generate_video` |
-| [`video_editing`](./video_editing.md) | `animate_photo`, `sound_to_video`, `video_to_video`, `stitch_video`, `orbit_video`, `dance_montage` |
+| [`video_editing`](./video_editing.md) | `animate_photo`, `sound_to_video`, `video_to_video`, `stitch_video`, `orbit_video`, `dance_montage`, `extend_video`, `replace_video_segment`, `overlay_video`, `add_subtitles` |
 | [`music_generation`](./music_generation.md) | `generate_music` |
 | [`media_analysis`](./media_analysis.md) | `analyze_image`, `analyze_video`, `extract_metadata` |
 | [`persona_management`](./persona_management.md) | `resolve_personas`, `manage_memory` |
@@ -37,4 +36,6 @@ Loadable per session via `load_skill` once the dynamic loader is enabled (`WORKF
 
 ## Sync source
 
-These files are mirrored from `@sogni/creative-agent/src/skills/<id>/SKILL.md`. When the upstream manifest or constraints change, regenerate the matching file here. Future tooling will sync them via `npm run sync:skill-runtime`.
+These files are mirrored from `@sogni/creative-agent/src/public-skill-runtime/index.ts` (the `*_SKILL` constants in `ALL_BUILT_IN_SKILLS`). When the upstream manifest or constraints change, regenerate the matching file here. The runtime mjs itself is regenerated via `npm run sync:creative-agent-runtime`.
+
+> **Note (2026-05-10 skill-loader retirement):** The chat-side `SkillRegistry` and its three LLM-callable management tools (`load_skill` / `unload_skill` / `list_active_skills`) were retired. The public-skill-runtime in `@sogni/creative-agent` is a separate publishing channel and still exports `ALL_BUILT_IN_SKILLS` + the per-skill `*_SKILL` constants as the canonical manifest list for this artifact's CLI / agent consumers — `skill_management` is no longer part of that list. Per-turn tool-surface composition for Sogni-hosted chat is owned by Structured Contracts v1 (`ContractRegistry`, `classifyTurn`, `compileToolsForTurn`, `dispatchToolCall`) and the per-tool `getToolPermission` / `getToolCostMetadata` helpers.

@@ -110,13 +110,6 @@ export const QUALITY_AUDIT_SKILL = {
         'When recommended_action="refine", apply the fix_hint(s) on the next attempt rather than repeating the same call.',
     ],
 };
-export const SKILL_MANAGEMENT_SKILL = {
-    id: 'skill_management',
-    name: 'Skill management',
-    description: 'Introspect and mutate the active skill set. Always loaded — provides load_skill, unload_skill, and list_active_skills so the model can request additional capabilities as the session evolves.',
-    toolNames: ['load_skill', 'unload_skill', 'list_active_skills'],
-    alwaysLoaded: true,
-};
 export const IMAGE_GENERATION_SKILL = {
     id: 'image_generation',
     name: 'Image generation',
@@ -148,8 +141,19 @@ export const VIDEO_GENERATION_SKILL = {
 export const VIDEO_EDITING_SKILL = {
     id: 'video_editing',
     name: 'Video editing',
-    description: 'Convert a still image, audio track, or existing clip into video, plus stitching, orbits, and dance-montage compositions over previously rendered clips.',
-    toolNames: ['animate_photo', 'sound_to_video', 'video_to_video', 'stitch_video', 'orbit_video', 'dance_montage'],
+    description: 'Convert a still image, audio track, or existing clip into video, plus stitching, orbits, dance-montage compositions, segment extend/replace, and pure-ffmpeg post-production (overlay, subtitles).',
+    toolNames: [
+        'animate_photo',
+        'sound_to_video',
+        'video_to_video',
+        'stitch_video',
+        'orbit_video',
+        'dance_montage',
+        'extend_video',
+        'replace_video_segment',
+        'overlay_video',
+        'add_subtitles',
+    ],
     constraints: [
         'Per-clip retry and the batch progress contract are sacred — never collapse a multi-clip render down to a single waterfall call.',
         'animate_photo errors with all_failed must surface to the user; do not auto-retry from inside the chat loop.',
@@ -184,7 +188,6 @@ export const APP_SETTINGS_SKILL = {
 };
 export const ALL_BUILT_IN_SKILLS = [
     QUALITY_AUDIT_SKILL,
-    SKILL_MANAGEMENT_SKILL,
     SESSION_CONTROL_SKILL,
     ASSET_REFERENCE_MANAGEMENT_SKILL,
     IMAGE_GENERATION_SKILL,
