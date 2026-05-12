@@ -94,6 +94,9 @@ const IS_OPENCLAW_INVOCATION = Boolean(getEnv('OPENCLAW_PLUGIN_CONFIG'));
 const RAW_ARGS = process.argv.slice(2);
 const CLI_WANTS_JSON = RAW_ARGS.includes('--json');
 const JSON_ERROR_MODE = CLI_WANTS_JSON || IS_OPENCLAW_INVOCATION;
+const SOCKET_EVENT_SUBSCRIPTIONS = Object.freeze({
+  modelAvailability: false
+});
 const MUSIC_MODEL_IDS = {
   turbo: 'ace_step_1.5_turbo',
   speed: 'ace_step_1.5_turbo',
@@ -136,6 +139,18 @@ function expandHomePath(rawPath) {
 function resolveConfiguredPath(rawPath, fallbackPath, label) {
   const candidate = expandHomePath(rawPath) || fallbackPath;
   return sanitizePath(candidate, label);
+}
+
+async function disableLiveModelAvailabilityEvents(wrapper) {
+  const sdkClient = wrapper?.client;
+
+  try {
+    if (typeof sdkClient?.setSocketEventSubscriptions === 'function') {
+      await sdkClient.setSocketEventSubscriptions(SOCKET_EVENT_SUBSCRIPTIONS);
+    }
+  } catch (err) {
+    // Subscription optimization is best-effort and must not block generation.
+  }
 }
 
 function isPathWithinBase(basePath, targetPath) {
@@ -4989,6 +5004,7 @@ async function main() {
     });
 
     await client.connect();
+    await disableLiveModelAvailabilityEvents(client);
     log('Connected.');
 
     if (options.showBalance) {
@@ -5723,6 +5739,7 @@ async function main() {
             authType: 'apiKey'
           });
           await client2.connect();
+          await disableLiveModelAvailabilityEvents(client2);
 
           // Create second clip and wait for completion via events
           const clip2Promise = new Promise((resolve, reject) => {

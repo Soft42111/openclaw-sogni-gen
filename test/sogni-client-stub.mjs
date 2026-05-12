@@ -33,6 +33,8 @@ function persistState() {
   };
   try {
     writeFileSync(statePath, JSON.stringify({
+      clientConfigs: state.clientConfigs ?? null,
+      socketEventSubscriptionUpdates: state.socketEventSubscriptionUpdates ?? null,
       lastImageProject: state.lastImageProject ?? null,
       lastVideoProject: state.lastVideoProject ?? null,
       lastAudioProject: state.lastAudioProject ?? null,
@@ -55,8 +57,19 @@ class SogniClientWrapper extends EventEmitter {
     this.lastAudioProject = null;
     this.lastEditProject = null;
     this.emittedJobs = 0;
+    this.client = {
+      setSocketEventSubscriptions: async (socketEventSubscriptions) => {
+        const currentState = getState();
+        currentState.socketEventSubscriptionUpdates = currentState.socketEventSubscriptionUpdates || [];
+        currentState.socketEventSubscriptionUpdates.push(socketEventSubscriptions);
+        persistState();
+      }
+    };
     const state = getState();
+    state.clientConfigs = state.clientConfigs || [];
+    state.clientConfigs.push(config);
     state.instances.push(this);
+    persistState();
   }
 
   async connect() {
