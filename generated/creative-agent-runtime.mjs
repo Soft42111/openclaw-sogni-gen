@@ -875,17 +875,18 @@ export function formatAudioIdPrompt(prompt, voiceName) {
     const dialogue = extractQuotedDialogueSegments(prompt);
     const speechLines = dialogue.length > 0
         ? dialogue.map((line, index) => (voiceName || 'SPEAKER_' + (index + 1)) + ': "' + line + '"').join('\n')
-        : 'No spoken dialogue unless exact quoted words are present in the visual prompt.';
-    return [
+        : '';
+    const sections = [
         '[VISUAL]',
         prompt.trim(),
         '',
         '[SPEECH]',
-        speechLines,
-        '',
-        '[SOUNDS]',
-        'Use natural ambient sound that matches the scene unless the prompt specifies silence.'
-    ].join('\n');
+    ];
+    if (speechLines) {
+        sections.push(speechLines);
+    }
+    sections.push('', '[SOUNDS]', 'Use natural ambient sound that matches the scene unless the prompt specifies silence.');
+    return sections.join('\n');
 }
 export function getVideoPromptGuardrailPlan({ prompt, duration, frames, fps, durationExplicit, referenceAudioIdentity, voiceName } = {}) {
     let nextPrompt = prompt || '';
@@ -1357,7 +1358,12 @@ function textExplicitlyRequestsGeneratedImageStage(text) {
 }
 function textRequestsAdjacentImageTransitions(text) {
     const lower = text.toLowerCase();
-    const mentionsTransition = /\b(?:transition|transitions|transitioning|link|links|linking|connect|connecting|morph)\b/.test(lower)
+    const sequenceNouns = String.raw `(?:images?|photos?|pictures?|keyframes?|frames?|versions?|variations?|scenes?)`;
+    const transitionVerbs = String.raw `(?:transition|transitions|transitioning|link|links|linking|connect|connecting|morph|morphs|morphing)`;
+    const transitionVerbTargetsSequence = new RegExp(String.raw `\b${transitionVerbs}\b\s+(?:the\s+|all\s+|each\s+|every\s+|these\s+|those\s+)?${sequenceNouns}\b`, 'i').test(lower)
+        || new RegExp(String.raw `\b${transitionVerbs}\b[\s\S]{0,40}\b(?:between|from|to|into|across)\b[\s\S]{0,40}\b(?:the\s+)?${sequenceNouns}\b`, 'i').test(lower)
+        || new RegExp(String.raw `\b(?:each|every|all|these|those|generated|uploaded|source|end|first|last|previous|next)\s+(?:story\s*board\s+|storyboard\s+|generated\s+|uploaded\s+)?${sequenceNouns}\b[\s\S]{0,80}\b${transitionVerbs}\b`, 'i').test(lower);
+    const mentionsTransition = transitionVerbTargetsSequence
         || /\bbetween\s+(?:the\s+)?(?:images?|photos?|pictures?|keyframes?|frames?|versions?|variations?|scenes?)\b/.test(lower)
         || /(?:->)/.test(text);
     if (!mentionsTransition)
@@ -2280,7 +2286,9 @@ function extractStoryboardAvoidConstraints(text) {
 }
 function extractStoryboardRequiredText(text) {
     const required = new Set();
-    const shouldIgnoreRequiredText = (value, matchIndex) => {
+    const inlineProductionLabelPattern = /\b(?:SFX|FX|Audio(?:\s*\/\s*SFX)?|Sound(?:s)?|Music|Foley|Camera(?:\s*\/\s*Motion)?|Motion|Lighting(?:\s*\/\s*Style)?|Style|Transition|Action(?:\s*\/\s*Motion)?|Performance|Beat)\s*:\s*[^a-z0-9]{0,4}$/i;
+    const visibleTextContextPattern = /\b(?:visible|on[-\s]?screen|in[-\s]?frame|text|copy|cta|tagline|headline|title\s+card|caption|subtitle|super|wordmark|spell(?:ed)?|read(?:s)?|slogan)\b/i;
+    const shouldIgnoreRequiredText = (value, matchIndex, precedingText) => {
         const lineStart = text.lastIndexOf('\n', matchIndex) + 1;
         const nextLineBreak = text.indexOf('\n', matchIndex);
         const lineEnd = nextLineBreak >= 0 ? nextLineBreak : text.length;
@@ -2288,12 +2296,19 @@ function extractStoryboardRequiredText(text) {
         const looksLikeAssetHandle = /\.\.\.|(?:^|[./_-])(?:png|jpe?g|webp|gif|svg)$|[a-f0-9]{8}-[a-f0-9-]{8,}/i.test(value);
         const fieldLabel = line.match(/^\s*(?:[-*+]\s*)?(?:[*_]{1,3})?\s*([^:\n]{1,60})\s*:/)?.[1] ?? '';
         const isProductionDirectionField = /\b(?:action|motion|camera|transition|audio|sfx|fx|foley|sound|music|lighting|style|performance|beat)\b/i.test(fieldLabel)
-            && !/\b(?:visible|on[-\s]?screen|in[-\s]?frame|text|copy|cta|tagline|headline|title\s+card|caption|subtitle|super|wordmark|spell(?:ed)?|read(?:s)?)\b/i.test(fieldLabel);
-        const hasExplicitVisibleTextContext = /\b(?:visible|on[-\s]?screen|in[-\s]?frame|text|copy|cta|tagline|headline|title\s+card|caption|subtitle|super|wordmark|spell(?:ed)?|read(?:s)?|slogan)\b/i.test(line);
-        const looksLikeActionOrSfxCallout = /^[a-z][a-z-]{1,24}$/i.test(value.trim())
+            && !visibleTextContextPattern.test(fieldLabel);
+        const hasExplicitVisibleTextContext = visibleTextContextPattern.test(line);
+        const looksLikeActionOrSfxCallout = /^[a-z][a-z-]{1,24}[!?.]?$/i.test(value.trim())
             && /\b(?:action|motion|transition|audio|sfx|fx|foley|sound|music|camera|performance|beat|pop(?:s|ped|ping)?|snap(?:s|ped|ping)?|whoosh(?:es)?|thud(?:s|ded|ding)?|ding(?:s|ed|ing)?|boom(?:s|ed|ing)?|impact(?:s|ed|ing)?|hit(?:s|ting)?|slam(?:s|med|ming)?|wipe(?:s|d|ing)?|glitch(?:es|ed|ing)?|morph(?:s|ed|ing)?|bounce(?:s|d|ing)?|zoom(?:s|ed|ing)?)\b/i.test(line);
+        const precedingTail = (precedingText ?? '').slice(-80);
+        const hasInlineProductionLabel = !!precedingTail
+            && inlineProductionLabelPattern.test(precedingTail)
+            && !visibleTextContextPattern.test(precedingTail);
         if (/\b(?:working\s+title|project\s+title)\b/i.test(line)
             && !/\b(?:title\s+card|on[-\s]?screen|visible|text|copy|cta|headline|tagline)\b/i.test(line)) {
+            return true;
+        }
+        if (hasInlineProductionLabel) {
             return true;
         }
         if ((isProductionDirectionField || looksLikeActionOrSfxCallout) && !hasExplicitVisibleTextContext) {
@@ -2312,7 +2327,7 @@ function extractStoryboardRequiredText(text) {
             .replace(/^[*_]+|[*_]+$/g, '')
             .replace(/^["“”'`]+|["“”'`]+$/g, '')
             .trim();
-        if (value && shouldIgnoreRequiredText(value, matchIndex))
+        if (value && shouldIgnoreRequiredText(value, matchIndex, options.precedingText))
             return;
         if (/^visible\s+text\b/i.test(value) && (extractStoryboardTiming(value) || /^visible\s+text\.?$/i.test(value)))
             return;
@@ -2323,7 +2338,7 @@ function extractStoryboardRequiredText(text) {
                 .filter(Boolean);
             if (parts.length > 1 && parts.every(part => part.length <= 160)) {
                 for (const part of parts)
-                    addRequiredText(part, matchIndex);
+                    addRequiredText(part, matchIndex, { precedingText: options.precedingText });
                 return;
             }
         }
@@ -2332,14 +2347,27 @@ function extractStoryboardRequiredText(text) {
     };
     const exactTextPattern = /\b(?:render|show|include|text|copy|cta|tagline|headline|title|brand|logo|wordmark|words?|say(?:s)?|spell(?:ed)?)\b[^"“`\n]{0,120}(?:"([^"]{1,160})"|“([^”]{1,160})”|`([^`]{1,160})`)/gi;
     for (const match of text.matchAll(exactTextPattern)) {
-        addRequiredText(match[1] ?? match[2] ?? match[3], match.index ?? 0);
+        const fullMatch = match[0];
+        const quoteOpenInMatch = fullMatch.search(/["“`]/);
+        const precedingInMatch = quoteOpenInMatch >= 0 ? fullMatch.slice(0, quoteOpenInMatch) : fullMatch;
+        addRequiredText(match[1] ?? match[2] ?? match[3], match.index ?? 0, {
+            precedingText: precedingInMatch,
+        });
     }
     const labeledTextPattern = /\b(?:on[-\s]?screen\s+text|visible\s+text|text\s+only|text|end\s+card\s+text|final\s+text|tagline|cta|headline|title\s+card|copy)\s*:\s*([^\n]{1,260})/gi;
     for (const match of text.matchAll(labeledTextPattern)) {
         const value = match[1] || '';
+        const matchStartInText = match.index ?? 0;
+        const valueStartInMatch = match[0].indexOf(value);
+        const valueStartInText = valueStartInMatch >= 0 ? matchStartInText + valueStartInMatch : matchStartInText;
         let addedQuotedText = false;
         for (const quote of value.matchAll(/"([^"]{1,160})"|“([^”]{1,160})”|`([^`]{1,160})`/g)) {
-            addRequiredText(quote[1] ?? quote[2] ?? quote[3], match.index ?? 0);
+            const innerStartInValue = quote.index ?? 0;
+            const precedingInValue = value.slice(0, innerStartInValue);
+            const quoteAbsIndex = valueStartInText + innerStartInValue;
+            addRequiredText(quote[1] ?? quote[2] ?? quote[3], quoteAbsIndex, {
+                precedingText: precedingInValue,
+            });
             addedQuotedText = true;
         }
         if (!addedQuotedText) {
@@ -2348,7 +2376,7 @@ function extractStoryboardRequiredText(text) {
                 .replace(/\s+\b(?:Dialogue\/VO|VO\/Dialogue|V\.O\.|VO|Voiceover|Voice-over|Speech|Narration|Audio\/SFX|Audio|SFX|FX|Foley|Sound|Sounds|Music|Camera\/Motion|Camera|Lighting\/Style|Lighting|Style|Look|Action\/Motion|Action|Motion)\s*:[\s\S]*$/i, '')
                 .replace(/\b(?:none|no\s+(?:visible\s+)?text|n\/a|not\s+specified)\b\.?$/i, '')
                 .trim();
-            addRequiredText(unquoted, match.index ?? 0, { splitUnquotedList: true });
+            addRequiredText(unquoted, matchStartInText, { splitUnquotedList: true });
         }
     }
     const renderThesePattern = /\b(?:exact words|exact text|required text|final cta|end card text)\b[\s\S]{0,320}/gi;
@@ -2495,7 +2523,7 @@ function removeStoryboardTimingText(value) {
         .replace(/\b\d{1,3}(?:\.\d+)?\s*(?:s|sec|secs|seconds?)?\s*(?:-|to|\u2013|\u2014)\s*\d{1,3}(?:\.\d+)?\s*(?:s|sec|secs|seconds?)?\b/gi, ' ')
         .replace(/\(\s*\)|\[\s*\]/g, ' ')
         .replace(/\s*[|]\s*/g, ' ')
-        .replace(/^[-:.)\s|]+|[-:.)\s|]+$/g, ' ')
+        .replace(/^[-:.\s|]+|[-:.\s|]+$/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
 }
@@ -2602,7 +2630,15 @@ function splitStoryboardTitleDescription(value) {
             description: compactStoryboardLine(cleaned),
         };
     }
-    const title = compactStoryboardLine(match[1], 'Storyboard Beat');
+    const rawPrefix = match[1];
+    const prefixContainsSentenceEnd = /[.!?]\s/.test(rawPrefix);
+    if (prefixContainsSentenceEnd) {
+        return {
+            title: fallbackTitleFromDescription(cleaned),
+            description: compactStoryboardLine(cleaned),
+        };
+    }
+    const title = compactStoryboardLine(rawPrefix, 'Storyboard Beat');
     const description = compactStoryboardLine(match[2], cleaned);
     if (/^(?:visual|visual frame|frame|shot|image|action|action\/motion|camera|audio|sfx|dialogue|vo)$/i.test(title)) {
         return {
@@ -2709,6 +2745,10 @@ function splitStoryboardTableSections(text) {
             ? headers.findIndex(header => /\b(?:beat|scene|shot|panel|frame)\b/i.test(header)
                 && !/\b(?:visual|action|camera|audio|dialogue|vo|sfx)\b/i.test(header))
             : -1;
+        const purposeHeaderIndex = headers
+            ? headers.findIndex(header => /\b(?:purpose|story\s*beat|story\s*purpose|beat\s*name|beat\s*title|narrative|name|title)\b/i.test(header)
+                && !/\b(?:visual|action|camera|audio|dialogue|vo|sfx|time|transition|scene)\b/i.test(header))
+            : -1;
         const visualIndex = visualHeaderIndex >= 0
             ? visualHeaderIndex
             : timingCellIndex === 0
@@ -2770,8 +2810,23 @@ function splitStoryboardTableSections(text) {
         const beatLabel = beatHeaderIndex >= 0 && beatHeaderIndex !== timingCellIndex
             ? compactStoryboardLine(cells[beatHeaderIndex])
             : '';
-        const sceneTitle = beatLabel && !/^\d{1,2}$/.test(beatLabel)
-            ? `${beatLabel}: ${visual.title}`
+        const purposeLabel = purposeHeaderIndex >= 0
+            && purposeHeaderIndex !== timingCellIndex
+            && purposeHeaderIndex !== visualIndex
+            && purposeHeaderIndex !== beatHeaderIndex
+            && purposeHeaderIndex !== dialogueHeaderIndex
+            && purposeHeaderIndex !== soundHeaderIndex
+            && purposeHeaderIndex !== cameraHeaderIndex
+            && purposeHeaderIndex !== visibleTextHeaderIndex
+            ? compactStoryboardLine(cells[purposeHeaderIndex])
+            : '';
+        const beatTitleSource = purposeLabel && !/^\d{1,2}$/.test(purposeLabel)
+            ? purposeLabel
+            : beatLabel && !/^\d{1,2}$/.test(beatLabel)
+                ? beatLabel
+                : '';
+        const sceneTitle = beatTitleSource
+            ? `${beatTitleSource}: ${visual.title}`
             : visual.title;
         sections.push({
             number,
@@ -2810,6 +2865,10 @@ function splitStoryboardSections(text) {
         return tableSections;
     }
     return sectionHeadings.length > 0 ? sectionHeadings : tableSections;
+}
+function storyboardSectionsHavePreservableExplicitTiming(sections) {
+    return sections.length > 1
+        && sections.some(section => extractStoryboardTiming(`${section.heading}\n${section.body}`) !== null);
 }
 function canonicalStoryboardScriptContext(text) {
     const trimmed = String(text || '').trim();
@@ -3414,8 +3473,8 @@ export function buildStoryboardProject(options) {
         ? splitStoryboardSections(approvedScriptContext)
         : [];
     const sourceSections = splitStoryboardSections(sourceText);
-    const approvedSectionsHaveExplicitTiming = approvedSections.some(section => extractStoryboardTiming(`${section.heading}\n${section.body}`) !== null);
-    const sourceSectionsHaveExplicitTiming = sourceSections.some(section => extractStoryboardTiming(`${section.heading}\n${section.body}`) !== null);
+    const approvedSectionsHaveExplicitTiming = storyboardSectionsHavePreservableExplicitTiming(approvedSections);
+    const sourceSectionsHaveExplicitTiming = storyboardSectionsHavePreservableExplicitTiming(sourceSections);
     const assistantApprovedDraftUndercounted = options.promptAuthorship === 'assistant'
         && approvedSections.length > 0
         && approvedSections.length < options.frameCount
@@ -3827,6 +3886,31 @@ export function compileVideoStoryboardImagePrompt(options) {
         '',
         'NEGATIVE / AVOID:',
         ...compileStoryboardAvoidSection(avoidSource).map(item => `- ${item}`),
+    ].join('\n');
+}
+export function ensureCompiledVideoStoryboardPromptPreservesSourceBrief(compiledPrompt, userIntentText, approvedScriptContext) {
+    const prompt = compiledPrompt.trim();
+    const rawUserIntentText = userIntentText.trim();
+    if (!prompt || !rawUserIntentText)
+        return prompt;
+    const canonicalUserIntentText = canonicalStoryboardScriptContext(rawUserIntentText) || rawUserIntentText;
+    const selectedSourceBrief = sanitizeStoryboardExternalAudioReferences(buildStoryboardSourceBriefForPrompt('', canonicalUserIntentText, approvedScriptContext)).trim();
+    const sourceBrief = selectedSourceBrief && storyboardBriefContains(selectedSourceBrief, canonicalUserIntentText)
+        ? selectedSourceBrief
+        : [
+            `ORIGINAL USER INTENT:\n${canonicalUserIntentText}`,
+            selectedSourceBrief && !storyboardBriefContains(canonicalUserIntentText, selectedSourceBrief)
+                ? `SELECTED STORYBOARD BRIEF:\n${selectedSourceBrief}`
+                : '',
+        ].filter(Boolean).join('\n\n');
+    if (!sourceBrief || storyboardBriefContains(prompt, sourceBrief))
+        return prompt;
+    return [
+        prompt,
+        '',
+        'ORIGINAL SOURCE BRIEF TO PRESERVE:',
+        sourceBrief,
+        'Preserve these user-provided brands, names, dialogue, CTA text, reference assignments, timings, and scene order when rendering the storyboard image.',
     ].join('\n');
 }
 export function lintStoryboardImagePrompt(prompt, layout, project) {
