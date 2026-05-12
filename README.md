@@ -561,7 +561,9 @@ With both repos checked out as siblings, refresh the generated runtime before pu
 npm run sync:creative-agent-runtime
 ```
 
-Reusable workflow rules should be added to `../sogni-creative-agent` first, then synced here. Keep storyboard planning, tool argument validation, prompt linting, and typed repair/control semantics aligned with `sogni-chat`, `sogni-client`, and `sogni-api` hosted chat/workflow endpoints rather than recreating skill-only regex guards. Prefer generated or copied shared helpers for hosted workflow compilation, schema argument validation, repair-control decisions, and guard telemetry summaries over skill-local guard code — this keeps public-agent behavior close to `/v1/chat/completions` and `/v1/creative-agent/workflows`.
+Reusable workflow rules should be added to `../sogni-creative-agent` first, then synced here. Keep storyboard planning, tool argument validation, prompt linting, typed media turn intent, and typed repair/control semantics aligned with `sogni-chat`, `sogni-client`, and `sogni-api` hosted chat/workflow endpoints rather than recreating skill-only regex guards. Prefer generated or copied shared helpers for hosted workflow compilation, schema argument validation, `CreativeTurnPlannerFields` / `classifyMediaTurnIntent()` media-routing contracts, repair-control decisions, and guard telemetry summaries over skill-local guard code — this keeps public-agent behavior close to `/v1/chat/completions` and `/v1/creative-agent/workflows`.
+
+Public-skill regex should stay limited to CLI argument/fact extraction such as file paths, URLs, extensions, dimensions, durations, and explicit positions. Hosted-style decisions such as latest-video continuation, uploaded-video modification, image-selection waits, stitch-after-batch state, and repair/control routing belong upstream in typed planner/runtime fields before they are synced here.
 
 Issues and feature requests: [github.com/Sogni-AI/sogni-creative-agent-skill/issues](https://github.com/Sogni-AI/sogni-creative-agent-skill/issues).
 

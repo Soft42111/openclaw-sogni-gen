@@ -2305,8 +2305,33 @@ function contextAroundStoryboardReference(text, index) {
     }
     return text;
 }
+function cleanExplicitStoryboardReferenceSubject(value, index) {
+    const subjectMarkers = Array.from(value.matchAll(/\bSubject:\s*/gi));
+    const lastSubjectMarker = subjectMarkers[subjectMarkers.length - 1];
+    if (!lastSubjectMarker || lastSubjectMarker.index === undefined)
+        return '';
+    const subjectStart = lastSubjectMarker.index + lastSubjectMarker[0].length;
+    const tail = value.slice(subjectStart);
+    const nextField = tail.search(/\s+(?:Usage|Preserve):/i);
+    const rawSubject = nextField >= 0 ? tail.slice(0, nextField) : tail;
+    const cleaned = compactStoryboardLine(stripStoryboardMarkup(rawSubject))
+        .replace(new RegExp(String.raw `\s*\(\s*asset\s*${index}\s*\)\s*`, 'i'), ' ')
+        .replace(/^(?:character\/source subject|logo\/brand|product\/object|style\/environment|reference asset|character|logo|brand|product|style|environment|other)\s+references?\b\.?\s*/i, '')
+        .replace(/[.\s]+$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!cleaned)
+        return '';
+    if (/^(?:logo|brand|character|mascot|asset|reference|image|photo|picture)$/i.test(cleaned))
+        return '';
+    return cleaned.slice(0, 180).replace(/\s+\S*$/, match => cleaned.length > 180 ? '' : match).trim();
+}
 function cleanStoryboardReferenceSubjectHint(context, index) {
-    const cleaned = compactStoryboardLine(stripStoryboardMarkup(context))
+    const source = compactStoryboardLine(stripStoryboardMarkup(context));
+    const explicitSubject = cleanExplicitStoryboardReferenceSubject(source, index);
+    if (explicitSubject)
+        return explicitSubject;
+    const cleaned = source
         .replace(new RegExp(String.raw `^(?:image|photo|picture|asset)\s*(?:#|number\s*)?${index}\s*(?:\([^)]*\))?\s*:?\s*`, 'i'), '')
         .replace(new RegExp(String.raw `^(?:uploaded|attached|provided|reference|source|input)\s+(?:image|photo|picture|asset)\s*(?:#|number\s*)?${index}\s*:?\s*`, 'i'), '')
         .replace(/\b(?:use|using|for|as|with|from|featuring|feature)\b\s*$/i, '')

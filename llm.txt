@@ -70,6 +70,12 @@ Use the direct CLI path for uploaded media (`-c`, `--ref`, `--ref-audio`,
 `--ref-video`); hosted API modes do not accept those media flags for server-side
 tool execution.
 
+Reusable hosted workflow behavior belongs in `../sogni-creative-agent` before it
+is synced into this public skill. Use typed planner/runtime contracts for media
+routing and repair decisions; keep skill-local regex limited to CLI fact
+extraction such as paths, URLs, extensions, dimensions, durations, and explicit
+positions.
+
 ## Repo
 
 Sogni-AI/sogni-creative-agent-skill

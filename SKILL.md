@@ -195,7 +195,13 @@ for the direct client-wrapper path.
 When changing hosted API chat/workflow behavior, keep reusable validation,
 workflow compilation, repair-control, and guard telemetry logic in
 `../sogni-creative-agent` first. The public skill should consume generated or
-copied shared contracts instead of adding skill-local regex guards.
+copied shared contracts instead of adding skill-local regex guards. Media-routing
+decisions should come from typed planner/runtime contracts such as
+`CreativeTurnPlannerFields`, `classifyMediaTurnIntent()`, `videoContinuation`,
+`videoModification`, `outputGrouping`, `imageSelectionPolicy`, and
+`pendingStitchAfterBatch`; regex is appropriate only for bounded CLI/fact
+extraction such as paths, URLs, extensions, dimensions, durations, and explicit
+positions.
 
 ## Options
 
