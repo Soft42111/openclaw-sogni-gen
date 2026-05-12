@@ -4,7 +4,7 @@
 function isLtxWorkflow(workflow) {
     return workflow === 't2v' || workflow === 'i2v' || workflow === 'ia2v' || workflow === 'a2v' || workflow === 'v2v';
 }
-export const SKILL_RUNTIME_VERSION = '2026-05-08.1';
+export const SKILL_RUNTIME_VERSION = '2026-05-12.1';
 const SEEDANCE_MODEL_REF_FORMAT = {
     format(index, type) {
         if (type === 'video')
@@ -1430,8 +1430,8 @@ export function textRequestsSingleCompositeImageOutput(text) {
     if (directVideoOutput && rejectsStoryboardPanelOutput && !explicitStoryboardImageOrSheetRequest) {
         return false;
     }
-    const explicitImageOutput = new RegExp(String.raw `\b${generationVerbs}\b[\s\S]{0,180}\b(?:${imageOutputNouns}|${compositeNouns}\s+image|image\s+(?:story\s*board|storyboard|grid|collage|board))\b`, 'i').test(normalized)
-        || new RegExp(String.raw `\b(?:story\s*board|storyboard|grid|collage|contact\s+sheet|mood\s*board|moodboard)\s+${imageOutputNouns}\b`, 'i').test(normalized);
+    const explicitGeneratedImageOutput = new RegExp(String.raw `\b${generationVerbs}\b[\s\S]{0,180}\b(?:${imageOutputNouns}|${compositeNouns}\s+image|image\s+(?:story\s*board|storyboard|grid|collage|board))\b`, 'i').test(normalized);
+    const standaloneCompositeImageMention = new RegExp(String.raw `\b(?:story\s*board|storyboard|grid|collage|contact\s+sheet|mood\s*board|moodboard)\s+${imageOutputNouns}\b`, 'i').test(normalized);
     const storyboardImageStage = new RegExp(String.raw `\b${generationVerbs}\b[\s\S]{0,180}\b(?:video\s+)?(?:story\s*board|storyboard)(?:\s+(?:sequence|sheet|layout|panel|panels|board))?\b`, 'i').test(normalized)
         || /\b(?:turn|convert|transform)\b[\s\S]{0,80}\binto\b[\s\S]{0,120}\b(?:video\s+)?(?:story\s*board|storyboard)(?:\s+(?:sequence|sheet|layout|panel|panels|board))?\b/i.test(normalized)
         || /\b(?:story\s*board|storyboard)\b[\s\S]{0,80}\bfirst\b/i.test(normalized)
@@ -1439,6 +1439,25 @@ export function textRequestsSingleCompositeImageOutput(text) {
     const referenceGuidedAdCreative = new RegExp(String.raw `\b${generationVerbs}\b[\s\S]{0,140}\b${adCreativeNouns}\b`, 'i').test(normalized)
         && /\b(?:referenc(?:e|es|ed|ing)|use|using|include|incorporate|based\s+on|guided\s+by|with)\b[\s\S]{0,120}\b(?:uploaded|attached|provided|reference|source|input|assets?|images?|photos?|pictures?)\b/i.test(normalized)
         && !/\b(?:videos?|clips?|animations?|movies?|films?|commercials?)\b/i.test(normalized);
+    const storyboardImageMentionIsCaptionSource = standaloneCompositeImageMention
+        && /\b(?:voice\s*over|voiceover|captions?|text|copy|dialogue|lines?)\b[\s\S]{0,180}\b(?:read|shown|displayed|under|below|from|in|on)\b[\s\S]{0,120}\b(?:story\s*board|storyboard)\s+images?\b/i.test(normalized);
+    if (directVideoOutput
+        && storyboardImageMentionIsCaptionSource
+        && !explicitStoryboardImageOrSheetRequest
+        && !referenceGuidedAdCreative
+        && !characterSheetImageStage) {
+        return false;
+    }
+    if (directVideoOutput
+        && !explicitGeneratedImageOutput
+        && standaloneCompositeImageMention
+        && !storyboardImageStage
+        && !referenceGuidedAdCreative
+        && !characterSheetImageStage
+        && !explicitStoryboardImageOrSheetRequest) {
+        return false;
+    }
+    const explicitImageOutput = explicitGeneratedImageOutput || standaloneCompositeImageMention;
     if (!explicitImageOutput && !storyboardImageStage && !referenceGuidedAdCreative && !characterSheetImageStage)
         return false;
     if (!referenceGuidedAdCreative
