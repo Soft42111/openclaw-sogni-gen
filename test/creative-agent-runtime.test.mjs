@@ -184,7 +184,7 @@ test('runtime exposes reusable storyboard image prompt compiler', () => {
     cellAspectRatio: '9:16',
     targetVideoAspectRatio: '9:16',
     layoutKind: 'landscape_portrait_cells',
-    layoutDescription: '6 portrait video panels arranged as a 2-row x 3-column grid inside a landscape board; keep compact labels outside the frames and use unused grid slots as margin/notes space'
+    layoutDescription: '6 numbered scene slots arranged as a 2-row x 3-column grid inside a landscape board; each slot contains one tall 9:16 portrait video-frame rectangle with compact labels outside the rectangle; use unused grid slots as margin/notes space only'
   });
 
   const prompt = compileVideoStoryboardImagePrompt({
@@ -195,6 +195,10 @@ test('runtime exposes reusable storyboard image prompt compiler', () => {
 
   assert.match(prompt, /Image 1: character\/source subject reference\./);
   assert.match(prompt, /Image 2: logo\/brand reference\./);
+  assert.match(prompt, /COUNT \/ GRID CONTRACT:/);
+  assert.match(prompt, /Required scene count: exactly 6 numbered storyboard scene slots; do not render fewer slots and do not add extra scene slots\./);
+  assert.match(prompt, /Fill slots in reading order, left-to-right then top-to-bottom: \[1\] SCENE_01/);
+  assert.match(prompt, /Do not merge adjacent scenes, combine two beats into one slot, duplicate slots, or place thumbnail\/inset panels inside a slot\./);
   assert.match(prompt, /Individual scene-cell\/frame aspect ratio: 9:16\./);
   assert.doesNotMatch(prompt, /Render "Psych\." exactly|S-O-G-N-I/);
   assert.equal(lintStoryboardImagePrompt(prompt, layout).ok, true);

@@ -1761,6 +1761,7 @@ function inferStoryboardAspectNearUnit(text, unitPattern, rejectBetweenPattern) 
         const ratio = ratioFromStoryboardAspectWords(aspect);
         if (!ratio)
             continue;
+        const specificity = /\d/.test(aspect) ? 0 : 1;
         const start = match.index ?? 0;
         const end = start + match[0].length;
         const after = text.slice(end, Math.min(text.length, end + 80));
@@ -1768,7 +1769,7 @@ function inferStoryboardAspectNearUnit(text, unitPattern, rejectBetweenPattern) 
         if (afterUnit?.index !== undefined) {
             const between = after.slice(0, afterUnit.index);
             if (!rejectBetweenPattern.test(between)) {
-                candidates.push({ ratio, distance: between.length });
+                candidates.push({ ratio, distance: between.length, specificity });
             }
         }
         const before = text.slice(Math.max(0, start - 80), start);
@@ -1777,11 +1778,11 @@ function inferStoryboardAspectNearUnit(text, unitPattern, rejectBetweenPattern) 
         if (beforeUnit?.index !== undefined) {
             const between = before.slice(beforeUnit.index + beforeUnit[0].length);
             if (!rejectBetweenPattern.test(between)) {
-                candidates.push({ ratio, distance: between.length });
+                candidates.push({ ratio, distance: between.length, specificity });
             }
         }
     }
-    candidates.sort((a, b) => a.distance - b.distance);
+    candidates.sort((a, b) => a.specificity - b.specificity || a.distance - b.distance);
     return candidates[0]?.ratio ?? null;
 }
 function inferStoryboardBoardAspectRatio(text) {
@@ -1853,51 +1854,75 @@ function inferStoryboardCellAspectRatio(text, targetVideoAspectRatio) {
     }
     return targetVideoAspectRatio;
 }
-function describePortraitLetterboxCellArrangement(frameCount) {
-    if (frameCount <= 4)
-        return `${frameCount} stacked widescreen letterbox storyboard cells in a portrait sheet`;
+function describeVideoFrameShape(cellAspectRatio) {
+    const cellOrientation = parseAspectRatioOrientation(cellAspectRatio);
+    if (cellOrientation === 'portrait')
+        return `tall ${cellAspectRatio} portrait video-frame rectangle`;
+    if (cellOrientation === 'landscape')
+        return `wide ${cellAspectRatio} landscape video-frame rectangle`;
+    if (cellOrientation === 'square')
+        return `square ${cellAspectRatio} video-frame area`;
+    return `${cellAspectRatio} video-frame rectangle`;
+}
+function describePortraitLetterboxCellArrangement(frameCount, cellAspectRatio) {
+    const frameShape = describeVideoFrameShape(cellAspectRatio);
+    if (frameCount <= 4) {
+        return `${frameCount} numbered scene slots, each containing one ${frameShape}, stacked in a portrait sheet with compact labels outside the rectangles`;
+    }
     const columns = frameCount <= 8 ? 2 : frameCount <= 15 ? 3 : 4;
     const rows = Math.ceil(frameCount / columns);
     return [
-        `${frameCount} widescreen letterbox storyboard cells arranged as a ${columns}-column x ${rows}-row grid inside a portrait sheet`,
-        'keep compact labels outside the frames and use unused grid slots as margin/notes space',
+        `${frameCount} numbered scene slots arranged as a ${columns}-column x ${rows}-row grid inside a portrait sheet`,
+        `each slot contains one ${frameShape} with compact labels outside the rectangle`,
+        'use unused grid slots as margin/notes space only',
     ].join('; ');
 }
-function describeLandscapePortraitCellArrangement(frameCount) {
-    if (frameCount <= 4)
-        return `${frameCount} portrait video panels arranged cleanly inside a landscape board`;
+function describeLandscapePortraitCellArrangement(frameCount, cellAspectRatio) {
+    const frameShape = describeVideoFrameShape(cellAspectRatio);
+    if (frameCount <= 4) {
+        return `${frameCount} numbered scene slots, each containing one ${frameShape}, arranged cleanly inside a landscape board with compact labels outside the rectangles`;
+    }
     const rows = frameCount <= 8 ? 2 : frameCount <= 15 ? 3 : 4;
     const columns = Math.ceil(frameCount / rows);
     return [
-        `${frameCount} portrait video panels arranged as a ${rows}-row x ${columns}-column grid inside a landscape board`,
-        'keep compact labels outside the frames and use unused grid slots as margin/notes space',
+        `${frameCount} numbered scene slots arranged as a ${rows}-row x ${columns}-column grid inside a landscape board`,
+        `each slot contains one ${frameShape} with compact labels outside the rectangle`,
+        'use unused grid slots as margin/notes space only',
     ].join('; ');
 }
-function describeStoryboardLayout(boardAspectRatio, cellAspectRatio, frameCount) {
-    if (boardAspectRatio === '9:16' && cellAspectRatio === '16:9') {
-        return {
-            layoutKind: 'portrait_letterbox_cells',
-            layoutDescription: describePortraitLetterboxCellArrangement(frameCount),
-        };
-    }
-    if (boardAspectRatio === '16:9' && cellAspectRatio === '9:16') {
-        return {
-            layoutKind: 'landscape_portrait_cells',
-            layoutDescription: describeLandscapePortraitCellArrangement(frameCount),
-        };
-    }
-    if (boardAspectRatio === '9:16') {
+function describeSingleOrientationStoryboardArrangement(boardAspectRatio, cellAspectRatio, frameCount) {
+    const boardOrientation = parseAspectRatioOrientation(boardAspectRatio);
+    const frameShape = describeVideoFrameShape(cellAspectRatio);
+    if (boardOrientation === 'portrait') {
         return {
             layoutKind: 'portrait_grid',
-            layoutDescription: `${frameCount} true portrait storyboard frames in a clean vertical storyboard grid`,
+            layoutDescription: `${frameCount} numbered scene slots arranged in a clean vertical storyboard grid; each slot contains one ${frameShape} with compact labels outside the rectangle`,
         };
     }
+    const boardLabel = boardOrientation === 'square' ? 'square board' : 'landscape board';
     return {
         layoutKind: 'landscape_grid',
-        layoutDescription: frameCount === 6
-            ? '2 rows x 3 columns of true widescreen storyboard frames'
-            : `${frameCount} sequential storyboard frames in a balanced landscape grid`,
+        layoutDescription: frameCount === 6 && boardOrientation !== 'square'
+            ? `2 rows x 3 columns of numbered scene slots inside a ${boardLabel}; each slot contains one ${frameShape} with compact labels outside the rectangle`
+            : `${frameCount} numbered scene slots in a balanced ${boardLabel} storyboard grid; each slot contains one ${frameShape} with compact labels outside the rectangle`,
     };
+}
+function describeStoryboardLayout(boardAspectRatio, cellAspectRatio, frameCount) {
+    const boardOrientation = parseAspectRatioOrientation(boardAspectRatio);
+    const cellOrientation = parseAspectRatioOrientation(cellAspectRatio);
+    if (boardOrientation === 'portrait' && cellOrientation === 'landscape') {
+        return {
+            layoutKind: 'portrait_letterbox_cells',
+            layoutDescription: describePortraitLetterboxCellArrangement(frameCount, cellAspectRatio),
+        };
+    }
+    if (boardOrientation === 'landscape' && cellOrientation === 'portrait') {
+        return {
+            layoutKind: 'landscape_portrait_cells',
+            layoutDescription: describeLandscapePortraitCellArrangement(frameCount, cellAspectRatio),
+        };
+    }
+    return describeSingleOrientationStoryboardArrangement(boardAspectRatio, cellAspectRatio, frameCount);
 }
 export function inferStoryboardLayoutSpec(userIntentText, frameCount) {
     const explicitPixels = inferExplicitPixelDimensionsFromText(userIntentText);
@@ -2217,7 +2242,7 @@ function compileStoryboardReferenceSection(project) {
     if (refs.length <= 0) {
         return [
             'REFERENCE IMAGES:',
-            'No numbered reference images were explicitly identified. If uploaded references are present in the tool call, preserve their assigned subject, product, logo, style, or background role from the approved brief.',
+            'Uploaded or supplied references: preserve any provided subject, product, logo, style, or background roles from the approved brief. If no reference assets are attached, ignore this section.',
         ];
     }
     return [
@@ -3624,6 +3649,56 @@ function compileStoryboardStoryContinuitySection(project) {
             : []),
     ];
 }
+function compileStoryboardCountContractSection(project, layout) {
+    if (project.scenes.length === 0)
+        return [];
+    const sceneSlots = project.scenes
+        .map((scene, index) => `[${index + 1}] ${scene.id.toUpperCase()}`)
+        .join(', ');
+    return [
+        'COUNT / GRID CONTRACT:',
+        `Required scene count: exactly ${project.scenes.length} numbered storyboard scene slots; do not render fewer slots and do not add extra scene slots.`,
+        `Allocate the full ${project.scenes.length}-slot storyboard grid before drawing details. Fill slots in reading order, left-to-right then top-to-bottom: ${sceneSlots}.`,
+        `Each allocated scene slot gets one distinct ${layout.cellAspectRatio} cinematic video-frame rectangle plus its own compact notes outside that rectangle. Do not merge adjacent scenes, combine two beats into one slot, duplicate slots, or place thumbnail/inset panels inside a slot.`,
+        `Use the layout preset exactly: ${layout.layoutKind} - ${layout.layoutDescription}. The final sheet should be visibly countable as ${project.scenes.length} numbered scene slots at a glance.`,
+    ];
+}
+function compileStoryboardFrameGeometrySection(layout) {
+    const cellOrientation = parseAspectRatioOrientation(layout.cellAspectRatio);
+    if (cellOrientation === 'portrait') {
+        return [
+            'PORTRAIT FRAME GEOMETRY:',
+            'Treat each numbered scene slot as a container, not as the artwork shape.',
+            `Inside every numbered scene slot, draw one identical upright ${layout.cellAspectRatio} video-frame rectangle whose height is visibly greater than its width.`,
+            `Keep all scene numbers, timing, titles, notes, headers, footers, and production labels outside the ${layout.cellAspectRatio} video-frame rectangles.`,
+            `Do not make the numbered scene slots, frame artwork areas, or thumbnails square. Square cells violate the requested ${layout.cellAspectRatio} final video format.`,
+            'Unused grid slots must remain blank margin/notes space only; do not stretch or square off the portrait frame rectangles to fill the grid.',
+        ];
+    }
+    if (cellOrientation === 'landscape') {
+        return [
+            'LANDSCAPE FRAME GEOMETRY:',
+            'Treat each numbered scene slot as a container, not as the artwork shape.',
+            `Inside every numbered scene slot, draw one identical wide ${layout.cellAspectRatio} video-frame rectangle whose width is visibly greater than its height.`,
+            `Keep all scene numbers, timing, titles, notes, headers, footers, and production labels outside the ${layout.cellAspectRatio} video-frame rectangles.`,
+            `Do not make the numbered scene slots, frame artwork areas, or thumbnails square. Square cells violate the requested ${layout.cellAspectRatio} final video format.`,
+            'Unused grid slots must remain blank margin/notes space only; do not stretch or square off the landscape frame rectangles to fill the grid.',
+        ];
+    }
+    if (cellOrientation === 'square') {
+        return [
+            'SQUARE FRAME GEOMETRY:',
+            'Treat each numbered scene slot as a container, not as the artwork shape.',
+            `Inside every numbered scene slot, draw one identical square ${layout.cellAspectRatio} video-frame area plus compact notes outside that square.`,
+            `Do not stretch square frame artwork areas into portrait, landscape, full-board, or any aspect ratio other than ${layout.cellAspectRatio}.`,
+        ];
+    }
+    return [
+        'FRAME GEOMETRY:',
+        `Inside every numbered scene slot, draw one identical ${layout.cellAspectRatio} video-frame rectangle plus compact notes outside that rectangle.`,
+        `Do not let frame artwork areas drift to square, full-board, or any aspect ratio other than ${layout.cellAspectRatio}.`,
+    ];
+}
 function compileStoryboardScenesSection(project) {
     if (project.scenes.length === 0)
         return [];
@@ -3690,6 +3765,8 @@ export function compileVideoStoryboardImagePrompt(options) {
         `Project title: ${project.title}.`,
         project.durationSec !== null ? `Target duration: ${project.durationSec} seconds.` : 'Target duration: unspecified in source brief.',
         '',
+        ...compileStoryboardCountContractSection(project, layout),
+        '',
         ...compileStoryboardReferenceSection(project),
         '',
         'CANVAS / LAYOUT:',
@@ -3700,6 +3777,8 @@ export function compileVideoStoryboardImagePrompt(options) {
         `Every cinematic frame artwork area inside every scene cell must preserve ${layout.cellAspectRatio}; do not let any individual frame drift to square, full-board, or a different portrait/landscape ratio.`,
         'Keep margins, gutters, outside-frame numbering, note strips, and typography consistent across the full board.',
         'Each scene cell must make the frame-to-notes relationship clear while keeping production labels outside the actual video-frame artwork.',
+        '',
+        ...compileStoryboardFrameGeometrySection(layout),
         '',
         ...compileStoryboardStoryContinuitySection(project),
         '',
@@ -3732,10 +3811,24 @@ export function lintStoryboardImagePrompt(prompt, layout, project) {
     const warnings = [];
     if (!/CREATE:/i.test(prompt))
         errors.push('missing CREATE section');
+    if (!/COUNT \/ GRID CONTRACT:/i.test(prompt))
+        errors.push('missing COUNT / GRID CONTRACT section');
     if (!/REFERENCE IMAGES:/i.test(prompt))
         errors.push('missing REFERENCE IMAGES section');
     if (!/CANVAS \/ LAYOUT:/i.test(prompt))
         errors.push('missing CANVAS / LAYOUT section');
+    if (!/FRAME GEOMETRY:/i.test(prompt))
+        errors.push('missing FRAME GEOMETRY section');
+    const cellOrientation = parseAspectRatioOrientation(layout.cellAspectRatio);
+    if (cellOrientation === 'portrait' && !/PORTRAIT FRAME GEOMETRY:/i.test(prompt)) {
+        errors.push('missing PORTRAIT FRAME GEOMETRY section');
+    }
+    if (cellOrientation === 'landscape' && !/LANDSCAPE FRAME GEOMETRY:/i.test(prompt)) {
+        errors.push('missing LANDSCAPE FRAME GEOMETRY section');
+    }
+    if (cellOrientation === 'square' && !/SQUARE FRAME GEOMETRY:/i.test(prompt)) {
+        errors.push('missing SQUARE FRAME GEOMETRY section');
+    }
     if (!/TEXT RENDERING:/i.test(prompt))
         errors.push('missing TEXT RENDERING section');
     if (!prompt.includes(`Overall storyboard canvas aspect ratio: ${layout.boardAspectRatio}`)
