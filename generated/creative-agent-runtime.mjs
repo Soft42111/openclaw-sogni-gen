@@ -3414,13 +3414,17 @@ export function buildStoryboardProject(options) {
         ? splitStoryboardSections(approvedScriptContext)
         : [];
     const sourceSections = splitStoryboardSections(sourceText);
+    const approvedSectionsHaveExplicitTiming = approvedSections.some(section => extractStoryboardTiming(`${section.heading}\n${section.body}`) !== null);
+    const sourceSectionsHaveExplicitTiming = sourceSections.some(section => extractStoryboardTiming(`${section.heading}\n${section.body}`) !== null);
     const assistantApprovedDraftUndercounted = options.promptAuthorship === 'assistant'
         && approvedSections.length > 0
-        && approvedSections.length < options.frameCount;
+        && approvedSections.length < options.frameCount
+        && !approvedSectionsHaveExplicitTiming;
     const assistantDraftUndercounted = options.promptAuthorship === 'assistant'
         && !approvedScriptContext
         && sourceSections.length > 0
-        && sourceSections.length < options.frameCount;
+        && sourceSections.length < options.frameCount
+        && !sourceSectionsHaveExplicitTiming;
     const sections = approvedSections.length > 0 && !assistantApprovedDraftUndercounted
         ? approvedSections
         : assistantDraftUndercounted || assistantApprovedDraftUndercounted
