@@ -2507,6 +2507,22 @@ function extractStoryboardTiming(text) {
         durationSec: Math.round((endSec - startSec) * 100) / 100,
     };
 }
+function extractStoryboardTimingMarker(text) {
+    const match = text.match(/(\d{1,2}:\d{2}(?:\.\d+)?|\d{1,3}(?:\.\d+)?)\s*(?:s|sec|secs|seconds?)?\s*(?:-|to|\u2013|\u2014)\s*(\d{1,2}:\d{2}(?:\.\d+)?|\d{1,3}(?:\.\d+)?)\s*(?:s|sec|secs|seconds?)?/i);
+    if (!match)
+        return null;
+    const startSec = parseStoryboardTimeValue(match[1]);
+    const endSec = parseStoryboardTimeValue(match[2]);
+    if (startSec === null || endSec === null)
+        return null;
+    if (!Number.isFinite(startSec) || !Number.isFinite(endSec) || endSec < startSec)
+        return null;
+    return {
+        startSec,
+        endSec,
+        durationSec: Math.round((endSec - startSec) * 100) / 100,
+    };
+}
 function storyboardMarkdownTableCells(line) {
     const trimmed = line.trim();
     if (!trimmed.startsWith('|'))
@@ -2634,10 +2650,10 @@ function splitStoryboardTableSections(text) {
             headers = cells;
             continue;
         }
-        const timingCellIndex = cells.findIndex(cell => extractStoryboardTiming(cell) !== null);
+        const timingCellIndex = cells.findIndex(cell => extractStoryboardTimingMarker(cell) !== null);
         if (timingCellIndex < 0)
             continue;
-        const timing = extractStoryboardTiming(cells[timingCellIndex]);
+        const timing = extractStoryboardTimingMarker(cells[timingCellIndex]);
         if (!timing)
             continue;
         const visualHeaderIndex = storyboardTableHeaderIndex(headers, /\b(?:visual|frame|shot|image|action)\b/i);
