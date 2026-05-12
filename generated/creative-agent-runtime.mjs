@@ -292,7 +292,7 @@ export function compileForModel(modelId) {
     return { adapterModelId: adapter.modelId };
 }
 const PUBLIC_SEEDANCE_PRIMARY_IMAGE_REF = formatModelRef('seedance', 1, 'image');
-export const SEEDANCE_STORYBOARD_REFERENCE_PROMPT = `Turn the video storyboard in ${PUBLIC_SEEDANCE_PRIMARY_IMAGE_REF} into a cohesive video. Treat ${PUBLIC_SEEDANCE_PRIMARY_IMAGE_REF} as the controlling source and follow its ordered thumbnails, timecodes, captions, Dialogue/VO, Audio/SFX, camera/motion notes, transitions, visible text, and scene order. Preserve the story spine, character/product/reference continuity, and cause-and-effect progression between beats. Treat transitions as motion instructions, not unrelated hard cuts unless the storyboard explicitly asks for hard cuts. Keep critical CTA or brand text large, centered, legible, and held long enough to read. Use a generated music/SFX arc that builds, peaks, resolves, and lands the final logo/CTA hit. Do not add unrelated logos, random UI, tiny microtext, or extra scenes.`;
+export const SEEDANCE_STORYBOARD_REFERENCE_PROMPT = `Turn the video storyboard in ${PUBLIC_SEEDANCE_PRIMARY_IMAGE_REF} into a cohesive video. Treat ${PUBLIC_SEEDANCE_PRIMARY_IMAGE_REF} as the controlling source and follow its ordered thumbnails, timecodes, captions, titles, Dialogue/VO, Audio/SFX, camera/motion notes, transitions, visible text, and scene order. Convert each storyboard thumbnail into a full-screen chronological beat; do not reuse only one or two motifs while skipping panels. When the board has panel titles or captions but no formal Dialogue/VO labels, treat those captions as required narration or key-message beats in order unless they are clearly visual-only metadata. Preserve the story spine, character/product/reference continuity, and cause-and-effect progression between beats. Treat transitions as motion instructions, not unrelated hard cuts unless the storyboard explicitly asks for hard cuts. Keep critical CTA or brand text large, centered, legible, and held long enough to read. Use a generated music/SFX arc that builds, peaks, resolves, and lands the final logo/CTA hit. Do not add unrelated logos, random UI, tiny microtext, or extra scenes.`;
 export const SEEDANCE_V2V_REFERENCE_MAX_DURATION_SECONDS = 15;
 function asciiAt(data, start, length) {
     if (data.length < start + length)
@@ -1303,6 +1303,32 @@ export function textProvidesVideoScriptOrDetailedPrompt(text) {
 export function seedanceStoryboardFallbackAllowedForText(text) {
     return !textProvidesVideoScriptOrDetailedPrompt(text);
 }
+function textProvidesStructuredVideoScriptOrPrompt(text) {
+    const normalized = text
+        .replace(/[“”]/g, '"')
+        .replace(/[’]/g, "'")
+        .trim();
+    if (!normalized)
+        return false;
+    if (textProvidesLiteralVideoPrompt(normalized))
+        return true;
+    if (/\[\s*\d{1,2}(?:[:.]\d{2})?\s*(?:-|–|—|to)\s*\d{1,2}(?:[:.]\d{2})?\s*\]/i.test(normalized))
+        return true;
+    if (/^\s*(?:scene|shot|segment)\s*\d{1,2}\b/im.test(normalized))
+        return true;
+    if (/^\s*(?:dialogue|vo|v\.o\.|voiceover)\s*:/im.test(normalized))
+        return true;
+    if ((normalized.match(/^\s*(?:shot|scene|segment|camera|motion|audio|vo|v\.o\.|voiceover|sfx|fx|music|dialogue)\s*:/gim) || []).length >= 2) {
+        return true;
+    }
+    if ((normalized.match(/\b(?:VO|SFX|camera|motion|audio|dialogue|shot|segment)\s*:/g) || []).length >= 3) {
+        return true;
+    }
+    return (normalized.match(/"[^"]{8,}"/g) || []).length >= 2;
+}
+export function seedanceStoryboardReferenceFallbackAllowedForVisualDetection(text) {
+    return !textProvidesStructuredVideoScriptOrPrompt(text);
+}
 function normalizeDurationSeconds(value) {
     const raw = typeof value === 'string'
         ? Number(value.trim().match(/^(\d{1,3}(?:\.\d+)?)\s*(?:s|sec|secs|seconds?)?$/i)?.[1])
@@ -1533,7 +1559,12 @@ export function planSeedanceStoryboardFallback(input) {
         ?? textProvidesLiteralVideoPrompt(userIntentText);
     if (providesLiteralPrompt)
         return null;
-    if (!seedanceStoryboardFallbackAllowedForText(userIntentText))
+    const storyboardReferenceMentioned = textMentionsStoryboardReference(userIntentText);
+    const storyboardVisuallyDetected = input.storyboardDetected === true;
+    const allowsStoryboardFallback = storyboardReferenceMentioned || storyboardVisuallyDetected
+        ? seedanceStoryboardReferenceFallbackAllowedForVisualDetection(userIntentText)
+        : seedanceStoryboardFallbackAllowedForText(userIntentText);
+    if (!allowsStoryboardFallback)
         return null;
     if (input.uploadedImageCount !== 1)
         return null;
@@ -1547,9 +1578,9 @@ export function planSeedanceStoryboardFallback(input) {
         return null;
     if (textRequestsAdjacentImageTransitions(userIntentText))
         return null;
-    const reason = textMentionsStoryboardReference(userIntentText)
+    const reason = storyboardReferenceMentioned
         ? 'text_mentions_storyboard'
-        : input.storyboardDetected
+        : storyboardVisuallyDetected
             ? 'vision_detected_storyboard'
             : null;
     if (!reason)
@@ -1568,7 +1599,7 @@ export function planSeedanceStoryboardFallback(input) {
     if (userProvidedDuration && intendedDuration > maxDuration)
         return null;
     return {
-        prompt: SEEDANCE_STORYBOARD_REFERENCE_PROMPT,
+        prompt: buildSeedanceStoryboardReferencePrompt(userIntentText, reason),
         duration: Math.max(minDuration, Math.min(maxDuration, intendedDuration)),
         referenceImageIndices: input.referenceImageIndices ?? [-1],
         skipPromptProcessing: true,
@@ -1576,6 +1607,16 @@ export function planSeedanceStoryboardFallback(input) {
         reason,
         ...(storyboardAspectRatio ? { aspectRatio: storyboardAspectRatio } : {}),
     };
+}
+function buildSeedanceStoryboardReferencePrompt(userIntentText, reason) {
+    if (reason !== 'vision_detected_storyboard')
+        return SEEDANCE_STORYBOARD_REFERENCE_PROMPT;
+    const additionalDirection = userIntentText
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!additionalDirection)
+        return SEEDANCE_STORYBOARD_REFERENCE_PROMPT;
+    return `${SEEDANCE_STORYBOARD_REFERENCE_PROMPT} Additional user direction to honor while following the storyboard: ${additionalDirection}`;
 }
 function valuePresent(value) {
     return value !== undefined && value !== null && value !== '';

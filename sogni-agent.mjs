@@ -87,6 +87,8 @@ const DEFAULT_PERSONALITY_PATH = join(homedir(), '.config', 'sogni', 'personalit
 const DEFAULT_PERSONAS_DIR = join(homedir(), '.config', 'sogni', 'personas');
 const DEFAULT_PERSONAS_INDEX_PATH = join(homedir(), '.config', 'sogni', 'personas', 'index.json');
 const DEFAULT_API_BASE_URL = 'https://api.sogni.ai';
+const DEFAULT_SAFE_API_HOSTS = Object.freeze(['api.sogni.ai']);
+const LOOPBACK_API_HOSTS = Object.freeze(['localhost', '127.0.0.1', '::1']);
 const DEFAULT_LLM_MODEL = 'qwen3.6-35b-a3b-gguf-iq4xs';
 const SOGNI_APP_SOURCE = 'sogni-creative-agent-skill';
 const OPENCLAW_CONFIG_PATH = getEnv('OPENCLAW_CONFIG_PATH') || DEFAULT_OPENCLAW_CONFIG_PATH;
@@ -336,6 +338,61 @@ function appendApiPath(baseUrl, path) {
 
 function getApiBaseUrl() {
   return options.apiBaseUrl || getEnv('SOGNI_API_BASE_URL') || getEnv('SOGNI_REST_ENDPOINT') || DEFAULT_API_BASE_URL;
+}
+
+function getApiAllowedHosts() {
+  const configured = String(getEnv('SOGNI_API_ALLOWED_HOSTS') || '')
+    .split(',')
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean);
+  return Array.from(new Set([...DEFAULT_SAFE_API_HOSTS, ...configured]));
+}
+
+function allowUnsafeApiBaseUrl() {
+  return getEnv('SOGNI_ALLOW_UNSAFE_API_BASE_URL') === '1';
+}
+
+function isLoopbackApiUrl(parsed) {
+  return LOOPBACK_API_HOSTS.includes(parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase());
+}
+
+async function buildSafeApiUrl(path) {
+  const url = appendApiPath(getApiBaseUrl(), path);
+  if (allowUnsafeApiBaseUrl()) return url;
+
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    const err = new Error('Invalid Sogni API base URL.');
+    err.code = 'INVALID_API_BASE_URL';
+    throw err;
+  }
+
+  if (isLoopbackApiUrl(parsed)) {
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      const err = new Error(`Sogni API URL protocol ${parsed.protocol} is not allowed for local development.`);
+      err.code = 'UNSAFE_API_BASE_URL';
+      throw err;
+    }
+    return url;
+  }
+
+  try {
+    await assertSafeUrl(url, {
+      allowedProtocols: ['https:'],
+      allowedHosts: getApiAllowedHosts()
+    });
+  } catch (err) {
+    const wrapped = new Error(
+      `${err.message}. Set SOGNI_API_ALLOWED_HOSTS for a trusted custom API host, or SOGNI_ALLOW_UNSAFE_API_BASE_URL=1 for isolated local testing.`
+    );
+    wrapped.code = 'UNSAFE_API_BASE_URL';
+    wrapped.cause = err;
+    throw wrapped;
+  }
+
+  return url;
 }
 
 function generateRandomSeed() {
@@ -2964,7 +3021,7 @@ function apiRequestHeaders(apiKey, extra = {}) {
 }
 
 async function fetchApiJson(path, { apiKey, method = 'GET', body = undefined, headers = {} } = {}) {
-  const url = appendApiPath(getApiBaseUrl(), path);
+  const url = await buildSafeApiUrl(path);
   const init = {
     method,
     headers: apiRequestHeaders(apiKey, headers),
@@ -3401,7 +3458,7 @@ function parseWorkflowSseChunk(raw) {
 }
 
 async function streamApiWorkflowEvents(apiKey, workflowId) {
-  const url = appendApiPath(getApiBaseUrl(), `/v1/creative-agent/workflows/${encodeURIComponent(workflowId)}/events/stream`);
+  const url = await buildSafeApiUrl(`/v1/creative-agent/workflows/${encodeURIComponent(workflowId)}/events/stream`);
 
   const response = await fetch(url, {
     method: 'GET',
