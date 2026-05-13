@@ -30,24 +30,25 @@ const SEEDANCE_MODEL_REF_FORMAT = {
 const GPT_IMAGE_MODEL_REF_FORMAT = {
     format(index, type) {
         if (type === 'video')
-            return `[Video ${index}]`;
+            return `Video ${index}`;
         if (type === 'audio')
-            return `[Audio ${index}]`;
-        return `[Image ${index}]`;
+            return `Audio ${index}`;
+        return `Image ${index}`;
     },
     parse(token) {
-        const m = /^\[(Image|Video|Audio)\s+(\d+)\]$/.exec(token.trim());
+        const m = /^(?:\[(Image|Video|Audio)\s+(\d+)\]|(Image|Video|Audio)\s+(\d+))$/.exec(token.trim());
         if (!m)
             return null;
-        const index = Number.parseInt(m[2], 10);
+        const kind = m[1] ?? m[3];
+        const index = Number.parseInt(m[2] ?? m[4], 10);
         if (!Number.isFinite(index) || index < 1)
             return null;
         return {
             index,
-            type: m[1] === 'Video' ? 'video' : m[1] === 'Audio' ? 'audio' : 'image',
+            type: kind === 'Video' ? 'video' : kind === 'Audio' ? 'audio' : 'image',
         };
     },
-    scanRegex: /\[(?:Image|Video|Audio)\s+\d+\]/g,
+    scanRegex: /(?<!@)(?<!\b[Gg][Pp][Tt]\s)(?:\[(?:Image|Video|Audio)\s+\d+\]|\b(?:Image|Video|Audio)\s+\d+\b)/g,
 };
 const CONTEXT_MODEL_REF_FORMAT = {
     format(index, type) {
@@ -291,7 +292,7 @@ export function compileForModel(modelId) {
     return { adapterModelId: adapter.modelId };
 }
 const PUBLIC_SEEDANCE_PRIMARY_IMAGE_REF = formatModelRef('seedance', 1, 'image');
-export const SEEDANCE_STORYBOARD_REFERENCE_PROMPT = `Turn the video storyboard in ${PUBLIC_SEEDANCE_PRIMARY_IMAGE_REF} into a cohesive video. Treat ${PUBLIC_SEEDANCE_PRIMARY_IMAGE_REF} as the controlling source and follow its ordered thumbnails, timecodes, captions, Dialogue/VO, Audio/SFX, camera/motion notes, transitions, visible text, and scene order. Preserve the story spine, character/product/reference continuity, and cause-and-effect progression between beats. Treat transitions as motion instructions, not unrelated hard cuts unless the storyboard explicitly asks for hard cuts. Keep critical CTA or brand text large, centered, legible, and held long enough to read. Use a generated music/SFX arc that builds, peaks, resolves, and lands the final logo/CTA hit. Do not add unrelated logos, random UI, tiny microtext, or extra scenes.`;
+export const SEEDANCE_STORYBOARD_REFERENCE_PROMPT = `Turn the video storyboard in ${PUBLIC_SEEDANCE_PRIMARY_IMAGE_REF} into a cohesive video. Treat ${PUBLIC_SEEDANCE_PRIMARY_IMAGE_REF} as the controlling source and follow its ordered thumbnails, timecodes, captions, titles, Dialogue/VO, Audio/SFX, camera/motion notes, transitions, visible text, and scene order. Convert each storyboard thumbnail into a full-screen chronological beat; do not reuse only one or two motifs while skipping panels. When the board has panel titles or captions but no formal Dialogue/VO labels, treat those captions as required narration or key-message beats in order unless they are clearly visual-only metadata. Preserve the story spine, character/product/reference continuity, and cause-and-effect progression between beats. Treat transitions as motion instructions, not unrelated hard cuts unless the storyboard explicitly asks for hard cuts. Keep critical CTA or brand text large, centered, legible, and held long enough to read. Use a generated music/SFX arc that builds, peaks, resolves, and lands the final logo/CTA hit. Do not add unrelated logos, random UI, tiny microtext, or extra scenes.`;
 export const SEEDANCE_V2V_REFERENCE_MAX_DURATION_SECONDS = 15;
 function asciiAt(data, start, length) {
     if (data.length < start + length)
@@ -875,17 +876,18 @@ export function formatAudioIdPrompt(prompt, voiceName) {
     const dialogue = extractQuotedDialogueSegments(prompt);
     const speechLines = dialogue.length > 0
         ? dialogue.map((line, index) => (voiceName || 'SPEAKER_' + (index + 1)) + ': "' + line + '"').join('\n')
-        : 'No spoken dialogue unless exact quoted words are present in the visual prompt.';
-    return [
+        : '';
+    const sections = [
         '[VISUAL]',
         prompt.trim(),
         '',
         '[SPEECH]',
-        speechLines,
-        '',
-        '[SOUNDS]',
-        'Use natural ambient sound that matches the scene unless the prompt specifies silence.'
-    ].join('\n');
+    ];
+    if (speechLines) {
+        sections.push(speechLines);
+    }
+    sections.push('', '[SOUNDS]', 'Use natural ambient sound that matches the scene unless the prompt specifies silence.');
+    return sections.join('\n');
 }
 export function getVideoPromptGuardrailPlan({ prompt, duration, frames, fps, durationExplicit, referenceAudioIdentity, voiceName } = {}) {
     let nextPrompt = prompt || '';
@@ -1301,6 +1303,32 @@ export function textProvidesVideoScriptOrDetailedPrompt(text) {
 export function seedanceStoryboardFallbackAllowedForText(text) {
     return !textProvidesVideoScriptOrDetailedPrompt(text);
 }
+function textProvidesStructuredVideoScriptOrPrompt(text) {
+    const normalized = text
+        .replace(/[“”]/g, '"')
+        .replace(/[’]/g, "'")
+        .trim();
+    if (!normalized)
+        return false;
+    if (textProvidesLiteralVideoPrompt(normalized))
+        return true;
+    if (/\[\s*\d{1,2}(?:[:.]\d{2})?\s*(?:-|–|—|to)\s*\d{1,2}(?:[:.]\d{2})?\s*\]/i.test(normalized))
+        return true;
+    if (/^\s*(?:scene|shot|segment)\s*\d{1,2}\b/im.test(normalized))
+        return true;
+    if (/^\s*(?:dialogue|vo|v\.o\.|voiceover)\s*:/im.test(normalized))
+        return true;
+    if ((normalized.match(/^\s*(?:shot|scene|segment|camera|motion|audio|vo|v\.o\.|voiceover|sfx|fx|music|dialogue)\s*:/gim) || []).length >= 2) {
+        return true;
+    }
+    if ((normalized.match(/\b(?:VO|SFX|camera|motion|audio|dialogue|shot|segment)\s*:/g) || []).length >= 3) {
+        return true;
+    }
+    return (normalized.match(/"[^"]{8,}"/g) || []).length >= 2;
+}
+export function seedanceStoryboardReferenceFallbackAllowedForVisualDetection(text) {
+    return !textProvidesStructuredVideoScriptOrPrompt(text);
+}
 function normalizeDurationSeconds(value) {
     const raw = typeof value === 'string'
         ? Number(value.trim().match(/^(\d{1,3}(?:\.\d+)?)\s*(?:s|sec|secs|seconds?)?$/i)?.[1])
@@ -1357,7 +1385,12 @@ function textExplicitlyRequestsGeneratedImageStage(text) {
 }
 function textRequestsAdjacentImageTransitions(text) {
     const lower = text.toLowerCase();
-    const mentionsTransition = /\b(?:transition|transitions|transitioning|link|links|linking|connect|connecting|morph)\b/.test(lower)
+    const sequenceNouns = String.raw `(?:images?|photos?|pictures?|keyframes?|frames?|versions?|variations?|scenes?)`;
+    const transitionVerbs = String.raw `(?:transition|transitions|transitioning|link|links|linking|connect|connecting|morph|morphs|morphing)`;
+    const transitionVerbTargetsSequence = new RegExp(String.raw `\b${transitionVerbs}\b\s+(?:the\s+|all\s+|each\s+|every\s+|these\s+|those\s+)?${sequenceNouns}\b`, 'i').test(lower)
+        || new RegExp(String.raw `\b${transitionVerbs}\b[\s\S]{0,40}\b(?:between|from|to|into|across)\b[\s\S]{0,40}\b(?:the\s+)?${sequenceNouns}\b`, 'i').test(lower)
+        || new RegExp(String.raw `\b(?:each|every|all|these|those|generated|uploaded|source|end|first|last|previous|next)\s+(?:story\s*board\s+|storyboard\s+|generated\s+|uploaded\s+)?${sequenceNouns}\b[\s\S]{0,80}\b${transitionVerbs}\b`, 'i').test(lower);
+    const mentionsTransition = transitionVerbTargetsSequence
         || /\bbetween\s+(?:the\s+)?(?:images?|photos?|pictures?|keyframes?|frames?|versions?|variations?|scenes?)\b/.test(lower)
         || /(?:->)/.test(text);
     if (!mentionsTransition)
@@ -1526,7 +1559,12 @@ export function planSeedanceStoryboardFallback(input) {
         ?? textProvidesLiteralVideoPrompt(userIntentText);
     if (providesLiteralPrompt)
         return null;
-    if (!seedanceStoryboardFallbackAllowedForText(userIntentText))
+    const storyboardReferenceMentioned = textMentionsStoryboardReference(userIntentText);
+    const storyboardVisuallyDetected = input.storyboardDetected === true;
+    const allowsStoryboardFallback = storyboardReferenceMentioned || storyboardVisuallyDetected
+        ? seedanceStoryboardReferenceFallbackAllowedForVisualDetection(userIntentText)
+        : seedanceStoryboardFallbackAllowedForText(userIntentText);
+    if (!allowsStoryboardFallback)
         return null;
     if (input.uploadedImageCount !== 1)
         return null;
@@ -1540,9 +1578,9 @@ export function planSeedanceStoryboardFallback(input) {
         return null;
     if (textRequestsAdjacentImageTransitions(userIntentText))
         return null;
-    const reason = textMentionsStoryboardReference(userIntentText)
+    const reason = storyboardReferenceMentioned
         ? 'text_mentions_storyboard'
-        : input.storyboardDetected
+        : storyboardVisuallyDetected
             ? 'vision_detected_storyboard'
             : null;
     if (!reason)
@@ -1561,7 +1599,7 @@ export function planSeedanceStoryboardFallback(input) {
     if (userProvidedDuration && intendedDuration > maxDuration)
         return null;
     return {
-        prompt: SEEDANCE_STORYBOARD_REFERENCE_PROMPT,
+        prompt: buildSeedanceStoryboardReferencePrompt(userIntentText, reason),
         duration: Math.max(minDuration, Math.min(maxDuration, intendedDuration)),
         referenceImageIndices: input.referenceImageIndices ?? [-1],
         skipPromptProcessing: true,
@@ -1569,6 +1607,16 @@ export function planSeedanceStoryboardFallback(input) {
         reason,
         ...(storyboardAspectRatio ? { aspectRatio: storyboardAspectRatio } : {}),
     };
+}
+function buildSeedanceStoryboardReferencePrompt(userIntentText, reason) {
+    if (reason !== 'vision_detected_storyboard')
+        return SEEDANCE_STORYBOARD_REFERENCE_PROMPT;
+    const additionalDirection = userIntentText
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!additionalDirection)
+        return SEEDANCE_STORYBOARD_REFERENCE_PROMPT;
+    return `${SEEDANCE_STORYBOARD_REFERENCE_PROMPT} Additional user direction to honor while following the storyboard: ${additionalDirection}`;
 }
 function valuePresent(value) {
     return value !== undefined && value !== null && value !== '';
@@ -1685,6 +1733,104 @@ export function planCliVideoBrain(input) {
         }
     }
     return plan;
+}
+export const STORYBOARD_PLANNING_CONTRACT_SCHEMA_VERSION = 'storyboard-planning-contract/v1';
+export const STORYBOARD_PLANNING_CONTRACT_JSON_SCHEMA = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+        schemaVersion: {
+            type: 'string',
+            const: STORYBOARD_PLANNING_CONTRACT_SCHEMA_VERSION,
+        },
+        source: {
+            type: 'string',
+            enum: ['llm_schema', 'assistant_metadata', 'user_schema', 'fallback_text'],
+        },
+        layout: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+                source: {
+                    type: 'string',
+                    enum: ['llm_schema', 'assistant_metadata', 'user_schema', 'fallback_text'],
+                },
+                storyboardCanvasAspectRatio: { type: 'string' },
+                storyboardCellAspectRatio: { type: 'string' },
+                targetVideoAspectRatio: { type: 'string' },
+                boardDimensions: { type: 'string' },
+            },
+            required: [
+                'source',
+                'storyboardCanvasAspectRatio',
+                'storyboardCellAspectRatio',
+                'targetVideoAspectRatio',
+                'boardDimensions',
+            ],
+        },
+        scenes: {
+            type: 'array',
+            items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                    id: { type: 'string' },
+                    index: { type: 'integer', minimum: 1, maximum: 24 },
+                    visibleText: {
+                        type: 'array',
+                        items: { type: 'string' },
+                    },
+                    metadataLabels: {
+                        type: 'array',
+                        items: { type: 'string' },
+                    },
+                    referenceUsage: {
+                        type: 'array',
+                        items: { type: 'string' },
+                    },
+                },
+                required: ['id', 'index', 'visibleText', 'metadataLabels', 'referenceUsage'],
+            },
+        },
+        endCard: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+                visibleText: {
+                    type: 'array',
+                    items: { type: 'string' },
+                },
+                metadataLabels: {
+                    type: 'array',
+                    items: { type: 'string' },
+                },
+            },
+            required: ['visibleText', 'metadataLabels'],
+        },
+        metadataLabels: {
+            type: 'array',
+            items: { type: 'string' },
+        },
+    },
+    required: ['schemaVersion', 'source', 'layout', 'scenes', 'endCard', 'metadataLabels'],
+};
+export function buildStoryboardPlanningResponseFormat(name = 'preproduction_storyboard_planning') {
+    return {
+        type: 'json_schema',
+        json_schema: {
+            name,
+            strict: true,
+            schema: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                    notes: { type: 'string' },
+                    storyboardPlanningContract: STORYBOARD_PLANNING_CONTRACT_JSON_SCHEMA,
+                },
+                required: ['notes', 'storyboardPlanningContract'],
+            },
+        },
+    };
 }
 export const STORYBOARD_DEFAULT_MIN_FRAMES = 4;
 export const STORYBOARD_DEFAULT_MAX_FRAMES = 12;
@@ -1830,6 +1976,9 @@ function inferExplicitStoryboardTargetVideoAspectRatio(text) {
         if (width > 0 && height > 0)
             return `${width}:${height}`;
     }
+    const videoOutputAspect = inferStoryboardAspectNearUnit(text, String.raw `target\s+video|final\s+video|output\s+video|video\s+output|actual\s+video|seedance\s+video`, /\b(?:story\s*board|storyboard|board|canvas|page|sheet|poster)\b/i);
+    if (videoOutputAspect)
+        return videoOutputAspect;
     const explicitTargetPattern = /\b(?:target|final|output|actual|seedance|video|clip|film|commercial|promo)\b([\s\S]{0,80}?)\b(\d{1,4})\s*:\s*(\d{1,4})\b/gi;
     for (const explicitTarget of text.matchAll(explicitTargetPattern)) {
         const between = explicitTarget[1] ?? '';
@@ -1943,7 +2092,44 @@ function describeStoryboardLayout(boardAspectRatio, cellAspectRatio, frameCount)
     }
     return describeSingleOrientationStoryboardArrangement(boardAspectRatio, cellAspectRatio, frameCount);
 }
-export function inferStoryboardLayoutSpec(userIntentText, frameCount) {
+function normalizeStoryboardBoardDimensions(value) {
+    if (typeof value !== 'string')
+        return null;
+    const match = value.trim().match(/\b(\d{3,5})\s*[x:]\s*(\d{3,5})\b/i);
+    if (!match)
+        return null;
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0)
+        return null;
+    return `${Math.trunc(width)}x${Math.trunc(height)}`;
+}
+function storyboardPlanningSourceFromContract(contract) {
+    return contract?.layout?.source ?? contract?.source ?? 'fallback_text';
+}
+function applyStoryboardPlanningLayoutContract(fallback, contract, frameCount) {
+    const layoutContract = contract?.layout;
+    if (!layoutContract)
+        return fallback;
+    const boardAspectRatio = normalizeAspectRatio(layoutContract.storyboardCanvasAspectRatio)
+        ?? fallback.boardAspectRatio;
+    const cellAspectRatio = normalizeAspectRatio(layoutContract.storyboardCellAspectRatio)
+        ?? fallback.cellAspectRatio;
+    const targetVideoAspectRatio = normalizeAspectRatio(layoutContract.targetVideoAspectRatio)
+        ?? cellAspectRatio
+        ?? fallback.targetVideoAspectRatio;
+    const layout = describeStoryboardLayout(boardAspectRatio, cellAspectRatio, frameCount);
+    const boardDimensions = normalizeStoryboardBoardDimensions(layoutContract.boardDimensions)
+        ?? fallback.boardDimensions;
+    return {
+        boardAspectRatio,
+        cellAspectRatio,
+        targetVideoAspectRatio,
+        ...layout,
+        ...(boardDimensions ? { boardDimensions } : {}),
+    };
+}
+export function inferStoryboardLayoutSpec(userIntentText, frameCount, planningContract) {
     const explicitPixels = inferExplicitPixelDimensionsFromText(userIntentText);
     const boardAspectRatio = inferStoryboardBoardAspectRatio(userIntentText);
     const explicitTargetVideoAspectRatio = inferExplicitStoryboardTargetVideoAspectRatio(userIntentText);
@@ -1952,13 +2138,14 @@ export function inferStoryboardLayoutSpec(userIntentText, frameCount) {
     const cellAspectRatio = inferStoryboardCellAspectRatio(userIntentText, inferredTargetVideoAspectRatio);
     const targetVideoAspectRatio = explicitTargetVideoAspectRatio ?? cellAspectRatio;
     const layout = describeStoryboardLayout(boardAspectRatio, cellAspectRatio, frameCount);
-    return {
+    const fallback = {
         boardAspectRatio,
         cellAspectRatio,
         targetVideoAspectRatio,
         ...layout,
         ...(explicitPixels ? { boardDimensions: `${explicitPixels.width}x${explicitPixels.height}` } : {}),
     };
+    return applyStoryboardPlanningLayoutContract(fallback, planningContract, frameCount);
 }
 function clampStoryboardDefaultFrameCount(value) {
     return Math.max(STORYBOARD_DEFAULT_MIN_FRAMES, Math.min(STORYBOARD_DEFAULT_MAX_FRAMES, Math.round(value)));
@@ -2105,6 +2292,17 @@ function isStoryboardModelNameReference(text, start, end) {
         || /\bimage\s*2\s+image[-\s]?to[-\s]?image\b/.test(compactContext);
 }
 function contextAroundStoryboardReference(text, index) {
+    const referenceWithSubjectInParens = new RegExp(String.raw `(?:^|[\n,;:*_\-\s])(?:uploaded|attached|provided|reference|source|input)?\s*(?:image|photo|picture|asset)\s*(?:#|number\s*)?${index}\s*\(\s*([^\)\n]{2,120}?)\s*\)\s*[:*_ -]*\s*([^\n]{0,160})`, 'gi');
+    for (const match of text.matchAll(referenceWithSubjectInParens)) {
+        if (match.index === undefined)
+            continue;
+        if (isStoryboardModelNameReference(text, match.index, match.index + match[0].length))
+            continue;
+        const subject = compactStoryboardLine(stripStoryboardMarkup(match[1]));
+        const tail = compactStoryboardLine(stripStoryboardMarkup(match[2] || ''));
+        if (subject)
+            return `${subject} (asset ${index})${tail ? ` ${tail}` : ''}`;
+    }
     const parentheticalReferencePattern = new RegExp(String.raw `(?:^|[\n,;:])\s*([^,\n;()]{2,120}?)\s*\(\s*(?:uploaded|attached|provided|reference|source|input)?\s*(?:image|photo|picture|asset)\s*(?:#|number\s*)?${index}\s*\)`, 'gi');
     for (const match of text.matchAll(parentheticalReferencePattern)) {
         if (match.index === undefined)
@@ -2148,8 +2346,33 @@ function contextAroundStoryboardReference(text, index) {
     }
     return text;
 }
+function cleanExplicitStoryboardReferenceSubject(value, index) {
+    const subjectMarkers = Array.from(value.matchAll(/\bSubject:\s*/gi));
+    const lastSubjectMarker = subjectMarkers[subjectMarkers.length - 1];
+    if (!lastSubjectMarker || lastSubjectMarker.index === undefined)
+        return '';
+    const subjectStart = lastSubjectMarker.index + lastSubjectMarker[0].length;
+    const tail = value.slice(subjectStart);
+    const nextField = tail.search(/\s+(?:Usage|Preserve):/i);
+    const rawSubject = nextField >= 0 ? tail.slice(0, nextField) : tail;
+    const cleaned = compactStoryboardLine(stripStoryboardMarkup(rawSubject))
+        .replace(new RegExp(String.raw `\s*\(\s*asset\s*${index}\s*\)\s*`, 'i'), ' ')
+        .replace(/^(?:character\/source subject|logo\/brand|product\/object|style\/environment|reference asset|character|logo|brand|product|style|environment|other)\s+references?\b\.?\s*/i, '')
+        .replace(/[.\s]+$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!cleaned)
+        return '';
+    if (/^(?:logo|brand|character|mascot|asset|reference|image|photo|picture)$/i.test(cleaned))
+        return '';
+    return cleaned.slice(0, 180).replace(/\s+\S*$/, match => cleaned.length > 180 ? '' : match).trim();
+}
 function cleanStoryboardReferenceSubjectHint(context, index) {
-    const cleaned = compactStoryboardLine(stripStoryboardMarkup(context))
+    const source = compactStoryboardLine(stripStoryboardMarkup(context));
+    const explicitSubject = cleanExplicitStoryboardReferenceSubject(source, index);
+    if (explicitSubject)
+        return explicitSubject;
+    const cleaned = source
         .replace(new RegExp(String.raw `^(?:image|photo|picture|asset)\s*(?:#|number\s*)?${index}\s*(?:\([^)]*\))?\s*:?\s*`, 'i'), '')
         .replace(new RegExp(String.raw `^(?:uploaded|attached|provided|reference|source|input)\s+(?:image|photo|picture|asset)\s*(?:#|number\s*)?${index}\s*:?\s*`, 'i'), '')
         .replace(/\b(?:use|using|for|as|with|from|featuring|feature)\b\s*$/i, '')
@@ -2266,7 +2489,10 @@ function compileStoryboardReferenceSection(project) {
     }
     return [
         'REFERENCE IMAGES:',
-        ...refs.map(ref => (`${ref.index ? `Image ${ref.index}` : ref.id}: ${ref.description} Usage scope: ${ref.usageScope}. Preserve priority: ${ref.preservePriority}.`)),
+        ...refs.map((ref, index) => {
+            const modelRef = formatModelRef('gpt-image-2', ref.index ?? index + 1, 'image');
+            return `${modelRef}: ${ref.description} Usage scope: ${ref.usageScope}. Preserve priority: ${ref.preservePriority}.`;
+        }),
     ];
 }
 function extractStoryboardAvoidConstraints(text) {
@@ -2280,7 +2506,9 @@ function extractStoryboardAvoidConstraints(text) {
 }
 function extractStoryboardRequiredText(text) {
     const required = new Set();
-    const shouldIgnoreRequiredText = (value, matchIndex) => {
+    const inlineProductionLabelPattern = /\b(?:SFX|FX|Audio(?:\s*\/\s*SFX)?|Sound(?:s)?|Music|Foley|Camera(?:\s*\/\s*Motion)?|Motion|Lighting(?:\s*\/\s*Style)?|Style|Transition|Action(?:\s*\/\s*Motion)?|Performance|Beat)\s*:\s*[^a-z0-9]{0,4}$/i;
+    const visibleTextContextPattern = /\b(?:visible|on[-\s]?screen|in[-\s]?frame|text|copy|cta|tagline|headline|title\s+card|caption|subtitle|super|wordmark|spell(?:ed)?|read(?:s)?|slogan)\b/i;
+    const shouldIgnoreRequiredText = (value, matchIndex, precedingText) => {
         const lineStart = text.lastIndexOf('\n', matchIndex) + 1;
         const nextLineBreak = text.indexOf('\n', matchIndex);
         const lineEnd = nextLineBreak >= 0 ? nextLineBreak : text.length;
@@ -2288,12 +2516,22 @@ function extractStoryboardRequiredText(text) {
         const looksLikeAssetHandle = /\.\.\.|(?:^|[./_-])(?:png|jpe?g|webp|gif|svg)$|[a-f0-9]{8}-[a-f0-9-]{8,}/i.test(value);
         const fieldLabel = line.match(/^\s*(?:[-*+]\s*)?(?:[*_]{1,3})?\s*([^:\n]{1,60})\s*:/)?.[1] ?? '';
         const isProductionDirectionField = /\b(?:action|motion|camera|transition|audio|sfx|fx|foley|sound|music|lighting|style|performance|beat)\b/i.test(fieldLabel)
-            && !/\b(?:visible|on[-\s]?screen|in[-\s]?frame|text|copy|cta|tagline|headline|title\s+card|caption|subtitle|super|wordmark|spell(?:ed)?|read(?:s)?)\b/i.test(fieldLabel);
-        const hasExplicitVisibleTextContext = /\b(?:visible|on[-\s]?screen|in[-\s]?frame|text|copy|cta|tagline|headline|title\s+card|caption|subtitle|super|wordmark|spell(?:ed)?|read(?:s)?|slogan)\b/i.test(line);
-        const looksLikeActionOrSfxCallout = /^[a-z][a-z-]{1,24}$/i.test(value.trim())
+            && !visibleTextContextPattern.test(fieldLabel);
+        const hasExplicitVisibleTextContext = visibleTextContextPattern.test(line);
+        const looksLikeActionOrSfxCallout = /^[a-z][a-z-]{1,24}[!?.]?$/i.test(value.trim())
             && /\b(?:action|motion|transition|audio|sfx|fx|foley|sound|music|camera|performance|beat|pop(?:s|ped|ping)?|snap(?:s|ped|ping)?|whoosh(?:es)?|thud(?:s|ded|ding)?|ding(?:s|ed|ing)?|boom(?:s|ed|ing)?|impact(?:s|ed|ing)?|hit(?:s|ting)?|slam(?:s|med|ming)?|wipe(?:s|d|ing)?|glitch(?:es|ed|ing)?|morph(?:s|ed|ing)?|bounce(?:s|d|ing)?|zoom(?:s|ed|ing)?)\b/i.test(line);
+        const precedingTail = (precedingText ?? '').slice(-80);
+        const hasInlineProductionLabel = !!precedingTail
+            && inlineProductionLabelPattern.test(precedingTail)
+            && !visibleTextContextPattern.test(precedingTail);
         if (/\b(?:working\s+title|project\s+title)\b/i.test(line)
             && !/\b(?:title\s+card|on[-\s]?screen|visible|text|copy|cta|headline|tagline)\b/i.test(line)) {
+            return true;
+        }
+        if (storyboardTextCandidateLooksLikeGenericProductionLabel(value)) {
+            return true;
+        }
+        if (hasInlineProductionLabel) {
             return true;
         }
         if ((isProductionDirectionField || looksLikeActionOrSfxCallout) && !hasExplicitVisibleTextContext) {
@@ -2312,7 +2550,7 @@ function extractStoryboardRequiredText(text) {
             .replace(/^[*_]+|[*_]+$/g, '')
             .replace(/^["“”'`]+|["“”'`]+$/g, '')
             .trim();
-        if (value && shouldIgnoreRequiredText(value, matchIndex))
+        if (value && shouldIgnoreRequiredText(value, matchIndex, options.precedingText))
             return;
         if (/^visible\s+text\b/i.test(value) && (extractStoryboardTiming(value) || /^visible\s+text\.?$/i.test(value)))
             return;
@@ -2323,7 +2561,7 @@ function extractStoryboardRequiredText(text) {
                 .filter(Boolean);
             if (parts.length > 1 && parts.every(part => part.length <= 160)) {
                 for (const part of parts)
-                    addRequiredText(part, matchIndex);
+                    addRequiredText(part, matchIndex, { precedingText: options.precedingText });
                 return;
             }
         }
@@ -2332,14 +2570,27 @@ function extractStoryboardRequiredText(text) {
     };
     const exactTextPattern = /\b(?:render|show|include|text|copy|cta|tagline|headline|title|brand|logo|wordmark|words?|say(?:s)?|spell(?:ed)?)\b[^"“`\n]{0,120}(?:"([^"]{1,160})"|“([^”]{1,160})”|`([^`]{1,160})`)/gi;
     for (const match of text.matchAll(exactTextPattern)) {
-        addRequiredText(match[1] ?? match[2] ?? match[3], match.index ?? 0);
+        const fullMatch = match[0];
+        const quoteOpenInMatch = fullMatch.search(/["“`]/);
+        const precedingInMatch = quoteOpenInMatch >= 0 ? fullMatch.slice(0, quoteOpenInMatch) : fullMatch;
+        addRequiredText(match[1] ?? match[2] ?? match[3], match.index ?? 0, {
+            precedingText: precedingInMatch,
+        });
     }
     const labeledTextPattern = /\b(?:on[-\s]?screen\s+text|visible\s+text|text\s+only|text|end\s+card\s+text|final\s+text|tagline|cta|headline|title\s+card|copy)\s*:\s*([^\n]{1,260})/gi;
     for (const match of text.matchAll(labeledTextPattern)) {
         const value = match[1] || '';
+        const matchStartInText = match.index ?? 0;
+        const valueStartInMatch = match[0].indexOf(value);
+        const valueStartInText = valueStartInMatch >= 0 ? matchStartInText + valueStartInMatch : matchStartInText;
         let addedQuotedText = false;
         for (const quote of value.matchAll(/"([^"]{1,160})"|“([^”]{1,160})”|`([^`]{1,160})`/g)) {
-            addRequiredText(quote[1] ?? quote[2] ?? quote[3], match.index ?? 0);
+            const innerStartInValue = quote.index ?? 0;
+            const precedingInValue = value.slice(0, innerStartInValue);
+            const quoteAbsIndex = valueStartInText + innerStartInValue;
+            addRequiredText(quote[1] ?? quote[2] ?? quote[3], quoteAbsIndex, {
+                precedingText: precedingInValue,
+            });
             addedQuotedText = true;
         }
         if (!addedQuotedText) {
@@ -2348,7 +2599,7 @@ function extractStoryboardRequiredText(text) {
                 .replace(/\s+\b(?:Dialogue\/VO|VO\/Dialogue|V\.O\.|VO|Voiceover|Voice-over|Speech|Narration|Audio\/SFX|Audio|SFX|FX|Foley|Sound|Sounds|Music|Camera\/Motion|Camera|Lighting\/Style|Lighting|Style|Look|Action\/Motion|Action|Motion)\s*:[\s\S]*$/i, '')
                 .replace(/\b(?:none|no\s+(?:visible\s+)?text|n\/a|not\s+specified)\b\.?$/i, '')
                 .trim();
-            addRequiredText(unquoted, match.index ?? 0, { splitUnquotedList: true });
+            addRequiredText(unquoted, matchStartInText, { splitUnquotedList: true });
         }
     }
     const renderThesePattern = /\b(?:exact words|exact text|required text|final cta|end card text)\b[\s\S]{0,320}/gi;
@@ -2495,9 +2746,16 @@ function removeStoryboardTimingText(value) {
         .replace(/\b\d{1,3}(?:\.\d+)?\s*(?:s|sec|secs|seconds?)?\s*(?:-|to|\u2013|\u2014)\s*\d{1,3}(?:\.\d+)?\s*(?:s|sec|secs|seconds?)?\b/gi, ' ')
         .replace(/\(\s*\)|\[\s*\]/g, ' ')
         .replace(/\s*[|]\s*/g, ' ')
-        .replace(/^[-:.)\s|]+|[-:.)\s|]+$/g, ' ')
+        .replace(/^[-:.\s|]+|[-:.\s|]+$/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
+}
+function storyboardTextCandidateLooksLikeGenericProductionLabel(value) {
+    const withoutTiming = removeStoryboardTimingText(value)
+        .replace(/^\(|\)$/g, '')
+        .replace(/^[-:.\s|]+|[-:.\s|]+$/g, '')
+        .trim();
+    return /^(?:visible\s+text|on[-\s]?screen\s+text|onscreen\s+text|text\s+overlay|title\s+card|caption|subtitle|super|copy|cta|tagline|headline)$/i.test(withoutTiming);
 }
 function normalizeStoryboardDialogue(value) {
     const compact = compactStoryboardLine(value);
@@ -2508,6 +2766,9 @@ function normalizeStoryboardDialogue(value) {
     if (/^(?:[\[(]\s*)?(?:none|no\s+(?:spoken\s+)?(?:dialogue|vo|voiceover|voice-over|speech)|n\/a|not\s+specified|text\s+only|silence(?:\s*\/\s*beat)?|silent beat)(?:\s*[\])])?\.?$/i.test(compact)) {
         return '';
     }
+    const visibleTextField = compact.match(/^(?:visible\s+text|on[-\s]?screen\s+text|onscreen\s+text|text|cta|tagline|headline|title\s+card|copy)\s*:\s*(.+)$/i)?.[1];
+    if (visibleTextField !== undefined)
+        return '';
     if (/^text\s+only\s*:/i.test(compact))
         return '';
     const quoted = extractQuotedDialogueSegments(compact)
@@ -2602,7 +2863,15 @@ function splitStoryboardTitleDescription(value) {
             description: compactStoryboardLine(cleaned),
         };
     }
-    const title = compactStoryboardLine(match[1], 'Storyboard Beat');
+    const rawPrefix = match[1];
+    const prefixContainsSentenceEnd = /[.!?]\s/.test(rawPrefix);
+    if (prefixContainsSentenceEnd) {
+        return {
+            title: fallbackTitleFromDescription(cleaned),
+            description: compactStoryboardLine(cleaned),
+        };
+    }
+    const title = compactStoryboardLine(rawPrefix, 'Storyboard Beat');
     const description = compactStoryboardLine(match[2], cleaned);
     if (/^(?:visual|visual frame|frame|shot|image|action|action\/motion|camera|audio|sfx|dialogue|vo)$/i.test(title)) {
         return {
@@ -2709,6 +2978,10 @@ function splitStoryboardTableSections(text) {
             ? headers.findIndex(header => /\b(?:beat|scene|shot|panel|frame)\b/i.test(header)
                 && !/\b(?:visual|action|camera|audio|dialogue|vo|sfx)\b/i.test(header))
             : -1;
+        const purposeHeaderIndex = headers
+            ? headers.findIndex(header => /\b(?:purpose|story\s*beat|story\s*purpose|beat\s*name|beat\s*title|narrative|name|title)\b/i.test(header)
+                && !/\b(?:visual|action|camera|audio|dialogue|vo|sfx|time|transition|scene)\b/i.test(header))
+            : -1;
         const visualIndex = visualHeaderIndex >= 0
             ? visualHeaderIndex
             : timingCellIndex === 0
@@ -2770,8 +3043,23 @@ function splitStoryboardTableSections(text) {
         const beatLabel = beatHeaderIndex >= 0 && beatHeaderIndex !== timingCellIndex
             ? compactStoryboardLine(cells[beatHeaderIndex])
             : '';
-        const sceneTitle = beatLabel && !/^\d{1,2}$/.test(beatLabel)
-            ? `${beatLabel}: ${visual.title}`
+        const purposeLabel = purposeHeaderIndex >= 0
+            && purposeHeaderIndex !== timingCellIndex
+            && purposeHeaderIndex !== visualIndex
+            && purposeHeaderIndex !== beatHeaderIndex
+            && purposeHeaderIndex !== dialogueHeaderIndex
+            && purposeHeaderIndex !== soundHeaderIndex
+            && purposeHeaderIndex !== cameraHeaderIndex
+            && purposeHeaderIndex !== visibleTextHeaderIndex
+            ? compactStoryboardLine(cells[purposeHeaderIndex])
+            : '';
+        const beatTitleSource = purposeLabel && !/^\d{1,2}$/.test(purposeLabel)
+            ? purposeLabel
+            : beatLabel && !/^\d{1,2}$/.test(beatLabel)
+                ? beatLabel
+                : '';
+        const sceneTitle = beatTitleSource
+            ? `${beatTitleSource}: ${visual.title}`
             : visual.title;
         sections.push({
             number,
@@ -2811,6 +3099,10 @@ function splitStoryboardSections(text) {
     }
     return sectionHeadings.length > 0 ? sectionHeadings : tableSections;
 }
+function storyboardSectionsHavePreservableExplicitTiming(sections) {
+    return sections.length > 1
+        && sections.some(section => extractStoryboardTiming(`${section.heading}\n${section.body}`) !== null);
+}
 function canonicalStoryboardScriptContext(text) {
     const trimmed = String(text || '').trim();
     if (!trimmed)
@@ -2838,6 +3130,33 @@ function uniqueStoryboardStrings(values) {
         result.push(value);
     }
     return result;
+}
+function normalizeStoryboardContractTextArray(value) {
+    if (!Array.isArray(value))
+        return [];
+    return uniqueStoryboardStrings(value.filter((item) => typeof item === 'string'));
+}
+function storyboardScenePlanningContractForIndex(contract, sceneNumber) {
+    const scenes = Array.isArray(contract?.scenes) ? contract.scenes : [];
+    const id = `scene_${String(sceneNumber).padStart(2, '0')}`.toLowerCase();
+    return scenes.find(scene => typeof scene.id === 'string' && scene.id.toLowerCase() === id)
+        ?? scenes.find(scene => scene.index === sceneNumber)
+        ?? null;
+}
+function removeStoryboardMetadataLabelsFromVisibleText(visibleText, metadataLabels) {
+    if (metadataLabels.length === 0)
+        return visibleText;
+    const metadataKeys = new Set(metadataLabels.map(item => compactStoryboardLine(item).toLowerCase()));
+    return visibleText.filter(item => !metadataKeys.has(compactStoryboardLine(item).toLowerCase()));
+}
+function metadataLabelsFromPlanningContract(contract) {
+    return uniqueStoryboardStrings([
+        ...normalizeStoryboardContractTextArray(contract?.metadataLabels),
+        ...normalizeStoryboardContractTextArray(contract?.endCard?.metadataLabels),
+        ...(Array.isArray(contract?.scenes)
+            ? contract.scenes.flatMap(scene => normalizeStoryboardContractTextArray(scene.metadataLabels))
+            : []),
+    ]);
 }
 function storyboardReferenceSubjectTokens(ref) {
     const subject = ref.description.match(/\bSubject:\s*([\s\S]*?)\s+Usage:/i)?.[1] || '';
@@ -2913,7 +3232,23 @@ function sceneReferencesFromSection(section, references) {
         .map(ref => ref.id);
 }
 function sceneTextRequirementsFromSection(section) {
-    return extractStoryboardRequiredText(section);
+    const required = extractStoryboardRequiredText(section);
+    const visualCueContext = [
+        section.split(/\r?\n/, 1)[0] || '',
+        extractStoryboardField(section, ['Visual/Action', 'Visual Frame', 'Visual', 'Frame', 'Image', 'Shot']),
+        extractStoryboardField(section, ['Action/Motion', 'Action', 'Motion', 'Performance']),
+        extractStoryboardField(section, ['Product/Feature', 'Product feature', 'Feature mapping', 'Product meaning', 'Feature', 'Capability']),
+    ].filter(Boolean).join('\n');
+    const hasVisibleTextCue = /\b(?:visible\s+text|on[-\s]?screen\s+text|onscreen\s+text|text\s+overlay|title\s+card|end\s+card|cta|tagline|headline|slogan|copy|wordmark|text\s+(?:appears|changes|updates|fades|reads|below)|reads\s*:)\b/i.test(visualCueContext);
+    if (!hasVisibleTextCue) {
+        return required;
+    }
+    const quotedVisualText = extractQuotedDialogueSegments(visualCueContext)
+        .map(text => compactStoryboardLine(text))
+        .filter(Boolean)
+        .filter(text => !/^[-\u2013\u2014]\.?$/.test(text))
+        .filter(text => !/^(?:none|no\s+(?:visible\s+)?text|n\/a|not\s+specified)$/i.test(text));
+    return uniqueStoryboardStrings([...required, ...quotedVisualText]);
 }
 function isNoAudioPlaceholder(value) {
     return /^(?:no\s+(?:audio|sound|sfx|audio\/sfx)(?:\s+specified)?|none|n\/a|not\s+specified)\.?$/i.test(value.trim());
@@ -2939,7 +3274,7 @@ function normalizeStoryboardAudioSfx(value) {
         .map(item => item.trim())
         .filter(Boolean);
 }
-function buildSceneFromSection(section, references, fallbackTiming) {
+function buildSceneFromSection(section, references, fallbackTiming, planningContract) {
     const combined = `${section.heading}\n${section.body}`;
     const timing = extractStoryboardTiming(combined) ?? fallbackTiming;
     const normalizedHeading = stripStoryboardMarkup(section.heading)
@@ -2967,6 +3302,14 @@ function buildSceneFromSection(section, references, fallbackTiming) {
                 : '';
     const audio = extractStoryboardField(combined, ['Audio/SFX', 'Audio/Foley', 'Foley/SFX', 'Audio', 'SFX', 'FX', 'Foley', 'Sound', 'Sounds']);
     const audioSfx = normalizeStoryboardAudioSfx(audio);
+    const metadataLabels = normalizeStoryboardContractTextArray(planningContract?.metadataLabels);
+    const hasTypedVisibleText = Array.isArray(planningContract?.visibleText);
+    const visibleText = hasTypedVisibleText
+        ? normalizeStoryboardContractTextArray(planningContract?.visibleText)
+        : sceneTextRequirementsFromSection(combined);
+    const referenceUsage = Array.isArray(planningContract?.referenceUsage)
+        ? uniqueStoryboardStrings(planningContract.referenceUsage)
+        : sceneReferencesFromSection(combined, references);
     return {
         id: `scene_${String(section.number).padStart(2, '0')}`,
         title,
@@ -2984,9 +3327,28 @@ function buildSceneFromSection(section, references, fallbackTiming) {
         dialogue,
         audioSfx,
         music: sanitizeStoryboardExternalAudioReferences(extractStoryboardField(combined, ['Music', 'Score', 'Underscore'])),
-        referenceUsage: sceneReferencesFromSection(combined, references),
-        textInImage: sceneTextRequirementsFromSection(combined),
+        referenceUsage,
+        textInImage: removeStoryboardMetadataLabelsFromVisibleText(visibleText, metadataLabels),
+        metadataLabels,
         mustAvoid: extractStoryboardAvoidConstraints(combined),
+    };
+}
+function applyStoryboardScenePlanningContract(scene, planningContract) {
+    if (!planningContract)
+        return scene;
+    const metadataLabels = normalizeStoryboardContractTextArray(planningContract.metadataLabels);
+    const hasTypedVisibleText = Array.isArray(planningContract.visibleText);
+    const visibleText = hasTypedVisibleText
+        ? normalizeStoryboardContractTextArray(planningContract.visibleText)
+        : scene.textInImage;
+    const referenceUsage = Array.isArray(planningContract.referenceUsage)
+        ? uniqueStoryboardStrings(planningContract.referenceUsage)
+        : scene.referenceUsage;
+    return {
+        ...scene,
+        referenceUsage,
+        textInImage: removeStoryboardMetadataLabelsFromVisibleText(visibleText, metadataLabels),
+        metadataLabels,
     };
 }
 function buildFallbackScenes(frameCount, durationSec, sourceText) {
@@ -3021,6 +3383,7 @@ function buildFallbackScenes(frameCount, durationSec, sourceText) {
             music: '',
             referenceUsage: [],
             textInImage: [],
+            metadataLabels: [],
             mustAvoid: [],
         };
     });
@@ -3403,7 +3766,18 @@ export function buildStoryboardProject(options) {
             : '',
     ].filter(Boolean).join('\n\n'));
     const allText = `${userIntentText}\n${sourceText}`;
-    const layout = inferStoryboardLayoutSpec(userIntentText, options.frameCount);
+    const layoutTextParts = [userIntentText].filter(Boolean);
+    if (primarySourceBrief
+        && !storyboardBriefContains(userIntentText, primarySourceBrief)
+        && !storyboardBriefContains(primarySourceBrief, userIntentText)) {
+        layoutTextParts.push(primarySourceBrief);
+    }
+    if (approvedScriptContext
+        && !storyboardBriefContains(layoutTextParts.join('\n'), approvedScriptContext)) {
+        layoutTextParts.push(approvedScriptContext);
+    }
+    const layoutText = layoutTextParts.join('\n\n') || sourceText;
+    const layout = inferStoryboardLayoutSpec(layoutText, options.frameCount, options.planningContract);
     const requestedDurationSec = inferRequestedTotalVideoDurationSeconds(userIntentText);
     const durationSec = requestedDurationSec ?? inferRequestedTotalVideoDurationSeconds(sourceText);
     const references = buildStoryboardReferenceAssets(userIntentText, [
@@ -3414,8 +3788,8 @@ export function buildStoryboardProject(options) {
         ? splitStoryboardSections(approvedScriptContext)
         : [];
     const sourceSections = splitStoryboardSections(sourceText);
-    const approvedSectionsHaveExplicitTiming = approvedSections.some(section => extractStoryboardTiming(`${section.heading}\n${section.body}`) !== null);
-    const sourceSectionsHaveExplicitTiming = sourceSections.some(section => extractStoryboardTiming(`${section.heading}\n${section.body}`) !== null);
+    const approvedSectionsHaveExplicitTiming = storyboardSectionsHavePreservableExplicitTiming(approvedSections);
+    const sourceSectionsHaveExplicitTiming = storyboardSectionsHavePreservableExplicitTiming(sourceSections);
     const assistantApprovedDraftUndercounted = options.promptAuthorship === 'assistant'
         && approvedSections.length > 0
         && approvedSections.length < options.frameCount
@@ -3447,16 +3821,20 @@ export function buildStoryboardProject(options) {
                         : equalDuration,
                 }
                 : null;
-            return buildSceneFromSection(section, references, fallbackTiming);
+            return buildSceneFromSection(section, references, fallbackTiming, storyboardScenePlanningContractForIndex(options.planningContract, section.number));
         })
-        : buildFallbackScenes(options.frameCount, durationSec, sourceText);
+        : buildFallbackScenes(options.frameCount, durationSec, sourceText)
+            .map((scene, index) => applyStoryboardScenePlanningContract(scene, storyboardScenePlanningContractForIndex(options.planningContract, index + 1)));
     const timingNormalizedScenes = normalizeAssistantStoryboardSceneTiming(scenes, durationSec, options.promptAuthorship);
     const dialogueAlignment = alignAssistantStoryboardDialogueWithUserSource(timingNormalizedScenes, userIntentText, options.promptAuthorship);
     const normalizedScenes = dialogueAlignment.shouldRetime
         ? retimeStoryboardScenesForDialogue(dialogueAlignment.scenes, durationSec)
         : dialogueAlignment.scenes;
     const userConstraintSource = buildStoryboardUserConstraintSource(userIntentText, primarySourceBrief, options);
-    const requiredText = extractStoryboardRequiredText(userConstraintSource);
+    const requiredText = uniqueStoryboardStrings([
+        ...extractStoryboardRequiredText(userConstraintSource),
+        ...normalizeStoryboardContractTextArray(options.planningContract?.endCard?.visibleText),
+    ]);
     const voiceLines = assignVoiceLinesToScenes(normalizedScenes, sourceText);
     const storySpineFallback = approvedScriptContext
         || (options.promptAuthorship === 'assistant' ? userIntentText : primarySourceBrief)
@@ -3470,7 +3848,11 @@ export function buildStoryboardProject(options) {
         outputAspectRatio: layout.boardAspectRatio,
         frameAspectRatio: layout.cellAspectRatio,
         targetVideoAspectRatio: layout.targetVideoAspectRatio,
+        ...(layout.boardDimensions ? { boardDimensions: layout.boardDimensions } : {}),
         boardLayout: layout.layoutKind,
+        layoutSource: storyboardPlanningSourceFromContract(options.planningContract),
+        ...(options.planningContract ? { planningContract: options.planningContract } : {}),
+        metadataLabels: metadataLabelsFromPlanningContract(options.planningContract),
         intendedUse: /commercial|ad|promo|launch/i.test(allText) ? 'commercial storyboard' : 'video storyboard',
         references,
         creativeBrief: {
@@ -3722,6 +4104,40 @@ function compileStoryboardFrameGeometrySection(layout) {
         `Do not let frame artwork areas drift to square, full-board, or any aspect ratio other than ${layout.cellAspectRatio}.`,
     ];
 }
+function promptReferenceUsageForScene(referenceUsage, references, modelId) {
+    if (referenceUsage.length === 0)
+        return '';
+    const referenceById = new Map(references.map((ref, index) => [ref.id, { ref, index }]));
+    return uniqueStoryboardStrings(referenceUsage.map(value => {
+        const found = referenceById.get(value);
+        if (!found)
+            return value;
+        return formatModelRef(modelId, found.ref.index ?? found.index + 1, 'image');
+    })).join(', ');
+}
+function storyboardMetadataLabelAliases(labels) {
+    return uniqueStoryboardStrings(labels.flatMap(label => [
+        label,
+        removeStoryboardTimingText(label),
+    ]));
+}
+function removeStoryboardMetadataLabelsFromPromptText(value, metadataLabels) {
+    if (metadataLabels.length === 0)
+        return compactStoryboardLine(value);
+    let cleaned = value
+        .replace(/\b(?:visible\s+text|metadata\s+labels?)\s*:\s*/gi, '')
+        .replace(/\btext\s+overlay\s*:\s*/gi, '');
+    const aliases = storyboardMetadataLabelAliases(metadataLabels)
+        .filter(Boolean)
+        .sort((a, b) => b.length - a.length);
+    for (const label of aliases) {
+        cleaned = cleaned.replace(new RegExp(escapeStoryboardRegExp(label), 'gi'), '');
+    }
+    return compactStoryboardLine(cleaned)
+        .replace(/\s+([,.;:])/g, '$1')
+        .replace(/^[:;,\s]+|[:;,\s]+$/g, '')
+        .trim();
+}
 function compileStoryboardScenesSection(project) {
     if (project.scenes.length === 0)
         return [];
@@ -3745,8 +4161,12 @@ function compileStoryboardScenesSection(project) {
         lines.push(`Audio/SFX: ${scene.audioSfx.length > 0 ? scene.audioSfx.join(', ') : defaultStoryboardAudioSfxLine()}`);
         if (scene.music)
             lines.push(`Music: ${scene.music}`);
-        if (scene.referenceUsage.length > 0)
-            lines.push(`Reference usage: ${scene.referenceUsage.join(', ')}`);
+        const referenceUsage = promptReferenceUsageForScene(scene.referenceUsage, project.references, 'gpt-image-2');
+        if (referenceUsage)
+            lines.push(`Reference usage: ${referenceUsage}`);
+        if ((scene.metadataLabels ?? []).length > 0) {
+            lines.push(`Metadata labels (outside frame only): ${(scene.metadataLabels ?? []).join('; ')}`);
+        }
         if (scene.textInImage.length > 0)
             lines.push(`Visible text: ${scene.textInImage.map(text => `"${text}"`).join(', ')}`);
         if (scene.mustAvoid.length > 0)
@@ -3754,6 +4174,16 @@ function compileStoryboardScenesSection(project) {
         lines.push('');
     }
     return lines;
+}
+function storyboardLayoutSpecFromProject(project, frameCount) {
+    const layout = describeStoryboardLayout(project.outputAspectRatio, project.frameAspectRatio, frameCount);
+    return {
+        boardAspectRatio: project.outputAspectRatio,
+        cellAspectRatio: project.frameAspectRatio,
+        targetVideoAspectRatio: project.targetVideoAspectRatio,
+        ...layout,
+        ...(project.boardDimensions ? { boardDimensions: project.boardDimensions } : {}),
+    };
 }
 function compileStoryboardTimingValidationSection(project) {
     const validation = validateStoryboardProjectTiming(project);
@@ -3775,7 +4205,7 @@ export function compileVideoStoryboardImagePrompt(options) {
     const userIntentText = canonicalStoryboardScriptContext(rawUserIntentText) || rawUserIntentText;
     const project = buildStoryboardProject(options);
     const compiledFrameCount = project.scenes.length || options.frameCount;
-    const layout = inferStoryboardLayoutSpec(userIntentText, compiledFrameCount);
+    const layout = storyboardLayoutSpecFromProject(project, compiledFrameCount);
     const sourceBrief = sanitizeStoryboardExternalAudioReferences(buildStoryboardSourceBriefForPrompt(options.prompt.trim(), userIntentText, options.approvedScriptContext, options.promptAuthorship));
     const selectedBrief = selectStoryboardSourceBrief(options.prompt.trim(), userIntentText);
     const avoidSource = buildStoryboardUserConstraintSource(userIntentText, selectedBrief, options);
@@ -3827,6 +4257,31 @@ export function compileVideoStoryboardImagePrompt(options) {
         '',
         'NEGATIVE / AVOID:',
         ...compileStoryboardAvoidSection(avoidSource).map(item => `- ${item}`),
+    ].join('\n');
+}
+export function ensureCompiledVideoStoryboardPromptPreservesSourceBrief(compiledPrompt, userIntentText, approvedScriptContext) {
+    const prompt = compiledPrompt.trim();
+    const rawUserIntentText = userIntentText.trim();
+    if (!prompt || !rawUserIntentText)
+        return prompt;
+    const canonicalUserIntentText = canonicalStoryboardScriptContext(rawUserIntentText) || rawUserIntentText;
+    const selectedSourceBrief = sanitizeStoryboardExternalAudioReferences(buildStoryboardSourceBriefForPrompt('', canonicalUserIntentText, approvedScriptContext)).trim();
+    const sourceBrief = selectedSourceBrief && storyboardBriefContains(selectedSourceBrief, canonicalUserIntentText)
+        ? selectedSourceBrief
+        : [
+            `ORIGINAL USER INTENT:\n${canonicalUserIntentText}`,
+            selectedSourceBrief && !storyboardBriefContains(canonicalUserIntentText, selectedSourceBrief)
+                ? `SELECTED STORYBOARD BRIEF:\n${selectedSourceBrief}`
+                : '',
+        ].filter(Boolean).join('\n\n');
+    if (!sourceBrief || storyboardBriefContains(prompt, sourceBrief))
+        return prompt;
+    return [
+        prompt,
+        '',
+        'ORIGINAL SOURCE BRIEF TO PRESERVE:',
+        sourceBrief,
+        'Preserve these user-provided brands, names, dialogue, CTA text, reference assignments, timings, and scene order when rendering the storyboard image.',
     ].join('\n');
 }
 export function lintStoryboardImagePrompt(prompt, layout, project) {
@@ -4100,12 +4555,13 @@ function sceneLineForSeedanceStoryboardProject(scene, index) {
         ? `${formatStoryboardSeconds(scene.startSec)}-${formatStoryboardSeconds(scene.endSec)}`
         : 'untimed';
     const voice = scene.dialogue || '[no dialogue]';
+    const metadataLabels = scene.metadataLabels ?? [];
     return [
-        `SCENE ${String(index + 1).padStart(2, '0')} - ${scene.title}`,
+        `SCENE ${String(index + 1).padStart(2, '0')} - ${removeStoryboardMetadataLabelsFromPromptText(scene.title, metadataLabels) || scene.title}`,
         `TIME: ${timing}`,
         `PURPOSE: ${scene.purpose || 'Advance the approved story spine.'}`,
-        `VISUAL: ${scene.visual || 'Follow the approved storyboard visual.'}`,
-        `ACTION: ${scene.action || 'Use clear motion that connects to the next beat.'}`,
+        `VISUAL: ${removeStoryboardMetadataLabelsFromPromptText(scene.visual, metadataLabels) || 'Follow the approved storyboard visual.'}`,
+        `ACTION: ${removeStoryboardMetadataLabelsFromPromptText(scene.action, metadataLabels) || 'Use clear motion that connects to the next beat.'}`,
         `CAMERA: ${scene.camera || 'Use the approved shot language.'}`,
         `LIGHTING/STYLE: ${scene.lighting || 'Preserve the storyboard style and lighting.'}`,
         `TRANSITION: ${[scene.transitionIn, scene.transitionOut].filter(Boolean).join('; ') || 'Use a clean motivated continuity transition.'}`,
@@ -4113,6 +4569,7 @@ function sceneLineForSeedanceStoryboardProject(scene, index) {
         `AUDIO/SFX: ${scene.audioSfx.join(', ') || defaultStoryboardAudioSfxLine()}`,
         `MUSIC: ${scene.music || 'Follow the global generated music arc.'}`,
         `REFERENCE USAGE: ${scene.referenceUsage.join('; ') || `Use ${PUBLIC_SEEDANCE_PRIMARY_IMAGE_REF} storyboard only.`}`,
+        `METADATA LABELS (do not render): ${metadataLabels.join('; ') || 'none'}`,
         `VISIBLE TEXT: ${scene.textInImage.join('; ') || 'none'}`,
     ].join('\n');
 }
@@ -4131,12 +4588,17 @@ export function compileSeedanceStoryboardPromptFromProject(project, options = {}
     const requiredText = project.endCard.requiredText.length > 0
         ? project.endCard.requiredText.join('; ')
         : 'none';
+    const metadataLabels = uniqueStoryboardStrings([
+        ...(project.metadataLabels ?? []),
+        ...project.scenes.flatMap(scene => scene.metadataLabels ?? []),
+    ]);
+    const storySpine = removeStoryboardMetadataLabelsFromPromptText(project.creativeBrief.storySpine, metadataLabels) || project.creativeBrief.storySpine;
     return [
         'PROJECT:',
         `Title: ${project.title}`,
         `Duration: ${durationSec} seconds total.`,
         `Aspect ratio: ${aspectRatio}.`,
-        `Story spine: ${project.creativeBrief.storySpine}`,
+        `Story spine: ${storySpine}`,
         '',
         'INPUT ASSETS:',
         `${storyboardImageTag}: approved GPT Image 2 storyboard board. Treat it as an ordered shot guide and timing reference only, not as a collage, split-screen, grid, or picture-in-picture layout to reproduce.`,
@@ -4145,6 +4607,7 @@ export function compileSeedanceStoryboardPromptFromProject(project, options = {}
         `Render one continuous cinematic video in ${aspectRatio}. Follow the storyboard scene order, timing ranges, transitions, audio plan, and CTA hold exactly where specified.`,
         'Use the storyboard as the controlling source for shot order and intent while converting each panel into full-screen motion.',
         'Keep required visible text minimal and exact. All scene numbers, timecodes, labels, and production notes remain metadata only and must not appear in the video.',
+        metadataLabels.length > 0 ? `Do not render these metadata labels as video text: ${metadataLabels.join('; ')}.` : '',
         `Visual style: ${project.creativeBrief.visualQualityBar}`,
         `Tone progression: ${project.creativeBrief.toneProgression.join(' -> ') || 'preserve the approved tone progression.'}`,
         `Music arc: ${project.scenes.map(scene => scene.music).filter(Boolean).join(' -> ') || 'support the approved story arc without overpowering dialogue.'}`,
@@ -4221,7 +4684,7 @@ export function buildStoryboardVideoHostedToolSequenceInput(options) {
         promptAuthorship: 'assistant',
     };
     const project = buildStoryboardProject(compileOptions);
-    const layout = inferStoryboardLayoutSpec(workflowUserIntentText, project.scenes.length || frameCount);
+    const layout = storyboardLayoutSpecFromProject(project, project.scenes.length || frameCount);
     const defaultImageDimensions = defaultStoryboardImageDimensions(layout);
     const imageWidth = options.imageWidth ?? defaultImageDimensions.width;
     const imageHeight = options.imageHeight ?? defaultImageDimensions.height;

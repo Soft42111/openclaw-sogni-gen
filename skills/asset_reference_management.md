@@ -27,11 +27,11 @@ Keep a session-level manifest of every uploaded or generated asset and translate
 | Model id | Image | Video | Audio |
 |---|---|---|---|
 | `seedance` (incl. `seedance2`, `seedance2-fast`) | `@Image1` | `@Video1` | `@Audio1` |
-| `gpt-image-2`, `flux*` | `[Image 1]` | `[Video 1]` | `[Audio 1]` |
+| `gpt-image-2`, `flux*` | `Image 1` | `Video 1` | `Audio 1` |
 | `ltx23`, `wan`, `qwen-image-edit` | `context_image_0` (0-indexed) | `context_video_0` | `context_audio_0` |
 
 ## Constraints
 
 - When a user uploads or a tool produces a new asset, register it with `create_asset_manifest` (or via a follow-up `label_asset`) before referring to it in subsequent prompts.
-- Before sending a prompt that names an asset to a target model, call `map_assets_for_model` to obtain the correct `model_ref` tokens for that `model_id` — never hand-format `@Image1` / `[Image 1]` / `context_image_0`.
+- Before sending a prompt that names an asset to a target model, call `map_assets_for_model` to obtain the correct `model_ref` tokens for that `model_id` — never hand-format `@Image1` / `Image 1` / `context_image_0`.
 - When `validate_asset_references` reports dangling tokens, repair the prompt or re-register the missing asset rather than dispatching the workflow.

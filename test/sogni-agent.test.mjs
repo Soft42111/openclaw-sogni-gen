@@ -1099,6 +1099,17 @@ test('api key auth is accepted when username/password are absent', () => {
   assert.ok(state?.lastImageProject, 'createImageProject was called');
 });
 
+test('socket model availability events are disabled after connect', () => {
+  const { exitCode, state } = runCli(['a cat wearing a hat']);
+  assert.equal(exitCode, 0);
+  assert.equal(state?.clientConfigs?.[0]?.appSource, 'sogni-creative-agent-skill');
+  assert.deepEqual(state?.socketEventSubscriptionUpdates, [
+    {
+      modelAvailability: false
+    }
+  ]);
+});
+
 test('username/password auth is not accepted without an api key', () => {
   const { exitCode, stdout } = runCli(
     ['--json', 'a cat wearing a hat'],
